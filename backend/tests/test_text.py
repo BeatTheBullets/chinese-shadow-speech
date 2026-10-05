@@ -53,3 +53,7 @@ def test_parse_plain():
 def test_curly_quotes_in_punct():
     assert is_punct("“") and is_punct("”") and is_punct("‘") and is_punct("’")
     assert strip_punct("“你好”") == "你好"
+
+
+def test_cjk_brackets_are_punct():
+    assert all(is_punct(c) for c in "「」『』《》〈〉【】")

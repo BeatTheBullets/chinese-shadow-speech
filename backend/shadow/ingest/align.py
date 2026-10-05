@@ -1,9 +1,12 @@
 from __future__ import annotations
+import logging
 from dataclasses import dataclass
 from typing import Protocol
 import numpy as np
 from pypinyin import lazy_pinyin, Style
 from shadow.ingest.text import is_punct
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -68,7 +71,7 @@ class MmsAligner:
         token_spans = self._al(emission[0], self._tok(words))
         ratio = x.size(1) / emission.size(1) / self._bundle.sample_rate
         out: list[Span] = []
-        for ch, spans in zip(chars, token_spans):
+        for ch, spans in zip(chars, token_spans, strict=True):
             out.append(Span(ch, spans[0].start * ratio, spans[-1].end * ratio,
                             float(sum(s.score for s in spans) / len(spans))))
         return out
@@ -79,13 +82,18 @@ class Qwen3Aligner:
         self.device = device
         self._model = None
 
+    def _device_map(self) -> str:
+        if self.device == "cuda":
+            return "cuda:0"
+        return self.device if self.device.startswith("cuda") else "cpu"
+
     def _load(self):
         if self._model is None:
             import torch
             from qwen_asr import Qwen3ForcedAligner
             self._model = Qwen3ForcedAligner.from_pretrained(
                 "Qwen/Qwen3-ForcedAligner-0.6B", dtype=torch.bfloat16,
-                device_map="cuda:0" if self.device == "cuda" else "cpu")
+                device_map=self._device_map())
         return self._model
 
     def align(self, wav: np.ndarray, sr: int, text: str) -> list[Span]:
@@ -93,11 +101,42 @@ class Qwen3Aligner:
         if not chars:
             return []
         results = self._load().align(audio=(wav, sr), text="".join(chars), language="Chinese")
-        items = results[0]
-        out = [Span(it.text, float(it.start_time), float(it.end_time), 1.0) for it in items if not is_punct(it.text)]
-        if len(out) != len(chars):            # aligner merged or split units; fall back to uniform
-            return FakeAligner().align(wav, sr, text)
-        return out
+        spans = _map_items_to_chars(results[0], chars)
+        if spans is None:                     # genuine mismatch: uniform timing, flagged by conf=0.0
+            log.warning("Qwen3 alignment could not be mapped to %d characters; using uniform timing", len(chars))
+            return [Span(s.ch, s.start, s.end, 0.0) for s in FakeAligner().align(wav, sr, text)]
+        return spans
+
+
+def _map_items_to_chars(items, chars: list[str]) -> list[Span] | None:
+    """Map aligner items (CJK chars one by one, letter/digit runs merged, some chars dropped)
+    back onto `chars`. Returns None when the items cannot be matched in order."""
+    items = [it for it in items if it.text and not all(is_punct(c) for c in it.text)]
+    out: list[Span | None] = [None] * len(chars)
+    j = 0
+    for it in items:
+        want = it.text.lower()
+        k = j
+        while k < len(chars) and "".join(chars[k:k + len(want)]).lower() != want:
+            if chars[k].isalnum():            # the aligner only drops non-letter/number chars
+                return None
+            k += 1
+        if k >= len(chars):
+            return None
+        n = len(want)
+        start, end = float(it.start_time), float(it.end_time)
+        step = (end - start) / n
+        for i in range(n):
+            out[k + i] = Span(chars[k + i], start + i * step, start + (i + 1) * step, 1.0)
+        j = k + n
+    if any(c.isalnum() for c in chars[j:]) or not any(out):
+        return None
+    for i, sp in enumerate(out):              # dropped chars: zero-length, conf 0.0
+        if sp is None:
+            prev = next((out[p] for p in range(i - 1, -1, -1) if out[p]), None)
+            t = prev.end if prev else next(o.start for o in out[i:] if o)
+            out[i] = Span(chars[i], t, t, 0.0)
+    return out  # type: ignore[return-value]
 
 
 def make_aligner(name: str, device: str) -> Aligner:

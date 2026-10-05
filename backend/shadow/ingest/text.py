@@ -6,7 +6,7 @@ from opencc import OpenCC
 
 _t2s = OpenCC("t2s")
 
-PUNCT = frozenset("，。！？；：、“”‘’（）《》〈〉【】…—·,.!?;:()\"'[]<>-~～ 　\n\t")
+PUNCT = frozenset("，。！？；：、“”‘’（）《》〈〉【】…—·,.!?;:()\"'[]<>-~～ 　\n\t\u300c\u300d\u300e\u300f")
 
 
 def to_simplified(s: str) -> str:
