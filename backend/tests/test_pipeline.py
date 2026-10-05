@@ -201,3 +201,37 @@ def test_build_segments_with_fixed_spans(data_dir, tmp_path):
 def test_spans_to_json_rounds():
     from shadow.ingest.align import spans_to_json
     assert spans_to_json([Span("你", 0.12345, 0.5, 0.98765)]) == [{"ch": "你", "start": 0.123, "end": 0.5, "conf": 0.988}]
+
+
+def test_build_segments_fixed_spans_need_no_transcript(data_dir, tmp_path):
+    from shadow.ingest import audio
+    deps, engine, lid = _setup(data_dir, Transcript())
+    src = deps.files.source_wav(lid)
+    audio.normalise(make_tone_wav(tmp_path / "t.wav", 3.0), src)
+    build_segments(deps, engine, lid, src, None, [RectSentenceOut(0, 0, "你好。")], lambda s, f: None,
+                   fixed_spans=[(0.0, 1.5)])
+    assert [(s.start_s, s.end_s) for s in _segments(engine, lid)] == [(0.0, 1.5)]
+
+
+def test_build_segments_needs_transcript_or_fixed_spans(data_dir, tmp_path):
+    from shadow.ingest import audio
+    deps, engine, lid = _setup(data_dir, Transcript())
+    src = deps.files.source_wav(lid)
+    audio.normalise(make_tone_wav(tmp_path / "t.wav", 1.0), src)
+    with pytest.raises(ValueError):
+        build_segments(deps, engine, lid, src, None, [RectSentenceOut(0, 0, "你好。")], lambda s, f: None)
+
+
+def test_build_segments_clamps_fixed_spans_to_audio(data_dir, tmp_path, caplog):
+    from shadow.ingest import audio
+    deps, engine, lid = _setup(data_dir, Transcript())
+    src = deps.files.source_wav(lid)
+    audio.normalise(make_tone_wav(tmp_path / "t.wav", 3.0), src)
+    sentences = [RectSentenceOut(0, 0, "你好。"), RectSentenceOut(0, 0, "谢谢你。"), RectSentenceOut(0, 0, "再见。")]
+    with caplog.at_level(logging.WARNING):
+        build_segments(deps, engine, lid, src, None, sentences, lambda s, f: None,
+                       anki_note_ids=[1, 2, 3], fixed_spans=[(0.0, 1.5), (2.0, 9.0), (5.0, 6.5)])
+    segs = _segments(engine, lid)
+    # the second is clamped to the audio end, the third lies entirely past it and is skipped
+    assert [(s.anki_note_id, s.start_s, s.end_s) for s in segs] == [(1, 0.0, 1.5), (2, 2.0, pytest.approx(3.0, abs=0.01))]
+    assert "degenerate" in caplog.text

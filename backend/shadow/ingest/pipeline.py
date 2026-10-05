@@ -79,7 +79,7 @@ def clip_bounds(envelopes: list[tuple[float, float]], pad: float, total: float) 
     return out
 
 
-def build_segments(deps: Deps, engine: Engine, lesson_id: int, source_wav: Path, tr: Transcript,
+def build_segments(deps: Deps, engine: Engine, lesson_id: int, source_wav: Path, tr: Transcript | None,
                    sentences: list[RectSentenceOut], progress: Progress, anki_note_ids: list[int] | None = None,
                    idx_offset: int = 0, fixed_spans: list[tuple[float, float]] | None = None) -> None:
     """Align, enrich and clip `sentences`; writes Segment rows numbered from `idx_offset`.
@@ -87,11 +87,16 @@ def build_segments(deps: Deps, engine: Engine, lesson_id: int, source_wav: Path,
     Default (upload): each sentence is aligned inside its coarse transcript times ±1 s and its clip is the
     padded alignment clamped to its neighbours (`clip_bounds`); a sentence that cannot be aligned falls back
     to its coarse times. With `fixed_spans` (Anki, one per sentence) each sentence is aligned inside exactly
-    its span, the span is the clip, and the segment has no transcript char range."""
+    its span (clamped to the audio), the span is the clip, and the segment has no transcript char range; `tr`
+    is then unused and may be None."""
+    if fixed_spans is None and tr is None:
+        raise ValueError("a transcript is required unless fixed_spans are given")
     if fixed_spans is not None and len(fixed_spans) != len(sentences):
         raise ValueError(f"{len(fixed_spans)} fixed spans for {len(sentences)} sentences")
     wav, sr = audio.read_wav(source_wav)
     total = len(wav) / sr
+    if fixed_spans is not None:
+        fixed_spans = [(min(max(a, 0.0), total), min(max(b, 0.0), total)) for a, b in fixed_spans]
     pad = deps.settings.segmentation.pad_ms / 1000
     texts = [s.text for s in sentences]
     n = len(sentences)
@@ -101,6 +106,10 @@ def build_segments(deps: Deps, engine: Engine, lesson_id: int, source_wav: Path,
     for i, s in enumerate(sentences):
         if fixed_spans is not None:
             win = fixed_spans[i]
+            if win[1] - win[0] < MIN_CLIP_S:        # degenerate or past the audio: skipped below
+                aligned.append([])
+                progress("align", (i + 1) / n)
+                continue
         else:
             win = (max(0.0, tr.chars[s.char_from].start - WINDOW_MARGIN_S),
                    min(total, tr.chars[s.char_to].end + WINDOW_MARGIN_S))
