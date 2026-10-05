@@ -48,3 +48,8 @@ def test_parse_plain():
     cues = parse_subtitles("第一句。\n\n第二句。\n", "a.txt")
     assert [c.text for c in cues] == ["第一句。", "第二句。"]
     assert cues[0].start == -1
+
+
+def test_curly_quotes_in_punct():
+    assert is_punct("“") and is_punct("”") and is_punct("‘") and is_punct("’")
+    assert strip_punct("“你好”") == "你好"
