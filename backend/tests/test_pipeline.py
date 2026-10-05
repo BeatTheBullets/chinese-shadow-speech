@@ -235,3 +235,18 @@ def test_build_segments_clamps_fixed_spans_to_audio(data_dir, tmp_path, caplog):
     # the second is clamped to the audio end, the third lies entirely past it and is skipped
     assert [(s.anki_note_id, s.start_s, s.end_s) for s in segs] == [(1, 0.0, 1.5), (2, 2.0, pytest.approx(3.0, abs=0.01))]
     assert "degenerate" in caplog.text
+
+
+def test_build_segments_translates_only_sentences_without_one(data_dir, tmp_path):
+    from shadow.ingest import audio
+    deps, engine, lid = _setup(data_dir, Transcript())
+    deps.settings.llm.translate = True
+    asked = []
+    deps.llm._t = lambda xs: (asked.append(list(xs)), [f"en:{x}" for x in xs])[1]
+    src = deps.files.source_wav(lid)
+    audio.normalise(make_tone_wav(tmp_path / "t.wav", 4.0), src)
+    sentences = [RectSentenceOut(0, 0, "你好。"), RectSentenceOut(0, 0, "谢谢你。")]
+    build_segments(deps, engine, lid, src, None, sentences, lambda s, f: None,
+                   fixed_spans=[(0.0, 1.5), (2.0, 3.5)], translations=["Hello", None])
+    assert asked == [["谢谢你。"]]
+    assert [s.translation for s in _segments(engine, lid)] == ["Hello", "en:谢谢你。"]

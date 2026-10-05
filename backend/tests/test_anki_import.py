@@ -110,21 +110,93 @@ def test_note_with_two_sound_tags_and_html_imports_plain_sentence(client, tmp_pa
     assert [s.text for s in segs] == ["学习中文"]
 
 
-def test_filename_cannot_escape_lesson_dir(client, tmp_path):
+def test_hostile_filename_writes_nothing_outside_the_lesson_dir(client, tmp_path):
+    files = client.app.state.deps.files
     notes = [_dict(8, "你好。", "v4.mp4", _b64(tmp_path), filename="../../../evil.wav")]
     jobs = client.post("/lessons/anki", json={"query_name": "q", "notes": notes}).json()["jobs"]
     assert wait_job(client, jobs[0]["job_id"])["status"] == "done"
-    assert not (client.app.state.deps.files.data_dir / "evil.wav").exists()
-    assert not (client.app.state.deps.files.lesson_dir(jobs[0]["lesson_id"]) / "anki_tmp").exists()
+    lesson_dir = files.lesson_dir(jobs[0]["lesson_id"])
+    stray = [p for p in files.data_dir.parent.rglob("*") if p.is_file() and lesson_dir not in p.parents
+             and p.name != "c.wav" and p.suffix not in (".db", ".sqlite")]      # c.wav: the test's own input
+    assert stray == []
+    assert not (lesson_dir / "anki_tmp").exists()
 
 
-def test_bad_audio_marks_lesson_error(client):
+def _lesson(client, lesson_id):
+    with Session(client.app.state.engine) as db:
+        return db.get(Lesson, lesson_id)
+
+
+def test_only_bad_audio_errors_the_lesson(client):
     notes = [_dict(9, "你好。", "v5.mp4", base64.b64encode(b"not audio").decode())]
     jobs = client.post("/lessons/anki", json={"query_name": "q", "notes": notes}).json()["jobs"]
     assert wait_job(client, jobs[0]["job_id"])["status"] == "error"
-    with Session(client.app.state.engine) as db:
-        lesson = db.get(Lesson, jobs[0]["lesson_id"])
-        assert lesson.status == "error" and "9" in lesson.error
+    lesson = _lesson(client, jobs[0]["lesson_id"])
+    assert lesson.status == "error" and "no usable notes" in lesson.error
+
+
+def test_bad_note_is_skipped_and_recorded_but_good_notes_import(client, tmp_path, caplog):
+    b64 = _b64(tmp_path)
+    notes = [_dict(1, "你好。", "v7.mp4 00:00:01.000", b64),
+             _dict(2, "坏的。", "v7.mp4 00:00:02.000", ""),                                   # empty audio
+             _dict(3, "也坏。", "v7.mp4 00:00:03.000", base64.b64encode(b"nope").decode()),   # undecodable
+             _dict(4, "再见。", "v7.mp4 00:00:04.000", b64)]
+    with caplog.at_level("WARNING"):
+        jobs = client.post("/lessons/anki", json={"query_name": "q", "notes": notes}).json()["jobs"]
+        assert wait_job(client, jobs[0]["job_id"])["status"] == "done"
+    lid = jobs[0]["lesson_id"]
+    assert [s.anki_note_id for s in _segments(client.app.state.engine, lid)] == [1, 4]
+    lesson = _lesson(client, lid)
+    assert lesson.status == "ready" and lesson.error is None
+    assert set(lesson.meta_json["skipped_notes"]) == {"2", "3"}
+    assert "skipping Anki note 2" in caplog.text
+    # an identical import creates no job, even for the skipped notes
+    assert client.post("/lessons/anki", json={"query_name": "q", "notes": notes}).json() == {"jobs": []}
+
+
+def test_reimport_with_only_an_empty_text_note_keeps_lesson_ready(client, tmp_path):
+    b64 = _b64(tmp_path)
+    first = [_dict(1, "你好。", "v8.mp4", b64)]
+    job = client.post("/lessons/anki", json={"query_name": "q", "notes": first}).json()["jobs"][0]
+    assert wait_job(client, job["job_id"])["status"] == "done"
+    again = first + [_dict(2, "<div></div>", "v8.mp4", b64)]
+    assert client.post("/lessons/anki", json={"query_name": "q", "notes": again}).json() == {"jobs": []}
+    assert _lesson(client, job["lesson_id"]).status == "ready"
+    assert len(_segments(client.app.state.engine, job["lesson_id"])) == 1
+
+
+def test_reimport_with_only_a_bad_audio_note_keeps_lesson_ready_and_does_not_repeat(client, tmp_path):
+    b64 = _b64(tmp_path)
+    first = [_dict(1, "你好。", "v9.mp4", b64)]
+    job = client.post("/lessons/anki", json={"query_name": "q", "notes": first}).json()["jobs"][0]
+    assert wait_job(client, job["job_id"])["status"] == "done"
+    again = first + [_dict(2, "坏的。", "v9.mp4", "")]
+    jobs = client.post("/lessons/anki", json={"query_name": "q", "notes": again}).json()["jobs"]
+    assert len(jobs) == 1 and wait_job(client, jobs[0]["job_id"])["status"] == "done"
+    lesson = _lesson(client, job["lesson_id"])
+    assert lesson.status == "ready" and set(lesson.meta_json["skipped_notes"]) == {"2"}
+    assert client.post("/lessons/anki", json={"query_name": "q", "notes": again}).json() == {"jobs": []}
+
+
+def test_notes_with_a_translation_are_not_sent_to_the_llm(client, tmp_path):
+    asked: list[list[str]] = []
+    llm = client.app.state.deps.llm
+    orig = llm._t
+    llm._t = lambda xs: (asked.append(list(xs)), orig(xs))[1]
+    b64 = _b64(tmp_path)
+    notes = [_dict(1, "你好。", "v10.mp4 (1s)", b64, "Hello"), _dict(2, "再见。", "v10.mp4 (5s)", b64)]
+    job = client.post("/lessons/anki", json={"query_name": "q", "notes": notes}).json()["jobs"][0]
+    assert wait_job(client, job["job_id"])["status"] == "done"
+    assert asked == [["再见。"]]
+    assert [s.translation for s in _segments(client.app.state.engine, job["lesson_id"])] == ["Hello", "en:再见。"]
+
+
+def test_title_and_speaker_are_simplified_but_source_ref_keeps_the_raw_name(client, tmp_path):
+    notes = [_dict(1, "你好。", "學習中文.mp4 (1s)", _b64(tmp_path))]
+    job = client.post("/lessons/anki", json={"query_name": "q", "notes": notes}).json()["jobs"][0]
+    assert job["title"] == "学习中文.mp4"
+    lesson = _lesson(client, job["lesson_id"])
+    assert (lesson.title, lesson.speaker, lesson.source_ref) == ("学习中文.mp4", "学习中文.mp4", "q::學習中文.mp4")
 
 
 def test_job_for_already_imported_notes_leaves_lesson_ready(client, tmp_path):
@@ -134,6 +206,5 @@ def test_job_for_already_imported_notes_leaves_lesson_ready(client, tmp_path):
     assert wait_job(client, job["job_id"])["status"] == "done"
     ingest_anki_group(client.app.state.deps, client.app.state.engine, job["lesson_id"],
                       [AnkiNoteIn(**notes[0])], lambda s, f: None)
-    with Session(client.app.state.engine) as db:
-        assert db.get(Lesson, job["lesson_id"]).status == "ready"
+    assert _lesson(client, job["lesson_id"]).status == "ready"
     assert len(_segments(client.app.state.engine, job["lesson_id"])) == 1

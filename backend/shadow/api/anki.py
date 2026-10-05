@@ -2,7 +2,8 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 from sqlmodel import Session, select
-from shadow.ingest.anki import AnkiNoteIn, existing_note_ids, group_by_video, ingest_anki_group
+from shadow.ingest.anki import AnkiNoteIn, group_by_video, handled_note_ids, ingest_anki_group, is_importable
+from shadow.ingest.text import to_simplified
 from shadow.store.db import get_session
 from shadow.store.models import Lesson
 
@@ -22,15 +23,13 @@ def import_anki(body: AnkiImportIn, request: Request, db: Session = Depends(get_
     for video, notes in group_by_video(body.notes).items():
         ref = f"{body.query_name}::{video}"
         lesson = db.exec(select(Lesson).where(Lesson.source_type == "anki", Lesson.source_ref == ref)).first()
-        if lesson is None:
-            new_notes = notes
-        else:
-            have = existing_note_ids(engine, lesson.id)
-            new_notes = [n for n in notes if n.note_id not in have]
+        handled = handled_note_ids(engine, lesson.id) if lesson else set()
+        new_notes = [n for n in notes if n.note_id not in handled and is_importable(n)]
         if not new_notes:
             continue
         if lesson is None:
-            lesson = Lesson(title=video or body.query_name, speaker=video or "Anki", source_type="anki", source_ref=ref)
+            name = to_simplified(video or body.query_name)
+            lesson = Lesson(title=name, speaker=to_simplified(video) or "Anki", source_type="anki", source_ref=ref)
             db.add(lesson); db.commit(); db.refresh(lesson)
         lid, title = lesson.id, lesson.title
         job_id = jobs.submit(lambda p, lid=lid, ns=new_notes: ingest_anki_group(deps, engine, lid, ns, p), lid)

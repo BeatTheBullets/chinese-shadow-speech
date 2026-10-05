@@ -1,6 +1,7 @@
 from __future__ import annotations
 import base64
 import binascii
+import logging
 import re
 import shutil
 import subprocess
@@ -12,11 +13,13 @@ from sqlalchemy import Engine
 from sqlmodel import Session, select
 from shadow.deps import Deps
 from shadow.ingest import audio
-from shadow.ingest.pipeline import MIN_CLIP_S, _set_status, build_segments
+from shadow.ingest.pipeline import MIN_CLIP_S, _merge_meta, _set_status, build_segments
 from shadow.ingest.rectify import RectSentenceOut
 from shadow.ingest.text import strip_html, to_simplified
 from shadow.jobs import Progress
-from shadow.store.models import Segment
+from shadow.store.models import Lesson, Segment
+
+log = logging.getLogger(__name__)
 
 GAP_S = 0.5     # silence between consecutive clips in the concatenated source.wav
 _SOUND = re.compile(r"\[sound:[^\]]*\]")
@@ -71,28 +74,48 @@ def existing_note_ids(engine: Engine, lesson_id: int) -> set[int]:
         return {r for r in rows if r is not None}
 
 
+def skipped_notes(engine: Engine, lesson_id: int) -> dict[str, str]:
+    """{note_id: reason} of notes the lesson could not use (lesson.meta_json["skipped_notes"]; JSON keys are str)."""
+    with Session(engine) as db:
+        return dict((db.get(Lesson, lesson_id).meta_json or {}).get("skipped_notes", {}))
+
+
+def handled_note_ids(engine: Engine, lesson_id: int) -> set[int]:
+    """Notes a re-import need not look at again: already segments, or skipped as unusable."""
+    return existing_note_ids(engine, lesson_id) | {int(k) for k in skipped_notes(engine, lesson_id)}
+
+
+def is_importable(note: AnkiNoteIn) -> bool:
+    return bool(clean_sentence(note.text))
+
+
 def _decode_clip(note: AnkiNoteIn, tmp: Path) -> np.ndarray:
+    """The note's clip as 16 kHz mono samples; RuntimeError if it cannot be decoded."""
     try:
         data = base64.b64decode(note.audio_b64, validate=True)
+        if not data:
+            raise RuntimeError("no audio")
         raw, norm = tmp / f"{note.note_id}_{Path(note.filename).name}", tmp / f"{note.note_id}.wav"
         raw.write_bytes(data)
         audio.normalise(raw, norm)
         return audio.read_wav(norm)[0]
     except (binascii.Error, subprocess.CalledProcessError, RuntimeError) as e:
-        raise RuntimeError(f"could not read the audio of note {note.note_id}") from e
+        raise RuntimeError(f"audio of note {note.note_id} could not be decoded") from e
 
 
 def ingest_anki_group(deps: Deps, engine: Engine, lesson_id: int, notes: list[AnkiNoteIn], progress: Progress) -> None:
     """Append `notes` (one source video) to the lesson: each note's own clip is the reference audio, so the clips
     are concatenated into source.wav with GAP_S of silence between them and each becomes a segment spanning
-    exactly its clip. Anki lessons keep no transcript (spec §4)."""
+    exactly its clip. Anki lessons keep no transcript (spec §4). A note with no text, no decodable audio or a
+    too-short clip is skipped on its own (logged, recorded in meta_json["skipped_notes"]); the lesson errors only
+    if it ends up with no segments at all."""
     tmp = deps.files.lesson_dir(lesson_id) / "anki_tmp"
     try:
         _set_status(engine, lesson_id, "processing")
         progress("normalise", 0.0)
         with Session(engine) as db:
             start_idx = len(db.exec(select(Segment.id).where(Segment.lesson_id == lesson_id)).all())
-        seen = existing_note_ids(engine, lesson_id)       # also guards against two overlapping imports
+        seen = handled_note_ids(engine, lesson_id)        # also guards against two overlapping imports
         source_wav = deps.files.source_wav(lesson_id)
         pieces = [audio.read_wav(source_wav)[0]] if source_wav.exists() else []
         pos = sum(len(p) for p in pieces)                 # samples already in source.wav
@@ -101,39 +124,38 @@ def ingest_anki_group(deps: Deps, engine: Engine, lesson_id: int, notes: list[An
         sentences: list[RectSentenceOut] = []
         note_ids: list[int] = []
         spans: list[tuple[float, float]] = []
-        translations: dict[int, str] = {}
-        already_imported = 0
+        translations: list[str | None] = []
+        skipped: dict[str, str] = {}
         for i, n in enumerate(notes):
-            text = clean_sentence(n.text)
-            already_imported += n.note_id in seen
-            if n.note_id not in seen and text:
-                clip = _decode_clip(n, tmp)
-                if len(clip) / audio.SR >= MIN_CLIP_S:
+            if n.note_id not in seen:
+                seen.add(n.note_id)
+                text = clean_sentence(n.text)
+                try:
+                    if not text:
+                        raise RuntimeError("empty text")
+                    clip = _decode_clip(n, tmp)
+                    if len(clip) / audio.SR < MIN_CLIP_S:
+                        raise RuntimeError("audio too short")
+                except RuntimeError as e:
+                    log.warning("skipping Anki note %d: %s", n.note_id, e)
+                    skipped[str(n.note_id)] = str(e)
+                else:
                     if pos:
                         pieces.append(gap); pos += len(gap)
                     spans.append((pos / audio.SR, (pos + len(clip)) / audio.SR))
                     pieces.append(clip); pos += len(clip)
                     sentences.append(RectSentenceOut(0, 0, text))     # char range unused with fixed spans
                     note_ids.append(n.note_id)
-                    seen.add(n.note_id)
-                    if n.translation and (tr := to_simplified(strip_html(n.translation))):
-                        translations[n.note_id] = tr
+                    translations.append(to_simplified(strip_html(n.translation or "")) or None)
             progress("normalise", (i + 1) / len(notes))
-        if not sentences:
-            if already_imported == len(notes):            # an overlapping import got there first
-                _set_status(engine, lesson_id, "ready")
-                progress("done", 1.0)
-                return
-            raise RuntimeError("no usable notes")
-        audio.write_wav(source_wav, np.concatenate(pieces))
-        build_segments(deps, engine, lesson_id, source_wav, None, sentences, progress,
-                       anki_note_ids=note_ids, idx_offset=start_idx, fixed_spans=spans)
-        if translations:                                  # translations from the notes override the LLM's
-            with Session(engine) as db:
-                for s in db.exec(select(Segment).where(Segment.lesson_id == lesson_id,
-                                                       Segment.anki_note_id.in_(list(translations)))).all():
-                    s.translation = translations[s.anki_note_id]; db.add(s)
-                db.commit()
+        if skipped:
+            _merge_meta(engine, lesson_id, skipped_notes={**skipped_notes(engine, lesson_id), **skipped})
+        if sentences:
+            audio.write_wav(source_wav, np.concatenate(pieces))
+            build_segments(deps, engine, lesson_id, source_wav, None, sentences, progress,
+                           anki_note_ids=note_ids, idx_offset=start_idx, fixed_spans=spans, translations=translations)
+        elif start_idx == 0:
+            raise RuntimeError("no usable notes: " + "; ".join(f"{k}: {v}" for k, v in skipped.items()))
         _set_status(engine, lesson_id, "ready", duration_s=pos / audio.SR)
         progress("done", 1.0)
     except Exception as e:  # noqa: BLE001

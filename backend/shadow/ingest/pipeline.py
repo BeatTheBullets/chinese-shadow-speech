@@ -81,18 +81,22 @@ def clip_bounds(envelopes: list[tuple[float, float]], pad: float, total: float) 
 
 def build_segments(deps: Deps, engine: Engine, lesson_id: int, source_wav: Path, tr: Transcript | None,
                    sentences: list[RectSentenceOut], progress: Progress, anki_note_ids: list[int] | None = None,
-                   idx_offset: int = 0, fixed_spans: list[tuple[float, float]] | None = None) -> None:
+                   idx_offset: int = 0, fixed_spans: list[tuple[float, float]] | None = None,
+                   translations: list[str | None] | None = None) -> None:
     """Align, enrich and clip `sentences`; writes Segment rows numbered from `idx_offset`.
 
     Default (upload): each sentence is aligned inside its coarse transcript times ±1 s and its clip is the
     padded alignment clamped to its neighbours (`clip_bounds`); a sentence that cannot be aligned falls back
     to its coarse times. With `fixed_spans` (Anki, one per sentence) each sentence is aligned inside exactly
     its span (clamped to the audio), the span is the clip, and the segment has no transcript char range; `tr`
-    is then unused and may be None."""
+    is then unused and may be None. `translations` (aligned with `sentences`) holds ready-made translations; only
+    sentences whose entry is None are sent to the LLM."""
     if fixed_spans is None and tr is None:
         raise ValueError("a transcript is required unless fixed_spans are given")
     if fixed_spans is not None and len(fixed_spans) != len(sentences):
         raise ValueError(f"{len(fixed_spans)} fixed spans for {len(sentences)} sentences")
+    if translations is not None and len(translations) != len(sentences):
+        raise ValueError(f"{len(translations)} translations for {len(sentences)} sentences")
     wav, sr = audio.read_wav(source_wav)
     total = len(wav) / sr
     if fixed_spans is not None:
@@ -129,13 +133,15 @@ def build_segments(deps: Deps, engine: Engine, lesson_id: int, source_wav: Path,
         raise NoSpeechError("none of the sentences could be placed within the audio")
 
     progress("enrich", 0.0)
-    translations: list[str | None] = [None] * n
-    if deps.llm is not None and deps.settings.llm.translate:
+    translations = list(translations) if translations is not None else [None] * n
+    todo = [i for i, t in enumerate(translations) if not t]
+    if todo and deps.llm is not None and deps.settings.llm.translate:
         try:
-            got = translate_all(deps.llm, texts)
-            if len(got) != n:
-                raise ValueError(f"{len(got)} translations for {n} sentences")
-            translations = list(got)
+            got = translate_all(deps.llm, [texts[i] for i in todo])
+            if len(got) != len(todo):
+                raise ValueError(f"{len(got)} translations for {len(todo)} sentences")
+            for i, t in zip(todo, got):
+                translations[i] = t
         except Exception as e:  # noqa: BLE001  translation is optional (spec §3.5)
             log.warning("translation failed; storing segments without translations", exc_info=True)
             _merge_meta(engine, lesson_id, translation_error=str(e) or type(e).__name__)
