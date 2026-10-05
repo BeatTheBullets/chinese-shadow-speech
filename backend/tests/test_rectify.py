@@ -42,6 +42,18 @@ def test_validate_accepts_good_output():
     assert res is not None and [(s.char_from, s.char_to) for s in res] == [(0, 16), (17, 24), (25, 34)]
 
 
+def test_validate_simplifies_llm_text_before_comparing():
+    tr = tr_one()
+    chunk = make_chunks(tr)[0]
+    out = RectifyOutput(sentences=[
+        sent(0, 16, "我今天想跟你們聊一聊學中文的方法，"),     # traditional 們 / 學
+        sent(17, 34, "其實方法有很多，但是最重要的是堅持。"),
+    ])
+    res = validate(out, chunk, tr)
+    assert res is not None
+    assert [s.text for s in res] == ["我今天想跟你们聊一聊学中文的方法，", "其实方法有很多，但是最重要的是坚持。"]
+
+
 # The chunk covers absolute 10..34 (25 chars) with 10 chars of context before it. The LLM's
 # from/to are chunk-relative, so the valid range is 0..24. Every case below is wrong in exactly
 # one way, so each is rejected by its own check.

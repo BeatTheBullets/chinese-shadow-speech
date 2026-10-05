@@ -3,7 +3,7 @@ import logging
 from dataclasses import dataclass
 from rapidfuzz.distance import Levenshtein
 from shadow.ingest.llm import LLM, RectifyOutput
-from shadow.ingest.text import is_punct, strip_punct
+from shadow.ingest.text import is_punct, strip_punct, to_simplified
 from shadow.ingest.transcript import Transcript
 
 log = logging.getLogger(__name__)
@@ -58,12 +58,13 @@ def check(out: RectifyOutput, chunk: Chunk, tr: Transcript) -> tuple[list[RectSe
         if b < a or b > chunk.end:
             return None, f"range {s.from_}..{s.to} is outside the chunk (0..{chunk.end - chunk.start})"
         raw = "".join(c.c for c in tr.chars[a:b + 1])
-        raw_speech, text_speech = strip_punct(raw), strip_punct(s.text)
-        if not (2 <= len(s.text) <= 60):
-            return None, f"text length {len(s.text)} outside 2..60"
+        text = to_simplified(s.text)          # the raw transcript is already simplified
+        raw_speech, text_speech = strip_punct(raw), strip_punct(text)
+        if not (2 <= len(text) <= 60):
+            return None, f"text length {len(text)} outside 2..60"
         if Levenshtein.distance(text_speech, raw_speech) / max(len(raw_speech), 1) >= 0.25:
-            return None, f"text {s.text!r} differs too much from raw {raw!r}"
-        result.append(RectSentenceOut(a, b, s.text))
+            return None, f"text {text!r} differs too much from raw {raw!r}"
+        result.append(RectSentenceOut(a, b, text))
         expected = b + 1
     if expected != chunk.end + 1:
         return None, f"ranges end at relative {expected - 1 - chunk.start}, chunk ends at {chunk.end - chunk.start}"

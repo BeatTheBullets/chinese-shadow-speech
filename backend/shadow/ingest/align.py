@@ -162,3 +162,8 @@ def sentence_bounds(spans: list[Span], pad_s: float, prev_end: float, next_start
     start = max(spans[0].start - pad_s, prev_end, 0.0)
     end = min(spans[-1].end + pad_s, next_start, total)
     return (round(start, 3), round(max(end, start), 3))
+
+
+def spans_to_json(spans: list[Span]) -> list[dict]:
+    """Serialise spans for `Segment.ref_alignment_json`."""
+    return [{"ch": s.ch, "start": round(s.start, 3), "end": round(s.end, 3), "conf": round(s.conf, 3)} for s in spans]

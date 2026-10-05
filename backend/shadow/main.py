@@ -1,18 +1,33 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from shadow.config import Settings, load_settings
-from shadow.api import health
+from shadow.deps import Deps, build_deps
+from shadow.jobs import JobManager
 from shadow.store.db import make_engine, init_db
-from shadow.store.files import FileLayout
+from shadow.api import health, jobs, lessons
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, deps: Deps | None = None) -> FastAPI:
     settings = settings or load_settings()
-    app = FastAPI(title="shadow")
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        app.state.jobs.start()
+        yield
+        await app.state.jobs.stop()
+
+    app = FastAPI(title="shadow", lifespan=lifespan)
     app.state.settings = settings
     app.state.engine = make_engine(settings.data_dir)
     init_db(app.state.engine)
-    app.state.files = FileLayout(settings.data_dir)
-    app.include_router(health.router)
+    app.state.deps = deps or build_deps(settings)
+    app.state.files = app.state.deps.files
+    app.state.jobs = JobManager()
+    app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+                       allow_methods=["*"], allow_headers=["*"])
+    for r in (health.router, jobs.router, lessons.router):
+        app.include_router(r)
     return app
 
 
