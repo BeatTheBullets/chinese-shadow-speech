@@ -1,9 +1,13 @@
 from __future__ import annotations
 import hashlib
 import json
+import os
+import tempfile
 from pathlib import Path
-from typing import Callable, Protocol
+from typing import Callable, Protocol, TypeVar
 from pydantic import BaseModel, ConfigDict, Field
+
+T = TypeVar("T")
 
 
 class RectSentence(BaseModel):
@@ -21,6 +25,14 @@ class RectifyOutput(BaseModel):
 class TranslateOutput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     translations: list[str]
+
+
+# Folded into every cache key: bump it when a prompt changes so stale responses are not reused.
+PROMPT_VERSION = "1"
+
+
+class TranslationCountMismatch(ValueError):
+    pass
 
 
 class LLM(Protocol):
@@ -57,13 +69,29 @@ class AnthropicLLM:
         self.model, self.effort, self.cache_dir = model, effort, cache_dir
         self.min_chars, self.max_chars = min_chars, max_chars
 
-    def _cached(self, key: str, make: Callable[[], dict]) -> dict:
-        p = self.cache_dir / f"{hashlib.sha256(key.encode()).hexdigest()}.json"
-        if p.exists():
-            return json.loads(p.read_text())
+    def _cache_path(self, key: str) -> Path:
+        digest = hashlib.sha256(f"v{PROMPT_VERSION}:{key}".encode()).hexdigest()
+        return self.cache_dir / f"{digest}.json"
+
+    def _cached(self, key: str, make: Callable[[], dict], parse: Callable[[dict], T]) -> T:
+        """Return parse(response) for `key`. A response is cached only after `parse` accepts it, and the
+        cache file is written atomically. An unreadable or invalid cache file counts as a miss."""
+        p = self._cache_path(key)
+        try:
+            return parse(json.loads(p.read_text()))
+        except Exception:
+            pass
         data = make()
-        p.write_text(json.dumps(data, ensure_ascii=False))
-        return data
+        result = parse(data)
+        fd, tmp = tempfile.mkstemp(dir=self.cache_dir, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(data, f, ensure_ascii=False)
+            os.replace(tmp, p)
+        except BaseException:
+            Path(tmp).unlink(missing_ok=True)
+            raise
+        return result
 
     def _call(self, system: str, user: str, schema_model: type[BaseModel]) -> dict:
         resp = self._client.messages.create(
@@ -83,15 +111,22 @@ class AnthropicLLM:
             "chars": [{"i": i, "c": c} for i, c in enumerate(chunk_chars)],
         }
         key = "rectify:" + self.model + ":" + "".join(chunk_chars)
-        data = self._cached(key, lambda: self._call(
+        return self._cached(key, lambda: self._call(
             RECTIFY_SYSTEM.format(min_chars=self.min_chars, max_chars=self.max_chars),
-            json.dumps(payload, ensure_ascii=False), RectifyOutput))
-        return RectifyOutput.model_validate(data)
+            json.dumps(payload, ensure_ascii=False), RectifyOutput), RectifyOutput.model_validate)
 
     def translate(self, sentences: list[str]) -> list[str]:
         key = "translate:" + self.model + ":" + "\n".join(sentences)
-        data = self._cached(key, lambda: self._call(
-            "Translate each Mandarin sentence into natural English. Return exactly one translation per input, in order.",
-            json.dumps({"sentences": sentences}, ensure_ascii=False), TranslateOutput))
-        out = TranslateOutput.model_validate(data).translations
-        return out if len(out) == len(sentences) else [""] * len(sentences)
+
+        def parse(data: dict) -> list[str]:
+            out = TranslateOutput.model_validate(data).translations
+            if len(out) != len(sentences):
+                raise TranslationCountMismatch(f"{len(out)} translations for {len(sentences)} sentences")
+            return out
+
+        try:
+            return self._cached(key, lambda: self._call(
+                "Translate each Mandarin sentence into natural English. Return exactly one translation per input, in order.",
+                json.dumps({"sentences": sentences}, ensure_ascii=False), TranslateOutput), parse)
+        except TranslationCountMismatch:
+            return [""] * len(sentences)
