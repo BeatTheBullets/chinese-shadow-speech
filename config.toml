@@ -1,0 +1,43 @@
+[server]
+host = "127.0.0.1"
+port = 8000
+
+[models]
+device = "auto"                     # auto | cuda | cpu
+asr = "iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch"
+aligner = "auto"                    # auto → qwen3_fa on cuda, mms_fa on cpu | qwen3_fa | mms_fa | mfa
+gop_model = "wbbbbb/wav2vec2-large-chinese-zh-cn"
+
+[llm]
+model = "claude-sonnet-5-5"
+effort = "low"
+rectify = true
+translate = true
+
+[segmentation]
+min_chars = 6
+max_chars = 25
+pad_ms = 120
+
+[scoring]
+tone_weight = 0.5
+dtw_band = 4
+f0_floor = 60
+f0_ceiling = 500
+normalise_span = true
+min_voiced_frames = 4
+gop_margin = 2.0
+min_duration_ratio = 0.4
+
+[practice]
+hide_text_while_recording = true
+chorus_passes = 5
+flow_gap_factor = 1.1
+move_on_after = 4
+
+[youtube]
+enabled = false
+cookies_file = ""
+
+[anki]
+default_url = "http://127.0.0.1:8765"
