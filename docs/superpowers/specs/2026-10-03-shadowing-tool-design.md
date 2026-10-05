@@ -144,7 +144,8 @@ Instructions to the model:
 - Ranges are contiguous, non-overlapping and cover every character.
 
 Validation in code; on failure the chunk falls back to coarse segments split
-at 。！？；:
+at 。！？； and clause punctuation ，、： (so pieces stay near the 6–25 character
+target):
 - coverage and contiguity;
 - `edit_distance(strip_punct(text), raw[from..to]) / len(raw[from..to]) < 0.25`;
 - 2 ≤ len(text) ≤ 60.
