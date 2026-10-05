@@ -39,7 +39,8 @@ def chars_with_interpolated_times(text: str, start: float, end: float) -> list[T
         if is_punct(ch):
             out.append(TimedChar(ch, last_end, last_end))
         else:
-            s, e = start + k * step, start + (k + 1) * step
+            s = start + k * step
+            e = end if k == n - 1 else start + (k + 1) * step
             out.append(TimedChar(ch, s, e))
             last_end = e
             k += 1
@@ -59,5 +60,5 @@ def transcript_from_cues(cues: list[Cue]) -> Transcript:
         a = len(tr.chars)
         tr.chars.extend(chars)
         tr.segments.append((a, len(tr.chars) - 1))
-        floor = end
+        floor = max(floor, tr.chars[-1].end)
     return tr
