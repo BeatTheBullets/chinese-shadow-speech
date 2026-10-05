@@ -21,8 +21,8 @@ dependencies = [
 
 [project.optional-dependencies]
 models = [
-  "torch>=2.6",
-  "torchaudio>=2.10",
+  "torch==2.11.*",
+  "torchaudio==2.11.*",
   "funasr>=1.2",
   "modelscope>=1.20",
   "qwen-asr>=0.0.6",
