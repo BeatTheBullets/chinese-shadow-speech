@@ -33,7 +33,8 @@ async function addNote(ankiUrl: string, note: AddNote): Promise<number> {
 // Sends one sentence to Anki (the only write to Anki the app makes). A duplicate in the deck is added only when
 // the user confirms it. Resolves to the new note id.
 export async function exportToAnki(seg: Segment, ankiUrl: string, cfg: ExportNote): Promise<number> {
-  const res = await fetch(api.segments.audioUrl(seg.id, 'mp3'))
+  // no-cache: revalidate, so a clip re-cut by an edit in another tab or before a reload is never sent stale
+  const res = await fetch(api.segments.audioUrl(seg.id, 'mp3'), { cache: 'no-cache' })
   if (!res.ok) throw new Error(`Could not get the sentence clip: ${res.status} ${res.statusText}`)
   const b64 = await blobToBase64(await res.blob())
   try { return await addNote(ankiUrl, buildExportNote(seg, b64, cfg)) }

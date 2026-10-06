@@ -2,6 +2,7 @@ from __future__ import annotations
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
+from starlette.staticfiles import NotModifiedResponse
 from pydantic import BaseModel
 from sqlmodel import Session, select
 from shadow.api.lessons import _segment_out
@@ -44,7 +45,13 @@ def segment_audio(segment_id: int, request: Request, fmt: str = "opus", db: Sess
         audio.encode_mp3(Path(seg.clip_wav_path), path)
     if not path.exists():
         raise HTTPException(404, "clip file missing")
-    return FileResponse(path, media_type=MEDIA[fmt])
+    # The clip behind this URL changes on edit/split/merge, so browsers must revalidate every time; a matching
+    # ETag (mtime + size) makes that a 304. If-Modified-Since is not honoured: one-second resolution is too coarse.
+    resp = FileResponse(path, media_type=MEDIA[fmt], headers={"Cache-Control": "no-cache"}, stat_result=path.stat())
+    tags = [t.strip().removeprefix("W/") for t in request.headers.get("if-none-match", "").split(",")]
+    if resp.headers["etag"] in tags:
+        return NotModifiedResponse(resp.headers)
+    return resp
 
 
 class SegmentPatch(BaseModel):

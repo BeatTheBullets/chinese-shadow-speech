@@ -26,6 +26,7 @@ describe('exportToAnki', () => {
       .mockResolvedValueOnce(ankiReply(777))
     expect(await exportToAnki(seg, 'http://anki', cfg)).toBe(777)
     expect(String(f.mock.calls[0][0])).toMatch(/\/segments\/12\/audio\?fmt=mp3/)
+    expect((f.mock.calls[0][1] as RequestInit | undefined)?.cache).toBe('no-cache') // never a stale pre-edit clip
     expect(f.mock.calls[1][0]).toBe('http://anki')
     const [body] = addNoteBodies(f)
     expect(body.action).toBe('addNote')

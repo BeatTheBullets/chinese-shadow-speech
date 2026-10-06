@@ -44,6 +44,18 @@ def test_audio_formats(client, tmp_path):
     assert client.get("/segments/999/audio").status_code == 404
 
 
+def test_audio_is_revalidated_on_every_use(client, tmp_path):
+    """An edit re-cuts the clip under the same URL, so the browser must revalidate (ETag -> cheap 304)."""
+    lid = _upload(client, tmp_path)
+    sid = _segments(client, lid)[0]["id"]
+    for fmt in ("wav", "opus", "mp3"):
+        r = client.get(f"/segments/{sid}/audio", params={"fmt": fmt})
+        assert r.headers["cache-control"] == "no-cache", fmt
+        assert r.headers.get("etag") and r.headers.get("last-modified"), fmt
+        again = client.get(f"/segments/{sid}/audio", params={"fmt": fmt}, headers={"If-None-Match": r.headers["etag"]})
+        assert again.status_code == 304, fmt
+
+
 def test_patch_flag_and_text(client, tmp_path):
     lid = _upload(client, tmp_path)
     seg = _segments(client, lid)[1]
