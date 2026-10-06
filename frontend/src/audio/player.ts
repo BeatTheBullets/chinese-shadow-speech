@@ -15,6 +15,7 @@ export class ClipPlayer {
   private current: HTMLAudioElement | null = null
   private ctx: AudioContext | null = null
   private peakCache = new Map<string, Float32Array>()
+  private pendingCancel: (() => void) | null = null
 
   private el(url: string): HTMLAudioElement {
     let a = this.els.get(url)
@@ -23,27 +24,48 @@ export class ClipPlayer {
   }
   async preload(url: string) { const a = this.el(url); if (a.readyState < 2) await new Promise<void>((r) => { a.oncanplaythrough = () => r(); a.onerror = () => r(); a.load() }) }
   get currentTime() { return this.current?.currentTime ?? 0 }
-  stop() { if (this.current) { this.current.pause(); this.current.currentTime = 0; this.current = null } }
+  stop() {
+    if (this.pendingCancel) {
+      this.pendingCancel()
+      this.pendingCancel = null
+    }
+    if (this.current) { this.current.pause(); this.current.currentTime = 0; this.current = null }
+  }
   play(url: string, rate: number, onTime?: (t: number) => void): Promise<void> {
     this.stop()
     const a = this.el(url); this.current = a; a.playbackRate = rate; a.currentTime = 0
     return new Promise((resolve, reject) => {
       let raf = 0
+      const cleanup = () => { cancelAnimationFrame(raf); this.pendingCancel = null }
+      const cancel = () => { cleanup(); resolve() }
+      this.pendingCancel = cancel
       const tick = () => { onTime?.(a.currentTime); raf = requestAnimationFrame(tick) }
-      a.onended = () => { cancelAnimationFrame(raf); onTime?.(a.duration); if (this.current === a) this.current = null; resolve() }
-      a.onerror = () => { cancelAnimationFrame(raf); reject(new Error('audio error')) }
-      a.play().then(() => { if (onTime) raf = requestAnimationFrame(tick) }).catch(reject)
+      a.onended = () => { cleanup(); onTime?.(a.duration); if (this.current === a) this.current = null; resolve() }
+      a.onerror = () => { cleanup(); reject(new Error('audio error')) }
+      a.play().then(() => { if (onTime) raf = requestAnimationFrame(tick) }).catch((err) => { cleanup(); reject(err) })
     })
   }
   async peaksFor(url: string, buckets: number): Promise<Float32Array> {
     const key = `${url}#${buckets}`
     const hit = this.peakCache.get(key); if (hit) return hit
     this.ctx ??= new AudioContext()
-    const buf = await this.ctx.decodeAudioData(await (await fetch(url)).arrayBuffer())
+    const res = await fetch(url)
+    if (!res.ok) throw new Error(`failed to fetch audio: ${res.status} ${res.statusText}`)
+    const buf = await this.ctx.decodeAudioData(await res.arrayBuffer())
     const p = peaks(buf.getChannelData(0), buckets); this.peakCache.set(key, p); return p
   }
 }
 
-export async function playSequence(player: ClipPlayer, items: { url: string; rate: number; onTime?: (t: number) => void }[], gapMs = 250) {
-  for (const it of items) { await player.play(it.url, it.rate, it.onTime); await new Promise((r) => setTimeout(r, gapMs)) }
+export async function playSequence(player: ClipPlayer, items: { url: string; rate: number; onTime?: (t: number) => void }[], gapMs = 250, signal?: AbortSignal) {
+  for (const it of items) {
+    if (signal?.aborted) { player.stop(); return }
+    const playPromise = player.play(it.url, it.rate, it.onTime)
+    const abortPromise = signal ? new Promise<void>((r) => signal.addEventListener('abort', () => { player.stop(); r() })) : new Promise<void>(() => {})
+    await Promise.race([playPromise, abortPromise])
+    if (signal?.aborted) { player.stop(); return }
+    await new Promise<void>((r) => {
+      const timer = setTimeout(r, gapMs)
+      signal?.addEventListener('abort', () => { clearTimeout(timer); r() })
+    })
+  }
 }
