@@ -53,14 +53,14 @@ export const api = {
   },
   jobs: {
     get: (id: string) => req<Job>(`/jobs/${id}`),
-    events: (id: string, onEvent: (j: Job) => void): (() => void) => {
+    events: (id: string, onEvent: (j: Job) => void, onError?: () => void): (() => void) => {
       const es = new EventSource(`${base}/jobs/${id}/events`)
       es.addEventListener('progress', (e) => {
         const j = JSON.parse((e as MessageEvent).data) as Job
         onEvent(j)
         if (j.status === 'done' || j.status === 'error') es.close()
       })
-      es.onerror = () => es.close()
+      es.onerror = () => { es.close(); onError?.() }
       return () => es.close()
     },
   },

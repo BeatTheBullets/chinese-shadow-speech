@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { groupBySpeaker } from './library'
+import { groupBySpeaker, needsPolling } from './library'
 import type { Lesson } from '../api/types'
 
 const L = (id: number, speaker: string, created: string): Lesson => ({ id, title: `t${id}`, speaker, source_type: 'upload', source_ref: '', duration_s: 0, created_at: created, status: 'ready', error: null, segment_count: 1, practised_count: 0, mean_last_score: null })
@@ -13,5 +13,15 @@ describe('groupBySpeaker', () => {
   })
   it('groups empty speaker as Unsorted', () => {
     expect(groupBySpeaker([L(1, '', '2026-01-01')], null)[0].speaker).toBe('Unsorted')
+  })
+})
+
+describe('needsPolling', () => {
+  it('is true only while a lesson is queued or processing', () => {
+    expect(needsPolling([L(1, 'A', '2026-01-01')])).toBe(false)
+    expect(needsPolling([L(1, 'A', '2026-01-01'), { ...L(2, 'A', '2026-01-02'), status: 'processing' }])).toBe(true)
+    expect(needsPolling([{ ...L(1, 'A', '2026-01-01'), status: 'queued' }])).toBe(true)
+    expect(needsPolling([{ ...L(1, 'A', '2026-01-01'), status: 'error' }])).toBe(false)
+    expect(needsPolling([])).toBe(false)
   })
 })

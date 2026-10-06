@@ -12,3 +12,5 @@ export function groupBySpeaker(lessons: Lesson[], languageParent: string | null)
   }))
   return groups.sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.lessons[0].created_at.localeCompare(a.lessons[0].created_at))
 }
+
+export const needsPolling = (lessons: Lesson[]) => lessons.some((l) => l.status !== 'ready' && l.status !== 'error')

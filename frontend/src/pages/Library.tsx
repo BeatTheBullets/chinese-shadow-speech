@@ -2,13 +2,15 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import type { Job, Lesson } from '../api/types'
-import { groupBySpeaker } from '../lib/library'
+import { groupBySpeaker, needsPolling } from '../lib/library'
 import { useSettings } from '../store/settings'
 import { runAnkiImport } from '../anki/runImport'
 import Shell from '../components/Shell'
 
-function readable(e: unknown): string {
-  if (e instanceof TypeError) return `could not reach the server (${e.message}). Is Anki open with AnkiConnect, and is the URL right in Settings?`
+const BACKEND_HINT = 'Is the backend running?'
+const ANKI_HINT = 'Is Anki open with AnkiConnect, and is the URL right in Settings?'
+function readable(e: unknown, hint: string): string {
+  if (e instanceof TypeError) return `could not reach the server (${e.message}). ${hint}`
   return e instanceof Error ? e.message : String(e)
 }
 
@@ -19,12 +21,18 @@ export default function Library() {
   const [importing, setImporting] = useState(false)
   const { languageParent, importQueries, ankiUrl } = useSettings()
   const closers = useRef<(() => void)[]>([])
-  const reload = useCallback(() => api.lessons.list().then(setLessons).catch((e) => setMsg(`Could not load library: ${readable(e)}`)), [])
+  const reload = useCallback(() => api.lessons.list().then(setLessons).catch((e) => setMsg(`Could not load library: ${readable(e, BACKEND_HINT)}`)), [])
   useEffect(() => { reload() }, [reload])
+  const polling = needsPolling(lessons)
+  useEffect(() => {
+    if (!polling) return
+    const t = setInterval(reload, 2500)
+    return () => clearInterval(t)
+  }, [polling, reload])
   useEffect(() => () => closers.current.forEach((c) => c()), [])
 
   function watch(job_id: string, lesson_id: number) {
-    closers.current.push(api.jobs.events(job_id, (j) => { setJobs((m) => ({ ...m, [lesson_id]: j })); if (j.status === 'done' || j.status === 'error') reload() }))
+    closers.current.push(api.jobs.events(job_id, (j) => { setJobs((m) => ({ ...m, [lesson_id]: j })); if (j.status === 'done' || j.status === 'error') reload() }, reload))
   }
   async function onFiles(files: FileList | null) {
     if (!files?.length) return
@@ -36,7 +44,7 @@ export default function Library() {
     try {
       const r = await api.lessons.upload(media, { subtitles: subs, speaker })
       await reload(); watch(r.job_id, r.lesson_id)
-    } catch (e) { setMsg(`Upload failed: ${readable(e)}`) }
+    } catch (e) { setMsg(`Upload failed: ${readable(e, BACKEND_HINT)}`) }
   }
   async function importQuery(name: string) {
     const q = importQueries.find((x) => x.name === name)
@@ -44,9 +52,10 @@ export default function Library() {
     setImporting(true)
     try {
       const { jobs: js, skipped } = await runAnkiImport(q, ankiUrl, setMsg)
-      setMsg(`${js.length} lesson(s) updating, ${skipped} note(s) skipped (no [sound:] tag, empty text or missing audio)`)
+      const why = '(no [sound:] tag, empty text or missing audio)'
+      setMsg(js.length ? `${js.length} lesson(s) updating, ${skipped} note(s) skipped ${why}` : `Nothing to import: ${skipped} note(s) skipped ${why}`)
       await reload(); js.forEach((j) => watch(j.job_id, j.lesson_id))
-    } catch (e) { setMsg(`Anki import failed: ${readable(e)}`) }
+    } catch (e) { setMsg(`Anki import failed: ${readable(e, ANKI_HINT)}`) }
     finally { setImporting(false) }
   }
 
@@ -70,8 +79,7 @@ export default function Library() {
               {g.lessons.map((l) => {
                 const j = jobs[l.id]; const busy = l.status !== 'ready' && l.status !== 'error'
                 const frac = busy ? (j?.fraction ?? 0) : (l.segment_count ? l.practised_count / l.segment_count : 0)
-                return (
-                  <Link key={l.id} to={l.status === 'ready' ? `/practice/${l.id}` : '#'} className="bg-panel border border-line rounded p-3 block hover:border-accent">
+                const inner = (<>
                     <div className="font-hanzi text-fghi truncate">{l.title}{l.source_type === 'anki' && <span className="ml-2 text-[10px] px-1 rounded bg-[#2b1f3a] text-[#d6c3f0]">anki</span>}</div>
                     <div className="text-xs text-fgdim mt-1">
                       {l.status === 'error' ? <span className="text-bad">error: {l.error}</span>
@@ -79,7 +87,11 @@ export default function Library() {
                         : `${l.segment_count} sentences · ${l.practised_count} practised${l.mean_last_score != null ? ` · mean ${Math.round(l.mean_last_score * 100)}` : ''}`}
                     </div>
                     <div className="h-1 bg-panel2 rounded mt-2 overflow-hidden"><div className={`h-full ${busy ? 'bg-accent' : 'bg-ok'}`} style={{ width: `${frac * 100}%` }} /></div>
-                  </Link>)
+                  </>)
+                return l.status === 'ready'
+                  ? <Link key={l.id} to={`/practice/${l.id}`} className="bg-panel border border-line rounded p-3 block hover:border-accent">{inner}</Link>
+                  : <div key={l.id} className="bg-panel border border-line rounded p-3 block">{inner}</div>
+
               })}
             </div>
           </section>))}
