@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { anki } from '../anki/client'
 import { useSettings } from '../store/settings'
 
@@ -55,8 +55,11 @@ export default function Settings() {
         <div className="grid grid-cols-2 gap-3 bg-panel border border-line rounded p-3">
           {sel('Deck', s.exportNote?.deckName ?? '', (v) => s.set({ exportNote: { deckName: v, modelName: s.exportNote?.modelName ?? '', fields: s.exportNote?.fields ?? { sentence: '', audio: '' } } }), decks, true)}
           {sel('Note type', s.exportNote?.modelName ?? '', (v) => { setDraft({ ...draft, model: v }); s.set({ exportNote: { deckName: s.exportNote?.deckName ?? '', modelName: v, fields: s.exportNote?.fields ?? { sentence: '', audio: '' } } }) }, models, true)}
-          {(['sentence', 'pinyin', 'translation', 'audio'] as const).map((k) =>
-            sel(`${k} field`, s.exportNote?.fields[k] ?? '', (v) => s.set({ exportNote: { ...s.exportNote!, fields: { ...s.exportNote!.fields, [k]: v } } }), fields, true))}
+          {(['sentence', 'pinyin', 'translation', 'audio'] as const).map((k) => (
+            <Fragment key={k}>
+              {sel(`${k} field`, s.exportNote?.fields[k] ?? '', (v) => s.set({ exportNote: { ...s.exportNote!, fields: { ...s.exportNote!.fields, [k]: v } } }), fields, true)}
+            </Fragment>
+          ))}
         </div>
       </section>
       <section className="space-y-2">
