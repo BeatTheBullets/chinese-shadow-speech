@@ -1,6 +1,10 @@
+import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from shadow.config import Settings, load_settings
 from shadow.deps import Deps, build_deps
 from shadow.jobs import JobManager
@@ -28,7 +32,25 @@ def create_app(settings: Settings | None = None, deps: Deps | None = None) -> Fa
                        allow_methods=["*"], allow_headers=["*"])
     for r in (health.router, jobs.router, lessons.router, segments.router, anki.router, attempts.router, sessions.router, stats.router):
         app.include_router(r)
+    _mount_spa(app)
     return app
+
+
+def _mount_spa(app: FastAPI) -> None:
+    """Serve the built frontend, if present. Registered after the API routers so they win."""
+    dist = Path(os.environ.get("SHADOW_FRONTEND_DIST", Path(__file__).resolve().parents[2] / "frontend" / "dist")).resolve()
+    index = dist / "index.html"
+    if not index.exists():
+        return
+    if (dist / "assets").is_dir():
+        app.mount("/assets", StaticFiles(directory=dist / "assets"), name="assets")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def spa(full_path: str):
+        candidate = (dist / full_path).resolve()
+        if full_path and candidate.is_relative_to(dist) and candidate.is_file():
+            return FileResponse(candidate)
+        return FileResponse(index)
 
 
 app = create_app()
