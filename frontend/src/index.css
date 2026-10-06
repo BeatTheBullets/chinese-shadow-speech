@@ -1,0 +1,14 @@
+@import '@fontsource/noto-sans-sc/400.css';
+@import '@fontsource/noto-sans-sc/500.css';
+@import '@fontsource-variable/inter';
+@tailwind base; @tailwind components; @tailwind utilities;
+html, body, #root { height: 100%; }
+body { @apply bg-bg text-fg font-ui; }
+.sentence { @apply font-hanzi text-fghi text-center leading-snug; }
+.sentence.hide-pinyin rt { display: none; }
+.sentence rt { @apply text-ref font-ui text-sm tracking-wide; }
+.cell-ok { @apply bg-[#17442d] border-[#1f5c3c]; }
+.cell-warn { @apply bg-[#4d3a12] border-[#6b5219]; }
+.cell-bad { @apply bg-[#4a1d22] border-[#6b2a31]; }
+.cell-unvoiced { @apply bg-[#1a1f26] border-line; }
+.cell-neutral { @apply bg-panel2 border-line; }
