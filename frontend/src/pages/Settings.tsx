@@ -7,6 +7,7 @@ export default function Settings() {
   const [status, setStatus] = useState<string>('')
   const [models, setModels] = useState<string[]>([])
   const [fields, setFields] = useState<string[]>([])
+  const [exportFields, setExportFields] = useState<string[]>([])
   const [decks, setDecks] = useState<string[]>([])
   const [draft, setDraft] = useState({ name: '', query: '', model: '', sentence: '', audio: '', translation: '', source: '', url: '' })
 
@@ -18,6 +19,7 @@ export default function Settings() {
     } catch (e) { setStatus(`Cannot reach AnkiConnect at ${s.ankiUrl}: ${(e as Error).message}`) }
   }
   useEffect(() => { if (draft.model) anki(s.ankiUrl).modelFieldNames(draft.model).then(setFields).catch(() => setFields([])) }, [draft.model, s.ankiUrl])
+  useEffect(() => { if (s.exportNote?.modelName) anki(s.ankiUrl).modelFieldNames(s.exportNote.modelName).then(setExportFields).catch(() => setExportFields([])) }, [s.exportNote?.modelName, s.ankiUrl])
 
   const sel = (label: string, value: string, onChange: (v: string) => void, opts: string[], allowEmpty = false) => (
     <label className="flex flex-col gap-1 text-sm text-fgdim">{label}
@@ -53,21 +55,24 @@ export default function Settings() {
         </div>
         <h3 className="text-fg">Export note type</h3>
         <div className="grid grid-cols-2 gap-3 bg-panel border border-line rounded p-3">
-          {sel('Deck', s.exportNote?.deckName ?? '', (v) => s.set({ exportNote: { deckName: v, modelName: s.exportNote?.modelName ?? '', fields: s.exportNote?.fields ?? { sentence: '', audio: '' } } }), decks, true)}
-          {sel('Note type', s.exportNote?.modelName ?? '', (v) => { setDraft({ ...draft, model: v }); s.set({ exportNote: { deckName: s.exportNote?.deckName ?? '', modelName: v, fields: s.exportNote?.fields ?? { sentence: '', audio: '' } } }) }, models, true)}
-          {(['sentence', 'pinyin', 'translation', 'audio'] as const).map((k) => (
+          {sel('Deck', s.exportNote?.deckName ?? '', (v) => { const cur = s.exportNote ?? { deckName: '', modelName: '', fields: { sentence: '', audio: '' } }; s.set({ exportNote: { deckName: v, modelName: cur.modelName, fields: cur.fields } }) }, decks, true)}
+          {sel('Note type', s.exportNote?.modelName ?? '', (v) => { const cur = s.exportNote ?? { deckName: '', modelName: '', fields: { sentence: '', audio: '' } }; s.set({ exportNote: { deckName: cur.deckName, modelName: v, fields: cur.fields } }) }, models, true)}
+          {(['sentence', 'pinyin', 'translation', 'audio'] as const).map((k) => { const cur = s.exportNote ?? { deckName: '', modelName: '', fields: { sentence: '', audio: '' } }; return (
             <Fragment key={k}>
-              {sel(`${k} field`, s.exportNote?.fields[k] ?? '', (v) => s.set({ exportNote: { ...s.exportNote!, fields: { ...s.exportNote!.fields, [k]: v } } }), fields, true)}
+              {sel(`${k} field`, cur.fields[k] ?? '', (v) => s.set({ exportNote: { deckName: cur.deckName, modelName: cur.modelName, fields: { ...cur.fields, [k]: v } } }), exportFields, true)}
             </Fragment>
-          ))}
+          ) })}
         </div>
       </section>
       <section className="space-y-2">
         <h2 className="text-fghi">Practice</h2>
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={s.practice.hideTextWhileRecording} onChange={(e) => s.set({ practice: { ...s.practice, hideTextWhileRecording: e.target.checked } })} /> Hide text while recording</label>
-        {([['chorusPasses', 'Chorus passes'], ['flowGapFactor', 'Flow gap factor'], ['moveOnAfter', 'Move-on hint after N attempts'], ['defaultRate', 'Default speed']] as const).map(([k, label]) => (
+        {([['chorusPasses', 'Chorus passes'], ['flowGapFactor', 'Flow gap factor'], ['moveOnAfter', 'Move-on hint after N attempts'], ['defaultRate', 'Default speed']] as const).map(([k, label]) => {
+          const clampFn = k === 'defaultRate' ? (v: number) => Math.max(0.6, Math.min(1.0, v)) : (v: number) => v
+          return (
           <label key={k} className="flex items-center gap-2 text-sm">{label}
-            <input type="number" step="0.05" className="inp w-24" value={s.practice[k]} onChange={(e) => s.set({ practice: { ...s.practice, [k]: Number(e.target.value) } })} /></label>))}
+            <input type="number" step="0.05" className="inp w-24" value={s.practice[k]} onChange={(e) => { const val = e.target.value; if (val !== '') s.set({ practice: { ...s.practice, [k]: clampFn(Number(val)) } }) }} /></label>)
+        })}
         <label className="flex items-center gap-2 text-sm">Language parent (speaker name)
           <input className="inp" value={s.languageParent ?? ''} onChange={(e) => s.set({ languageParent: e.target.value || null })} /></label>
       </section>
