@@ -21,7 +21,7 @@ describe('Library tile actions', () => {
   afterEach(() => { cleanup(); vi.restoreAllMocks() })
   const show = async (ls: Lesson[]) => {
     h.api.lessons.list.mockResolvedValue(ls)
-    render(<MemoryRouter><Library /></MemoryRouter>)
+    render(<MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><Library /></MemoryRouter>)
     await screen.findByText(ls[0].title)
   }
 

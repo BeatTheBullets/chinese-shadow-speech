@@ -28,7 +28,7 @@ describe('<Review> bulk export', () => {
     useSettings.setState({ exportNote: { deckName: 'D', modelName: 'M', fields: { sentence: 'S', audio: 'A' } } })
     h.api.lessons.list.mockResolvedValue([lesson]); h.api.lessons.get.mockResolvedValue(lesson)
     h.exportAndRecord.mockImplementation(async (s: Segment) => ({ ...s, anki_note_id: 500 }))
-    render(<MemoryRouter><Review /></MemoryRouter>)
+    render(<MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><Review /></MemoryRouter>)
     await screen.findByText('你好')
     fireEvent.click(screen.getByRole('button', { name: 'A → Anki all' }))
     expect(await screen.findByText('1 sent to Anki · 1 skipped (already in Anki)')).toBeInTheDocument()
