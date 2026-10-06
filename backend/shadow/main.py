@@ -5,7 +5,7 @@ from shadow.config import Settings, load_settings
 from shadow.deps import Deps, build_deps
 from shadow.jobs import JobManager
 from shadow.store.db import make_engine, init_db
-from shadow.api import anki, attempts, health, jobs, lessons, segments, sessions
+from shadow.api import anki, attempts, health, jobs, lessons, segments, sessions, stats
 
 
 def create_app(settings: Settings | None = None, deps: Deps | None = None) -> FastAPI:
@@ -26,7 +26,7 @@ def create_app(settings: Settings | None = None, deps: Deps | None = None) -> Fa
     app.state.jobs = JobManager()
     app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
                        allow_methods=["*"], allow_headers=["*"])
-    for r in (health.router, jobs.router, lessons.router, segments.router, anki.router, attempts.router, sessions.router):
+    for r in (health.router, jobs.router, lessons.router, segments.router, anki.router, attempts.router, sessions.router, stats.router):
         app.include_router(r)
     return app
 
