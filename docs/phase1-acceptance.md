@@ -18,6 +18,9 @@ Items 1-8 are the checks automated tests and reviewers could not run; do them fi
 - [ ] Upload a 5-10 min Mandarin video: tile shows stages normalise, transcribe, rectify, align, enrich; lesson ready with 6-25-char sentences; clips start/end cleanly.
 - [ ] Upload the same video with its .srt: sentences follow the subtitles.
 - [ ] Anki import: Settings, Connect, add query, Library, refresh: one lesson per source video; re-import adds only new notes.
+- [ ] Configure two import queries that share a video (e.g. `deck:Mining tag:asbplayer` and `rated:1`) and run both: one lesson for that video, no duplicate sentences.
+- [ ] Restart the backend during an ingest (Ctrl-C, or save a backend file under `make dev`): the tile shows an "interrupted" error you can delete, not a perpetual job.
+- [ ] Library tile ✎ renames title and speaker (the tile moves to the new speaker group); ✕ asks, then deletes the lesson.
 - [ ] Yomitan: with pinyin ON, hovering 今天 shows the CC-CEDICT entry for the two-character word, not 今 alone; same with pinyin OFF.
 - [ ] Echo: Space / Enter / silence stop / back-to-back playback / You track waveform and cells.
 - [ ] Chorus: 5 passes, last pass recorded, one attempt with mode chorus.
