@@ -14,3 +14,22 @@ export function groupBySpeaker(lessons: Lesson[], languageParent: string | null)
 }
 
 export const needsPolling = (lessons: Lesson[]) => lessons.some((l) => l.status !== 'ready' && l.status !== 'error')
+
+// The question asked before a lesson is deleted (every status may be deleted, a broken upload included).
+export function deleteConfirmText(l: Lesson): string {
+  const n = l.segment_count
+  const what = n ? `its ${n} sentence${n === 1 ? '' : 's'}, their practice history and audio` : 'its audio'
+  const busy = l.status === 'queued' || l.status === 'processing' ? ' It is still processing; that job stops.' : ''
+  return `Delete "${l.title}" with ${what}?${busy} This cannot be undone.`
+}
+
+// The PATCH body for a rename from the two prompts' answers (null = cancelled): only changed fields, trimmed.
+// An empty title keeps the old one; an empty speaker is allowed (the lesson moves to Unsorted).
+export function renamePatch(l: Lesson, title: string | null, speaker: string | null): { title?: string; speaker?: string } | null {
+  if (title == null || speaker == null) return null
+  const body: { title?: string; speaker?: string } = {}
+  const t = title.trim(), s = speaker.trim()
+  if (t && t !== l.title) body.title = t
+  if (s !== l.speaker) body.speaker = s
+  return Object.keys(body).length ? body : null
+}

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import type { Job, Lesson } from '../api/types'
-import { groupBySpeaker, needsPolling } from '../lib/library'
+import { deleteConfirmText, groupBySpeaker, needsPolling, renamePatch } from '../lib/library'
 import { useSettings } from '../store/settings'
 import { runAnkiImport } from '../anki/runImport'
 import Shell from '../components/Shell'
@@ -46,6 +46,20 @@ export default function Library() {
       await reload(); watch(r.job_id, r.lesson_id)
     } catch (e) { setMsg(`Upload failed: ${readable(e, BACKEND_HINT)}`) }
   }
+  async function removeLesson(l: Lesson) {
+    if (!window.confirm(deleteConfirmText(l))) return
+    try { await api.lessons.remove(l.id); setMsg(`Deleted "${l.title}".`) }
+    catch (e) { setMsg(`Could not delete "${l.title}": ${readable(e, BACKEND_HINT)}`) }
+    await reload()
+  }
+  async function renameLesson(l: Lesson) {
+    const title = window.prompt('Title', l.title)
+    const body = renamePatch(l, title, title == null ? null : window.prompt('Speaker / channel name', l.speaker))
+    if (!body) return
+    try { await api.lessons.patch(l.id, body) }
+    catch (e) { setMsg(`Could not rename "${l.title}": ${readable(e, BACKEND_HINT)}`) }
+    await reload()
+  }
   async function importQuery(name: string) {
     const q = importQueries.find((x) => x.name === name)
     if (!q || importing) return
@@ -80,7 +94,7 @@ export default function Library() {
                 const j = jobs[l.id]; const busy = l.status !== 'ready' && l.status !== 'error'
                 const frac = busy ? (j?.fraction ?? 0) : (l.segment_count ? l.practised_count / l.segment_count : 0)
                 const inner = (<>
-                    <div className="font-hanzi text-fghi truncate">{l.title}{l.source_type === 'anki' && <span className="ml-2 text-[10px] px-1 rounded bg-[#2b1f3a] text-[#d6c3f0]">anki</span>}</div>
+                    <div className="font-hanzi text-fghi truncate pr-12">{l.title}{l.source_type === 'anki' && <span className="ml-2 text-[10px] px-1 rounded bg-[#2b1f3a] text-[#d6c3f0]">anki</span>}</div>
                     <div className="text-xs text-fgdim mt-1">
                       {l.status === 'error' ? <span className="text-bad">error: {l.error}</span>
                         : busy ? `${j?.stage ?? l.status}… ${Math.round(frac * 100)} %`
@@ -88,9 +102,17 @@ export default function Library() {
                     </div>
                     <div className="h-1 bg-panel2 rounded mt-2 overflow-hidden"><div className={`h-full ${busy ? 'bg-accent' : 'bg-ok'}`} style={{ width: `${frac * 100}%` }} /></div>
                   </>)
-                return l.status === 'ready'
-                  ? <Link key={l.id} to={`/practice/${l.id}`} className="bg-panel border border-line rounded p-3 block hover:border-accent">{inner}</Link>
-                  : <div key={l.id} className="bg-panel border border-line rounded p-3 block">{inner}</div>
+                return (
+                  <div key={l.id} className="relative group">
+                    {l.status === 'ready'
+                      ? <Link to={`/practice/${l.id}`} className="bg-panel border border-line rounded p-3 block hover:border-accent">{inner}</Link>
+                      : <div className="bg-panel border border-line rounded p-3 block">{inner}</div>}
+                    {/* outside the link, so the actions never open the lesson; every status, a broken upload included */}
+                    <div className="absolute top-2 right-2 flex gap-1 opacity-50 group-hover:opacity-100 focus-within:opacity-100">
+                      <button className="text-xs text-fgdim hover:text-fghi px-1" title="Rename (title, speaker)" aria-label={`Rename ${l.title}`} onClick={() => renameLesson(l)}>✎</button>
+                      <button className="text-xs text-fgdim hover:text-bad px-1" title="Delete lesson" aria-label={`Delete ${l.title}`} onClick={() => removeLesson(l)}>✕</button>
+                    </div>
+                  </div>)
 
               })}
             </div>
