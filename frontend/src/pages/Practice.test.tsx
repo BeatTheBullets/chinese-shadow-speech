@@ -15,6 +15,7 @@ const h = vi.hoisted(() => ({
   playSequence: vi.fn(() => Promise.resolve()),
   player: { play: vi.fn(() => Promise.resolve()), playRange: vi.fn(() => Promise.resolve()), stop: vi.fn(), preload: vi.fn(() => Promise.resolve()), peaksFor: vi.fn(() => new Promise(() => {})) },
   ctxClose: vi.fn(() => Promise.resolve()),
+  twoTrack: null as null | { onLoopSyllable: (i: number) => void },
 }))
 vi.mock('../api/client', () => ({ api: h.api }))
 vi.mock('../audio/recorder', () => ({
@@ -31,7 +32,9 @@ vi.mock('../audio/player', () => ({
   playSequence: h.playSequence,
   peaks: () => new Float32Array(4),
 }))
-vi.mock('../components/TwoTrack', () => ({ default: () => <div data-testid="two-track" /> }))
+vi.mock('../components/TwoTrack', () => ({
+  default: (p: { onLoopSyllable: (i: number) => void }) => { h.twoTrack = p; return <div data-testid="two-track" /> },
+}))
 
 import Practice from './Practice'
 
@@ -175,6 +178,86 @@ describe('<Practice>', () => {
     expect(usePractice.getState().drawerOpen).toBe(true)
     press('l')
     expect(usePractice.getState().drawerOpen).toBe(false)
+  })
+
+  it('a take under 0.2 s is discarded: no upload, no attempt counted, back to idle', async () => {
+    h.rec.stop.mockReturnValue(new Float32Array(4410)) // 0.1 s at 44.1 kHz
+    renderPractice()
+    await screen.findByText('你好', { selector: 'p.sentence' })
+    press('Enter'); await flush(); press('Enter'); await flush()
+    expect(h.api.segments.postAttempt).not.toHaveBeenCalled()
+    expect(h.playSequence).not.toHaveBeenCalled()
+    expect(usePractice.getState()).toMatchObject({ attemptsThisSegment: 0, lastAttempt: null, recordingNow: false })
+    expect(screen.getByRole('alert')).toHaveTextContent(/Too short/)
+    expect(screen.getByRole('button', { name: '● Enter' })).toBeInTheDocument()
+  })
+
+  it('the take uploads to the sentence the recording started on even if the store moved meanwhile', async () => {
+    renderPractice()
+    await screen.findByText('你好', { selector: 'p.sentence' })
+    press('Enter'); await flush()
+    act(() => { usePractice.setState({ idx: 1 }) }) // stale-store window: idx changes without a cancel
+    press('Enter'); await flush()
+    expect(h.api.segments.postAttempt).toHaveBeenCalledWith(11, expect.any(Blob), expect.objectContaining({ mode: 'echo' }))
+    expect(usePractice.getState().lastAttempt).toBeNull()
+    expect(h.playSequence).not.toHaveBeenCalled()
+  })
+
+  it('keys do nothing while the store still holds another lesson', async () => {
+    const pending = deferred<LessonDetail>()
+    h.api.lessons.get.mockReturnValue(pending.promise)
+    usePractice.setState({ lesson: { ...lesson, id: 2 } })
+    renderPractice()
+    press('Enter'); press('l')
+    await flush()
+    expect(h.rec.start).not.toHaveBeenCalled()
+    expect(usePractice.getState().drawerOpen).toBe(true)
+  })
+
+  describe('syllable loop', () => {
+    const aligned: LessonDetail = {
+      ...lesson,
+      segments: [{ ...seg(11, 0, '你好'), start_s: 10, end_s: 12, ref_alignment_json: [{ ch: '你', start: 10.2, end: 10.5, conf: 1 }, { ch: '好', start: 10.5, end: 11.25, conf: 1 }] }],
+    }
+    const sleep = (ms: number) => act(() => new Promise((r) => setTimeout(r, ms)))
+    beforeEach(() => { h.api.lessons.get.mockResolvedValue(aligned) })
+
+    it('repeats the clip-relative span until another action (play) stops it', async () => {
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      act(() => h.twoTrack!.onLoopSyllable(1))
+      await waitFor(() => expect(h.player.playRange.mock.calls.length).toBeGreaterThanOrEqual(3), { timeout: 2000 })
+      for (const c of h.player.playRange.mock.calls as unknown as [string, number, number, number][]) {
+        expect(c[0]).toBe('/seg/11.wav'); expect(c[2]).toBeCloseTo(0.5, 5); expect(c[3]).toBeCloseTo(1.25, 5)
+      }
+      press(' ')
+      await flush()
+      const n = h.player.playRange.mock.calls.length
+      await sleep(600)
+      expect(h.player.playRange.mock.calls.length).toBe(n)
+      expect(h.player.play).toHaveBeenCalledWith('/seg/11.opus', 1, expect.any(Function))
+    })
+
+    it('stops when recording starts, and clicking the same cell again toggles it off', async () => {
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      act(() => h.twoTrack!.onLoopSyllable(0))
+      await waitFor(() => expect(h.player.playRange.mock.calls.length).toBeGreaterThanOrEqual(2))
+      press('Enter')
+      await flush()
+      let n = h.player.playRange.mock.calls.length
+      await sleep(600)
+      expect(h.player.playRange.mock.calls.length).toBe(n)
+      press('Enter'); await flush() // finish the take
+
+      act(() => h.twoTrack!.onLoopSyllable(0))
+      await waitFor(() => expect(h.player.playRange.mock.calls.length).toBeGreaterThan(n))
+      act(() => h.twoTrack!.onLoopSyllable(0)) // same cell: off
+      await flush()
+      n = h.player.playRange.mock.calls.length
+      await sleep(600)
+      expect(h.player.playRange.mock.calls.length).toBe(n)
+    })
   })
 
   it('ArrowRight moves to the next sentence and cancels playback', async () => {

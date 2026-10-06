@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { api } from '../api/client'
-import type { Mode } from '../api/types'
+import type { Mode, Segment } from '../api/types'
 import { ClipPlayer, peaks as peaksOf, playSequence } from '../audio/player'
 import { Recorder, toWav16k } from '../audio/recorder'
 import { findSilenceEnd } from '../audio/pcm'
@@ -17,6 +17,8 @@ import { useSettings, defaultTextPrefs, type TextPrefs } from '../store/settings
 
 const MOVE_ON = 'Several tries on this one. Move on and come back later.'
 const NO_PENDING = new Set<number>()
+const MIN_TAKE_S = 0.2
+const LOOP_GAP_MS = 250
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
 // Practice page: Echo mode (Chorus/Flow/Guided arrive in Task 10, drawer actions and Anki export in Task 11).
@@ -36,6 +38,8 @@ export default function Practice() {
   const pendingStart = useRef<Promise<void> | null>(null) // a Recorder.start() still waiting (e.g. on the permission prompt)
   const vadTimer = useRef<number | null>(null)
   const seqCtrl = useRef<AbortController | null>(null)    // the reference-then-take playback after a recording
+  const loopRef = useRef<{ cell: number; ctrl: AbortController } | null>(null) // a syllable loop in progress
+  const recSeg = useRef<Segment | null>(null)             // the sentence the current recording belongs to
   const playId = useRef(0)
   const echoRef = useRef<EchoState>('idle')
   const [echo, setEcho] = useState<EchoState>('idle')
@@ -78,12 +82,11 @@ export default function Practice() {
     recGen.current++
     clearVad()
     if (capturing.current) { recRef.current?.stop(); capturing.current = false }
-    seqCtrl.current?.abort(); seqCtrl.current = null
-    player.stop()
+    stopPlayback()
     usePractice.getState().setRecording(false)
     ctxRef.current?.close().catch(() => {})
     ctxRef.current = null; recRef.current = null
-  }, [player])
+  }, [player]) // eslint-disable-line react-hooks/exhaustive-deps -- unmount-only; clearVad/stopPlayback touch refs and player only
 
   useEffect(() => {
     if (segId == null) return
@@ -98,7 +101,11 @@ export default function Practice() {
   }, [segId, player])
 
   function clearVad() { if (vadTimer.current != null) { clearTimeout(vadTimer.current); vadTimer.current = null } }
-  function stopPlayback() { seqCtrl.current?.abort(); seqCtrl.current = null; player.stop() }
+  function stopPlayback() {
+    seqCtrl.current?.abort(); seqCtrl.current = null
+    loopRef.current?.ctrl.abort(); loopRef.current = null
+    player.stop()
+  }
   const busy = () => echoRef.current === 'recording' || echoRef.current === 'uploading'
 
   // Abandons whatever is in flight (recording, pending mic prompt, playback) and returns Echo to idle.
@@ -142,8 +149,10 @@ export default function Practice() {
   }
 
   async function startRecording() {
-    if (!currentSegment(usePractice.getState()) || busy()) return
+    const s = currentSegment(usePractice.getState())
+    if (!s || busy()) return
     stopPlayback()
+    recSeg.current = s
     dispatch('RECORD'); usePractice.getState().setRecording(true); setError('')
     try {
       const rec = await startCapture()
@@ -167,20 +176,31 @@ export default function Practice() {
     if (!capturing.current) { cancelActivity(); return } // still at the permission prompt: abandon it
     clearVad()
     dispatch('STOP')
-    await finishRecording('echo')
+    const s = recSeg.current
+    recSeg.current = null
+    await finishRecording('echo', s)
   }
 
   // Stops capture, keeps the take as the last attempt, uploads it and plays reference then take back to back.
-  async function finishRecording(mode: Mode) {
+  // `s` is the sentence the recording started on: the take always uploads there.
+  async function finishRecording(mode: Mode, s: Segment | null) {
     const ps = usePractice.getState()
-    const s = currentSegment(ps), rec = recRef.current
+    const rec = recRef.current
     capturing.current = false
     ps.setRecording(false)
     if (!s || !rec) { dispatch('CANCEL'); return }
     const samples = rec.stop()
+    const duration = samples.length / rec.sampleRate
+    if (duration < MIN_TAKE_S) { dispatch('CANCEL'); setError('Too short to keep, nothing was saved. Try again.'); return }
     const wav = toWav16k(samples, rec.sampleRate)
+    // The store moved to another sentence meanwhile (e.g. the lesson reloaded): save the take, skip the playback.
+    if (currentSegment(ps)?.id !== s.id) {
+      dispatch('CANCEL')
+      api.segments.postAttempt(s.id, wav, { session_id: ps.sessionId ?? undefined, mode }).catch((e) => setError(`Upload failed: ${message(e)}`))
+      return
+    }
     const url = URL.createObjectURL(wav)
-    const take: LastAttempt = { id: 0, url, duration: samples.length / rec.sampleRate, peaks: peaksOf(samples, 400) }
+    const take: LastAttempt = { id: 0, url, duration, peaks: peaksOf(samples, 400) }
     ps.setLastAttempt(take); ps.bumpAttempts()
     if (usePractice.getState().attemptsThisSegment >= useSettings.getState().practice.moveOnAfter) ps.setHint(MOVE_ON)
     const upload = api.segments.postAttempt(s.id, wav, { session_id: ps.sessionId ?? undefined, mode })
@@ -209,11 +229,35 @@ export default function Practice() {
     const take = usePractice.getState().lastAttempt
     if (take) playSolo(() => player.play(take.url, 1, setYouHead))
   }
-  // Plays one syllable of the reference: alignment times are source-absolute, the clip starts at seg.start_s.
-  function loopSyllable(i: number) {
-    const ps = usePractice.getState(), s = currentSegment(ps), span = s?.ref_alignment_json?.[i]
+  // Loops one syllable of the reference until any other action; clicking the same cell again stops it.
+  // Alignment times are source-absolute, the clip starts at seg.start_s.
+  function loopSyllable(cell: number) {
+    if (busy()) return
+    const same = loopRef.current?.cell === cell
+    stopPlayback()
+    if (same) return
+    const ps = usePractice.getState(), s = currentSegment(ps), span = s?.ref_alignment_json?.[cell]
     if (!s || !span) return
-    playSolo(() => player.playRange(api.segments.audioUrl(s.id, 'wav'), ps.rate, Math.max(0, span.start - s.start_s), Math.max(0, span.end - s.start_s), setRefHead))
+    const ctrl = new AbortController()
+    loopRef.current = { cell, ctrl }
+    const url = api.segments.audioUrl(s.id, 'wav'), from = Math.max(0, span.start - s.start_s), to = Math.max(0, span.end - s.start_s)
+    const gap = () => new Promise<void>((resolve) => {
+      const onAbort = () => { clearTimeout(t); resolve() }
+      const t = setTimeout(() => { ctrl.signal.removeEventListener('abort', onAbort); resolve() }, LOOP_GAP_MS)
+      ctrl.signal.addEventListener('abort', onAbort, { once: true })
+    })
+    void (async () => {
+      try {
+        while (!ctrl.signal.aborted) {
+          await player.playRange(url, ps.rate, from, to, setRefHead)
+          if (!ctrl.signal.aborted) await gap()
+        }
+      } catch (e) {
+        if (!ctrl.signal.aborted) setError(`Could not play: ${message(e)}`)
+      } finally {
+        if (loopRef.current?.ctrl === ctrl) loopRef.current = null
+      }
+    })()
   }
 
   function goTo(i: number) {
@@ -226,6 +270,7 @@ export default function Practice() {
 
   function act(a: Action) {
     const ps = usePractice.getState()
+    if (ps.lesson?.id !== lessonId) return // the store still holds another lesson (this one is loading)
     const savePrefs = (p: TextPrefs) => { ps.setTextPrefs(p); useSettings.getState().setTextPrefs(lessonId, p) }
     const prefs = ps.textPrefs
     switch (a) {
