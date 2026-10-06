@@ -24,11 +24,12 @@ describe('ClipPlayer', () => {
   let originalPlay: any
   let originalPause: any
   let originalAudioContext: any
+  let originalAudio: typeof Audio
   let originalRAF: any
   let originalCAF: any
   let rafQueue: { id: number; callback: FrameRequestCallback }[]
   let rafCounter: number
-  let audioElements: Map<HTMLAudioElement, { ended: boolean }>
+  let audioElements: Map<HTMLAudioElement, { ended: boolean; url?: string }>
 
   beforeEach(() => {
     player = new ClipPlayer()
@@ -42,6 +43,7 @@ describe('ClipPlayer', () => {
     originalRAF = window.requestAnimationFrame
     originalCAF = window.cancelAnimationFrame
     originalAudioContext = global.AudioContext
+    originalAudio = window.Audio
 
     // Stub play to return resolved promise
     HTMLMediaElement.prototype.play = vi.fn(async function (this: HTMLMediaElement) {
@@ -73,10 +75,10 @@ describe('ClipPlayer', () => {
     } as any
 
     // Spy on Audio constructor to track elements and their ended state
-    const OriginalAudio = window.Audio
+    const OriginalAudio = originalAudio
     window.Audio = function (src?: string) {
       const audio = new OriginalAudio(src) as any
-      audioElements.set(audio, { ended: false })
+      audioElements.set(audio, { ended: false, url: src })
 
       // Add ended getter/setter
       Object.defineProperty(audio, 'ended', {
@@ -101,6 +103,9 @@ describe('ClipPlayer', () => {
     window.requestAnimationFrame = originalRAF
     window.cancelAnimationFrame = originalCAF
     global.AudioContext = originalAudioContext
+    window.Audio = originalAudio
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
     rafQueue = []
     audioElements.clear()
   })
@@ -196,34 +201,88 @@ describe('ClipPlayer', () => {
     expect(playedUrls).toEqual(['test1.mp3'])
   })
 
-  it('natural finish unaffected by later abort', async () => {
-    const stopSpy = vi.spyOn(player, 'stop')
+  const flush = async () => { for (let i = 0; i < 5; i++) await Promise.resolve() }
+  const elFor = (url: string) =>
+    Array.from(audioElements.entries()).find(([, v]) => v.url === url)![0]
+  const finish = (url: string) => {
+    const el = elFor(url)
+    audioElements.get(el)!.ended = true
+    el.dispatchEvent(new Event('ended'))
+  }
 
+  // Runs a two-item sequence to natural completion with a signal, returning
+  // the signal plus add/remove listener spies.
+  async function runToCompletion() {
+    vi.useFakeTimers()
     const controller = new AbortController()
-    const items = [{ url: 'test1.mp3', rate: 1.0 }]
+    const signal = controller.signal
+    const addSpy = vi.spyOn(signal, 'addEventListener')
+    const removeSpy = vi.spyOn(signal, 'removeEventListener')
+    const seq = playSequence(
+      player,
+      [{ url: 'a.mp3', rate: 1.0 }, { url: 'b.mp3', rate: 1.0 }],
+      100,
+      signal
+    )
+    await flush()
+    finish('a.mp3')
+    await vi.advanceTimersByTimeAsync(100)
+    finish('b.mp3')
+    await vi.advanceTimersByTimeAsync(100)
+    await seq
+    return { controller, addSpy, removeSpy }
+  }
 
-    const sequence = playSequence(player, items, 100, controller.signal)
+  it('natural finish unaffected by later abort: unrelated play keeps running', async () => {
+    const { controller } = await runToCompletion()
 
-    // Let play start
-    await Promise.resolve()
+    const other = player.play('other.mp3', 1.0)
+    let otherSettled = false
+    other.then(() => { otherSettled = true }, () => { otherSettled = true })
+    await flush()
+    const otherEl = elFor('other.mp3')
+    const pauseMock = HTMLMediaElement.prototype.pause as ReturnType<typeof vi.fn>
+    pauseMock.mockClear()
 
-    // Simulate natural end: set ended = true and dispatch event
-    const audioList = Array.from(audioElements.keys())
-    const audio = audioList[audioList.length - 1]
-    audioElements.get(audio)!.ended = true
-    audio.dispatchEvent(new Event('ended'))
-
-    // Wait for sequence to complete naturally
-    await sequence
-    const stopCallsAfterNaturalEnd = stopSpy.mock.calls.length
-
-    // Now abort (play already done)
     controller.abort()
+    await flush()
 
-    // Verify stop wasn't called again for the completed play
-    expect(stopSpy.mock.calls.length).toBe(stopCallsAfterNaturalEnd)
+    expect(otherSettled).toBe(false)
+    expect(player['current']).toBe(otherEl)
+    expect(pauseMock).not.toHaveBeenCalled()
 
-    stopSpy.mockRestore()
+    player.stop()
+    await other
+  })
+
+  it('removes every abort listener it added once the sequence completes naturally', async () => {
+    const { addSpy, removeSpy } = await runToCompletion()
+    const added = addSpy.mock.calls.filter((c) => c[0] === 'abort').map((c) => c[1])
+    const removed = removeSpy.mock.calls.filter((c) => c[0] === 'abort').map((c) => c[1])
+    // 2 play-phase + 2 gap-phase listeners
+    expect(added.length).toBe(4)
+    for (const h of added) expect(removed).toContain(h)
+  })
+
+  it('gap-phase abort listener is removed when the gap timer fires first', async () => {
+    vi.useFakeTimers()
+    const controller = new AbortController()
+    const signal = controller.signal
+    const seq = playSequence(player, [{ url: 'a.mp3', rate: 1.0 }], 100, signal)
+    await flush()
+    finish('a.mp3')
+    await flush() // play phase done, now in gap phase
+
+    const removeSpy = vi.spyOn(signal, 'removeEventListener')
+    await vi.advanceTimersByTimeAsync(100)
+    await seq
+
+    const clearSpy = vi.spyOn(globalThis, 'clearTimeout')
+    controller.abort()
+    // a leaked gap listener would call clearTimeout on abort
+    expect(clearSpy).not.toHaveBeenCalled()
+    expect(removeSpy.mock.calls.some((c) => c[0] === 'abort')).toBe(true)
+    clearSpy.mockRestore()
   })
 
   it('peaksFor throws on non-ok response', async () => {
