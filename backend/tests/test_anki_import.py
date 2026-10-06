@@ -196,7 +196,7 @@ def test_title_and_speaker_are_simplified_but_source_ref_keeps_the_raw_name(clie
     job = client.post("/lessons/anki", json={"query_name": "q", "notes": notes}).json()["jobs"][0]
     assert job["title"] == "学习中文.mp4"
     lesson = _lesson(client, job["lesson_id"])
-    assert (lesson.title, lesson.speaker, lesson.source_ref) == ("学习中文.mp4", "学习中文.mp4", "q::學習中文.mp4")
+    assert (lesson.title, lesson.speaker, lesson.source_ref) == ("学习中文.mp4", "学习中文.mp4", "video::學習中文.mp4")
 
 
 def test_job_for_already_imported_notes_leaves_lesson_ready(client, tmp_path):
@@ -208,3 +208,46 @@ def test_job_for_already_imported_notes_leaves_lesson_ready(client, tmp_path):
                       [AnkiNoteIn(**notes[0])], lambda s, f: None)
     assert _lesson(client, job["lesson_id"]).status == "ready"
     assert len(_segments(client.app.state.engine, job["lesson_id"])) == 1
+
+
+def _anki_lessons(client):
+    with Session(client.app.state.engine) as db:
+        return db.exec(select(Lesson).where(Lesson.source_type == "anki")).all()
+
+
+def test_two_queries_sharing_a_video_feed_one_lesson_without_duplicates(client, tmp_path):
+    """Spec §7.4/§8.1: one lesson per source video, whichever query (e.g. the whole deck and rated:1) found it."""
+    b64 = _b64(tmp_path)
+    deck = [_dict(1, "你好。", "v11.mp4 00:00:01.000", b64), _dict(2, "再见。", "v11.mp4 00:00:05.000", b64)]
+    today = [_dict(2, "再见。", "v11.mp4 00:00:05.000", b64), _dict(3, "欢迎回来。", "v11.mp4 00:00:09.000", b64)]
+    first = client.post("/lessons/anki", json={"query_name": "deck:Mining tag:asbplayer", "notes": deck}).json()["jobs"]
+    assert wait_job(client, first[0]["job_id"])["status"] == "done"
+    second = client.post("/lessons/anki", json={"query_name": "rated:1", "notes": today}).json()["jobs"]
+    assert [j["lesson_id"] for j in second] == [first[0]["lesson_id"]]
+    assert wait_job(client, second[0]["job_id"])["status"] == "done"
+    lessons = _anki_lessons(client)
+    assert [(l.title, l.source_ref) for l in lessons] == [("v11.mp4", "video::v11.mp4")]
+    assert [s.anki_note_id for s in _segments(client.app.state.engine, lessons[0].id)] == [1, 2, 3]
+    # renaming or re-running either query finds the same lesson and adds nothing
+    assert client.post("/lessons/anki", json={"query_name": "renamed", "notes": deck + today}).json() == {"jobs": []}
+
+
+def test_overlapping_imports_from_two_queries_do_not_duplicate_notes(client, tmp_path):
+    b64 = _b64(tmp_path)
+    deck = [_dict(1, "你好。", "v12.mp4 (1s)", b64), _dict(2, "再见。", "v12.mp4 (5s)", b64)]
+    today = [_dict(2, "再见。", "v12.mp4 (5s)", b64)]
+    a = client.post("/lessons/anki", json={"query_name": "deck", "notes": deck}).json()["jobs"]
+    b = client.post("/lessons/anki", json={"query_name": "rated:1", "notes": today}).json()["jobs"]   # before a ran
+    for j in a + b:
+        assert wait_job(client, j["job_id"])["status"] == "done"
+    lessons = _anki_lessons(client)
+    assert len(lessons) == 1 and lessons[0].status == "ready"
+    assert [s.anki_note_id for s in _segments(client.app.state.engine, lessons[0].id)] == [1, 2]
+
+
+def test_notes_without_a_source_go_to_a_lesson_per_query(client, tmp_path):
+    b64 = _b64(tmp_path)
+    for q, nid in (("deck", 1), ("rated:1", 2)):
+        job = client.post("/lessons/anki", json={"query_name": q, "notes": [_dict(nid, "你好。", None, b64)]}).json()["jobs"][0]
+        assert wait_job(client, job["job_id"])["status"] == "done"
+    assert sorted((l.title, l.source_ref) for l in _anki_lessons(client)) == [("deck", "query::deck"), ("rated:1", "query::rated:1")]

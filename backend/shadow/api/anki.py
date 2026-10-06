@@ -17,11 +17,12 @@ class AnkiImportIn(BaseModel):
 
 @router.post("/lessons/anki", status_code=202)
 def import_anki(body: AnkiImportIn, request: Request, db: Session = Depends(get_session)):
-    """One lesson per source video; re-importing appends only notes not yet in that lesson."""
+    """One lesson per source video, whichever query found the notes (spec §8.1); notes without a source go to a
+    lesson per query. Re-importing appends only notes not yet in that lesson."""
     deps, engine, jobs = request.app.state.deps, request.app.state.engine, request.app.state.jobs
     out = []
     for video, notes in group_by_video(body.notes).items():
-        ref = f"{body.query_name}::{video}"
+        ref = f"video::{video}" if video else f"query::{body.query_name}"
         lesson = db.exec(select(Lesson).where(Lesson.source_type == "anki", Lesson.source_ref == ref)).first()
         handled = handled_note_ids(engine, lesson.id) if lesson else set()
         new_notes = [n for n in notes if n.note_id not in handled and is_importable(n)]
