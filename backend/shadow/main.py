@@ -8,7 +8,10 @@ from fastapi.staticfiles import StaticFiles
 from shadow.config import Settings, load_settings
 from shadow.deps import Deps, build_deps
 from shadow.jobs import JobManager
+from sqlalchemy import Engine
+from sqlmodel import Session, select
 from shadow.store.db import make_engine, init_db
+from shadow.store.models import Lesson
 from shadow.api import anki, attempts, health, jobs, lessons, segments, sessions, stats
 
 
@@ -17,6 +20,7 @@ def create_app(settings: Settings | None = None, deps: Deps | None = None) -> Fa
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        recover_interrupted(app.state.engine)
         app.state.jobs.start()
         yield
         await app.state.jobs.stop()
@@ -34,6 +38,19 @@ def create_app(settings: Settings | None = None, deps: Deps | None = None) -> Fa
         app.include_router(r)
     _mount_spa(app)
     return app
+
+
+INTERRUPTED = "interrupted — the server restarted during processing; delete and re-upload"
+
+
+def recover_interrupted(engine: Engine) -> None:
+    """Jobs live in memory, so after a restart no job runs for a queued/processing lesson: mark it as failed
+    (once the app serves, not on import, so importing this module never touches a live server's lessons)."""
+    with Session(engine) as db:
+        for lesson in db.exec(select(Lesson).where(Lesson.status.in_(("queued", "processing")))).all():
+            lesson.status, lesson.error = "error", INTERRUPTED
+            db.add(lesson)
+        db.commit()
 
 
 def _mount_spa(app: FastAPI) -> None:

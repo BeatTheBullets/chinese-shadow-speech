@@ -79,3 +79,51 @@ def test_delete_removes_attempts_and_list_reports_scores(client, tmp_path):
     assert client.delete(f"/lessons/{lid}").status_code == 204
     with Session(client.app.state.engine) as db:
         assert db.exec(select(Attempt)).all() == []
+
+
+def test_patch_simplifies_title_and_speaker(client, tmp_path):
+    lid = _upload(client, tmp_path)
+    out = client.patch(f"/lessons/{lid}", json={"title": "學習中文", "speaker": "李子柒頻道"}).json()
+    assert (out["title"], out["speaker"]) == ("学习中文", "李子柒频道")
+
+
+def test_lesson_ids_are_not_reused_after_deleting_the_newest(client, tmp_path):
+    """SQLite reuses max(id)+1 without AUTOINCREMENT: a new lesson would inherit the deleted one's cached clip
+    URLs (/segments/{id}/audio), its text prefs and its export filenames."""
+    a = _upload(client, tmp_path, "A")
+    b = _upload(client, tmp_path, "B")
+    old_seg_ids = {s["id"] for s in client.get(f"/lessons/{b}").json()["segments"]}
+    assert client.delete(f"/lessons/{b}").status_code == 204
+    c = _upload(client, tmp_path, "C")
+    assert c > b > a
+    assert min(s["id"] for s in client.get(f"/lessons/{c}").json()["segments"]) > max(old_seg_ids)
+
+
+def test_every_table_with_deletable_rows_uses_autoincrement(client):
+    from sqlalchemy import text
+    with client.app.state.engine.connect() as conn:
+        ddl = dict(conn.execute(text("select name, sql from sqlite_master where type='table'")).all())
+    for table in ("lesson", "segment", "attempt", "session", "syllablescore"):
+        assert "AUTOINCREMENT" in ddl[table], table
+
+
+def test_startup_marks_interrupted_ingests_as_error(data_dir, fake_transcript):
+    """A restart (uvicorn --reload, Ctrl-C, WSL shutdown) kills any running job; its lesson must not stay
+    queued/processing forever."""
+    from fastapi.testclient import TestClient
+    from shadow.config import Settings
+    from shadow.deps import fake_deps
+    from shadow.main import create_app
+    from shadow.store.db import init_db, make_engine
+    from shadow.store.models import Lesson
+    engine = make_engine(data_dir)
+    init_db(engine)
+    with Session(engine) as db:
+        for status in ("queued", "processing", "ready", "error"):
+            db.add(Lesson(title=status, source_type="upload", status=status, error="boom" if status == "error" else None))
+        db.commit()
+    settings = Settings(data_dir=data_dir)
+    with TestClient(create_app(settings, deps=fake_deps(settings, fake_transcript))) as c:
+        got = {l["title"]: (l["status"], l["error"]) for l in c.get("/lessons").json()}
+    msg = "interrupted — the server restarted during processing; delete and re-upload"
+    assert got == {"queued": ("error", msg), "processing": ("error", msg), "ready": ("ready", None), "error": ("error", "boom")}

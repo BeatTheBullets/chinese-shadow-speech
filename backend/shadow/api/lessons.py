@@ -7,6 +7,7 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from sqlmodel import Session, select
 from shadow.ingest.pipeline import ingest_upload
+from shadow.ingest.text import to_simplified
 from shadow.schemas import LessonDetail, LessonOut, SegmentOut
 from shadow.store.db import get_session
 from shadow.store.models import Attempt, Lesson, PracticeSession, Segment, SyllableScore
@@ -83,7 +84,7 @@ class LessonPatch(BaseModel):
 def patch_lesson(lesson_id: int, body: LessonPatch, db: Session = Depends(get_session)):
     lesson = _get_lesson(db, lesson_id)
     for k, v in body.model_dump(exclude_none=True).items():
-        setattr(lesson, k, v)
+        setattr(lesson, k, to_simplified(v))           # simplified everywhere (spec §3.2)
     db.add(lesson); db.commit(); db.refresh(lesson)
     return _lesson_out(db, lesson)
 

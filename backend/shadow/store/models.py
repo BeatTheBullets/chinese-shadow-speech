@@ -10,6 +10,7 @@ def now() -> datetime:
 
 
 class Lesson(SQLModel, table=True):
+    __table_args__ = {"sqlite_autoincrement": True}   # ids never reused after a delete (clip URLs, prefs, exports)
     id: int | None = Field(default=None, primary_key=True)
     title: str
     speaker: str = ""
@@ -24,6 +25,7 @@ class Lesson(SQLModel, table=True):
 
 
 class Segment(SQLModel, table=True):
+    __table_args__ = {"sqlite_autoincrement": True}   # ids never reused after a delete (clip URLs, prefs, exports)
     id: int | None = Field(default=None, primary_key=True)
     lesson_id: int = Field(foreign_key="lesson.id", index=True)
     idx: int
@@ -43,6 +45,7 @@ class Segment(SQLModel, table=True):
 
 class PracticeSession(SQLModel, table=True):
     __tablename__ = "session"
+    __table_args__ = {"sqlite_autoincrement": True}   # ids never reused after a delete (clip URLs, prefs, exports)
     id: int | None = Field(default=None, primary_key=True)
     lesson_id: int = Field(foreign_key="lesson.id", index=True)
     mode: str                              # echo | chorus | flow | guided
@@ -52,6 +55,7 @@ class PracticeSession(SQLModel, table=True):
 
 
 class Attempt(SQLModel, table=True):
+    __table_args__ = {"sqlite_autoincrement": True}   # ids never reused after a delete (clip URLs, prefs, exports)
     id: int | None = Field(default=None, primary_key=True)
     segment_id: int = Field(foreign_key="segment.id", index=True)
     session_id: int | None = Field(default=None, foreign_key="session.id")
@@ -63,6 +67,7 @@ class Attempt(SQLModel, table=True):
 
 
 class SyllableScore(SQLModel, table=True):
+    __table_args__ = {"sqlite_autoincrement": True}   # ids never reused after a delete (clip URLs, prefs, exports)
     id: int | None = Field(default=None, primary_key=True)
     attempt_id: int = Field(foreign_key="attempt.id", index=True)
     segment_id: int = Field(foreign_key="segment.id", index=True)
