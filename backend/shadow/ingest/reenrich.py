@@ -36,8 +36,11 @@ def _unlink(*paths: Path) -> None:
         p.unlink(missing_ok=True)
 
 
-def reenrich_segment(deps: Deps, engine: Engine, segment_id: int, window: tuple[float, float] | None = None) -> None:
-    """Re-align `seg.text`, rebuild words, translation and clips (spec §4: an edit re-runs align + enrich).
+def reenrich_segment(deps: Deps, engine: Engine, segment_id: int, window: tuple[float, float] | None = None,
+                     text: str | None = None) -> None:
+    """Re-align `seg.text` (or the new `text`), rebuild words, translation and clips (spec §4: an edit re-runs
+    align + enrich). All or nothing: the text and its enrichment are committed together, and clip files are only
+    replaced once both are encoded, so a failure leaves the segment and its clips as they were.
 
     Upload lessons: aligned inside `window` (default: the segment's span ±1 s); the clip becomes the padded
     alignment clamped to the neighbouring segments, or keeps its bounds when alignment finds nothing.
@@ -45,6 +48,8 @@ def reenrich_segment(deps: Deps, engine: Engine, segment_id: int, window: tuple[
     and its bounds are left as they are."""
     with Session(engine) as db:
         seg = db.get(Segment, segment_id)
+        if text is not None:
+            seg.text = text
         fixed = db.get(Lesson, seg.lesson_id).source_type == "anki"
         source = deps.files.source_wav(seg.lesson_id)
         wav, sr = audio.read_wav(source)

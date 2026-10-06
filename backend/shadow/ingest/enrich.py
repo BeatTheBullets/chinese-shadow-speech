@@ -1,6 +1,8 @@
 from __future__ import annotations
 import itertools
+import os
 import re
+import uuid
 from pathlib import Path
 import jieba
 from pypinyin import lazy_pinyin, Style
@@ -81,7 +83,17 @@ def translate_all(llm: LLM, texts: list[str], batch: int = 20) -> list[str]:
 
 
 def make_clips(files: FileLayout, lesson_id: int, idx: int, source_wav: Path, start_s: float, end_s: float) -> tuple[Path, Path]:
+    """Cut and encode under temporary names, then move both into place: a failed cut or encode (e.g. during an
+    edit's re-enrich) leaves the segment's existing clips as they were."""
     wav, opus = files.clip_wav(lesson_id, idx), files.clip_opus(lesson_id, idx)
-    audio.cut(source_wav, wav, start_s, end_s)
-    audio.encode_opus(wav, opus)
+    tag = uuid.uuid4().hex[:8]
+    tmp_wav, tmp_opus = wav.with_name(f"{idx}.{tag}.part.wav"), opus.with_name(f"{idx}.{tag}.part.opus")
+    try:
+        audio.cut(source_wav, tmp_wav, start_s, end_s)
+        audio.encode_opus(tmp_wav, tmp_opus)
+        os.replace(tmp_wav, wav)
+        os.replace(tmp_opus, opus)
+    finally:
+        tmp_wav.unlink(missing_ok=True)
+        tmp_opus.unlink(missing_ok=True)
     return wav, opus

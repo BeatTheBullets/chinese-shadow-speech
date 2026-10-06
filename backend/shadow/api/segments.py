@@ -1,4 +1,6 @@
 from __future__ import annotations
+import logging
+import subprocess
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
@@ -15,6 +17,7 @@ from shadow.store.db import get_session
 from shadow.store.models import Attempt, Lesson, Segment, SyllableScore
 
 router = APIRouter()
+log = logging.getLogger(__name__)
 MEDIA = {"wav": "audio/wav", "opus": "audio/ogg", "mp3": "audio/mpeg"}
 SPLIT_MARGIN_S = 0.3     # each half of a resplit upload segment is re-aligned this far past the split point
 
@@ -67,14 +70,18 @@ def patch_segment(segment_id: int, body: SegmentPatch, request: Request, db: Ses
     text = to_simplified(body.text).strip() if body.text is not None else None
     if text is not None and not strip_punct(text):
         raise HTTPException(400, "text needs at least one speech character")
-    text_changed = text is not None and text != seg.text
+    if text is not None and text != seg.text:
+        # the new text is stored only together with its alignment, words and clips; on failure nothing changes
+        try:
+            reenrich_segment(request.app.state.deps, request.app.state.engine, segment_id, text=text)
+        except Exception as e:  # noqa: BLE001
+            log.exception("re-enrich of segment %d failed", segment_id)
+            why = "audio processing (ffmpeg) failed" if isinstance(e, subprocess.CalledProcessError) else (str(e) or type(e).__name__)
+            raise HTTPException(500, f"the edited sentence could not be processed, so the text was not changed: {why}")
     if body.difficulty_flag is not None:
+        db.refresh(seg)
         seg.difficulty_flag = body.difficulty_flag
-    if text_changed:
-        seg.text = text
-    db.add(seg); db.commit()
-    if text_changed:
-        reenrich_segment(request.app.state.deps, request.app.state.engine, segment_id)
+        db.add(seg); db.commit()
     return _fresh_out(db, segment_id)
 
 

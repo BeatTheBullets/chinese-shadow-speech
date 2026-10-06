@@ -101,6 +101,58 @@ def test_patch_text_survives_translation_failure(client, tmp_path, monkeypatch):
     assert out.status_code == 200 and out.json()["translation"] is None
 
 
+def _row(client, sid):
+    with Session(client.app.state.engine) as db:
+        return db.get(Segment, sid)
+
+
+def test_failed_reenrich_keeps_the_old_text_with_its_words_alignment_and_clip(client, tmp_path, monkeypatch):
+    """A text edit is all or nothing: if re-enrich fails the segment keeps its old text, words, alignment and
+    clip, and a retry of the same text tries again instead of being a no-op."""
+    import shadow.ingest.reenrich as reenrich
+    lid = _upload(client, tmp_path)
+    seg = _segments(client, lid)[1]
+    clip = client.app.state.files.clip_wav(lid, 1)
+    before_row, before_clip = _row(client, seg["id"]), clip.read_bytes()
+
+    def bad_pinyin(text):
+        raise ValueError("no pinyin for 𠀀")
+    monkeypatch.setattr(reenrich, "words_for", bad_pinyin)
+    r = client.patch(f"/segments/{seg['id']}", json={"text": "其实办法有很多。", "difficulty_flag": True})
+    assert r.status_code == 500
+    assert "not changed" in r.json()["detail"] and "no pinyin" in r.json()["detail"]
+    after = _row(client, seg["id"])
+    assert (after.text, after.words_json, after.ref_alignment_json, after.difficulty_flag) == \
+        (before_row.text, before_row.words_json, before_row.ref_alignment_json, False)
+    assert clip.read_bytes() == before_clip
+
+    monkeypatch.undo()                                  # the same edit, retried, now goes through
+    ok = client.patch(f"/segments/{seg['id']}", json={"text": "其实办法有很多。"}).json()
+    assert ok["text"] == "其实办法有很多。" and ok["words_json"][1]["word"] == "办法"
+    _assert_clips_consistent(client, lid)
+
+
+def test_failed_clip_encode_leaves_text_and_clip_files_untouched(client, tmp_path, monkeypatch):
+    import subprocess
+    lid = _upload(client, tmp_path)
+    seg = _segments(client, lid)[1]
+    files = client.app.state.files
+    before_row = _row(client, seg["id"])
+    before = (files.clip_wav(lid, 1).read_bytes(), files.clip_opus(lid, 1).read_bytes())
+
+    def opus_fails(src, dst):                            # cut already wrote the new wav when this fails
+        raise subprocess.CalledProcessError(1, ["ffmpeg"])
+    monkeypatch.setattr(audio, "encode_opus", opus_fails)
+    r = client.patch(f"/segments/{seg['id']}", json={"text": "其实办法有很多。"})
+    assert r.status_code == 500 and "not changed" in r.json()["detail"] and "ffmpeg" in r.json()["detail"]
+    after = _row(client, seg["id"])
+    assert (after.text, after.start_s, after.end_s, after.words_json) == \
+        (before_row.text, before_row.start_s, before_row.end_s, before_row.words_json)
+    assert (files.clip_wav(lid, 1).read_bytes(), files.clip_opus(lid, 1).read_bytes()) == before
+    assert sorted(p.name for p in files.lesson_dir(lid).joinpath("clips").iterdir()) == \
+        ["0.opus", "0.wav", "1.opus", "1.wav", "2.opus", "2.wav"]           # no temporary leftovers
+
+
 def test_resplit_and_merge(client, tmp_path):
     lid = _upload(client, tmp_path)
     _render_all_mp3(client, lid)            # stale mp3s must not survive the renumbering
