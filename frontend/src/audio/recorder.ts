@@ -1,4 +1,4 @@
-import { concat, downsample, encodeWav16 } from './pcm'
+import { concat, downsample, encodeWav16, sliceSamples, tail } from './pcm'
 
 const WORKLET_URL = `${import.meta.env.BASE_URL}worklets/pcm-capture.js`
 
@@ -45,12 +45,9 @@ export class Recorder {
     this.release()
     return this.snapshot()
   }
-  slice(t0: number, t1: number): Float32Array {
-    const all = this.snapshot()
-    const a = Math.max(0, Math.floor((t0 - this._start) * this.ctx.sampleRate))
-    const z = Math.min(all.length, Math.floor((t1 - this._start) * this.ctx.sampleRate))
-    return all.slice(a, Math.max(a, z))
-  }
+  slice(t0: number, t1: number): Float32Array { return sliceSamples(this.snapshot(), this._start, this.ctx.sampleRate, t0, t1) }
+  // The most recent n samples, cheap enough for a live level meter on a long recording.
+  tail(n: number): Float32Array { return tail(this.chunks, n) }
 
   private release() {
     if (this.node) this.node.port.onmessage = null

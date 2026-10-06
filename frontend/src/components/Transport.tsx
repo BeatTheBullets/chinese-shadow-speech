@@ -1,13 +1,14 @@
 import type { Action } from '../lib/keys'
-interface Props { onAction: (a: Action) => void; rate: number; onRate: (r: number) => void; recording: boolean; busy: boolean; flagged: boolean; hint: string; error: string }
-export default function Transport({ onAction, rate, onRate, recording, busy, flagged, hint, error }: Props) {
+interface Props { onAction: (a: Action) => void; rate: number; onRate: (r: number) => void; recording: boolean; busy: boolean; flagged: boolean; hint: string; error: string; recordLabel?: string }
+// recordLabel: what Enter does in the current mode when not recording (Chorus, Guided step, Flow start, or stop for a run).
+export default function Transport({ onAction, rate, onRate, recording, busy, flagged, hint, error, recordLabel }: Props) {
   const b = 'px-3 py-1 rounded bg-panel2 text-sm disabled:opacity-40'
   return (
     <div className="border-t border-line p-3 text-center space-y-1">
       <div className="flex justify-center gap-2 items-center">
         <button className={b} onClick={() => onAction('prev')} title="Previous (←)">◀</button>
         <button className={b} onClick={() => onAction('play')} disabled={recording}>▶ Space</button>
-        <button className={`${b} ${recording ? 'bg-[#5a1f26] text-[#ffd7db]' : ''}`} onClick={() => onAction('record')} disabled={busy}>{recording ? '■ stop' : '● Enter'}</button>
+        <button className={`${b} ${recording ? 'bg-[#5a1f26] text-[#ffd7db]' : ''}`} onClick={() => onAction('record')} disabled={busy}>{recording ? '■ stop' : recordLabel ?? '● Enter'}</button>
         <button className={b} onClick={() => onAction('chorus')} disabled={recording || busy}>↻ C</button>
         <button className={b} onClick={() => onAction('replayYou')}>▶ R</button>
         {/* blur after a drag so Space/arrows go back to the page shortcuts instead of the slider */}

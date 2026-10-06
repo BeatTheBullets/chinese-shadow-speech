@@ -1,8 +1,9 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { LessonDetail, Segment } from '../api/types'
 import { usePractice } from '../store/practice'
+import { useSettings } from '../store/settings'
 
 const h = vi.hoisted(() => ({
   api: {
@@ -10,7 +11,8 @@ const h = vi.hoisted(() => ({
     sessions: { create: vi.fn(), end: vi.fn() },
     segments: { audioUrl: (id: number, fmt = 'opus') => `/seg/${id}.${fmt}`, postAttempt: vi.fn(), patch: vi.fn() },
   },
-  rec: { start: vi.fn(), stop: vi.fn(), sampleRate: 44100 },
+  rec: { start: vi.fn(), stop: vi.fn(), sampleRate: 44100, startTime: 0 },
+  clock: { t: 0 }, // AudioContext.currentTime
   toWav16k: vi.fn(() => new Blob(['wav'])),
   playSequence: vi.fn(() => Promise.resolve()),
   player: { play: vi.fn(() => Promise.resolve()), playRange: vi.fn(() => Promise.resolve()), stop: vi.fn(), preload: vi.fn(() => Promise.resolve()), peaksFor: vi.fn(() => new Promise(() => {})) },
@@ -24,6 +26,8 @@ vi.mock('../audio/recorder', () => ({
     start() { return h.rec.start() }
     stop() { return h.rec.stop() }
     snapshot() { return new Float32Array(0) }
+    get startTime() { return h.rec.startTime }
+    tail() { return new Float32Array(0) }
   },
   toWav16k: h.toWav16k,
 }))
@@ -63,18 +67,22 @@ describe('<Practice>', () => {
   const origCreate = URL.createObjectURL, origRevoke = URL.revokeObjectURL
   beforeEach(() => {
     vi.clearAllMocks()
-    usePractice.setState({ lesson: null, idx: 0, sessionId: null, drawerOpen: true, attemptsThisSegment: 0, lastAttempt: null, recordingNow: false, hint: '' })
+    usePractice.setState({ lesson: null, idx: 0, mode: 'echo', sessionId: null, drawerOpen: true, attemptsThisSegment: 0, lastAttempt: null, recordingNow: false, hint: '' })
     h.api.lessons.get.mockResolvedValue(lesson)
     h.api.sessions.create.mockResolvedValue({ id: 5 })
     h.api.sessions.end.mockResolvedValue({})
     h.api.segments.postAttempt.mockResolvedValue({ id: 99 })
     h.rec.start.mockResolvedValue(undefined)
     h.rec.stop.mockReturnValue(new Float32Array(44100))
-    globalThis.AudioContext = class { sampleRate = 44100; close = h.ctxClose } as unknown as typeof AudioContext
+    h.rec.startTime = 0; h.clock.t = 0
+    h.player.play.mockImplementation(() => Promise.resolve())
+    h.player.stop.mockImplementation(() => {})
+    globalThis.AudioContext = class { sampleRate = 44100; close = h.ctxClose; get currentTime() { return h.clock.t } } as unknown as typeof AudioContext
     URL.createObjectURL = vi.fn(() => 'blob:take')
     URL.revokeObjectURL = vi.fn()
   })
   afterEach(() => {
+    cleanup() // unmount (freeing blob: URLs) while the URL and AudioContext stubs are still in place
     globalThis.AudioContext = origAudioContext
     URL.createObjectURL = origCreate; URL.revokeObjectURL = origRevoke
   })
@@ -267,5 +275,186 @@ describe('<Practice>', () => {
     expect(await screen.findByText('再见', { selector: 'p.sentence' })).toBeInTheDocument()
     expect(h.player.stop).toHaveBeenCalled()
     expect(usePractice.getState().idx).toBe(1)
+  })
+  // A player whose clips advance the recording clock by `secs` and end on their own, or (hold) only when stopped.
+  function clipsTake(secs: number, hold: (n: number) => boolean = () => false) {
+    const waiting: (() => void)[] = []
+    let n = 0
+    h.player.play.mockImplementation(() => {
+      const mine = ++n
+      if (!hold(mine)) { h.clock.t += secs; return Promise.resolve() }
+      return new Promise<void>((r) => { waiting.push(r) })
+    })
+    h.player.stop.mockImplementation(() => { waiting.splice(0).forEach((r) => r()) })
+  }
+  const sleepMs = (ms: number) => act(() => new Promise((r) => setTimeout(r, ms)))
+  const uploads = () => (h.api.segments.postAttempt.mock.calls as unknown as [number, Blob, { mode: string }][]).map(([sid, , o]) => [sid, o.mode])
+  const wavLengths = () => (h.toWav16k.mock.calls as unknown as [Float32Array, number][]).map(([x, sr]) => [x.length, sr])
+
+  describe('Chorus', () => {
+    let passes = 5
+    beforeEach(() => { passes = useSettings.getState().practice.chorusPasses; useSettings.setState((s) => ({ practice: { ...s.practice, chorusPasses: 2 } })) })
+    afterEach(() => { cleanup(); useSettings.setState((s) => ({ practice: { ...s.practice, chorusPasses: passes } })) })
+
+    it('C plays N passes, records only the last pass to its end + 0.3 s, uploads it as chorus and plays it back', async () => {
+      const recordingAtPlay: boolean[] = []
+      h.player.play.mockImplementation(() => { recordingAtPlay.push(usePractice.getState().recordingNow); h.clock.t += 2; return Promise.resolve() })
+      h.rec.stop.mockReturnValue(new Float32Array(44100 * 10))
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      await waitFor(() => expect(usePractice.getState().sessionId).toBe(5))
+      press('c')
+      await waitFor(() => expect(h.api.segments.postAttempt).toHaveBeenCalled(), { timeout: 2000 })
+      expect(h.rec.start).toHaveBeenCalledTimes(1)
+      expect(h.player.play.mock.calls.map((c) => (c as unknown[])[0])).toEqual(['/seg/11.opus', '/seg/11.opus'])
+      expect(recordingAtPlay).toEqual([false, true]) // the red indicator only on the last pass
+      // last pass from t = 2 s to its end at 4 s, plus 0.3 s, on the recording clock
+      expect(wavLengths()).toEqual([[Math.floor(4 * 44100) - 2 * 44100, 44100]])
+      expect(h.api.segments.postAttempt).toHaveBeenCalledWith(11, expect.any(Blob), { session_id: 5, mode: 'chorus' })
+      const [, items] = h.playSequence.mock.calls[0] as unknown as [unknown, { url: string }[]]
+      expect(items.map((i) => i.url)).toEqual(['/seg/11.opus', 'blob:take'])
+      expect(usePractice.getState()).toMatchObject({ recordingNow: false, attemptsThisSegment: 1 })
+    })
+
+    it('Enter in Chorus mode starts it; Enter again during the passes cancels it with nothing saved', async () => {
+      clipsTake(2, () => true)
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      fireEvent.click(screen.getByRole('button', { name: 'Chorus' }))
+      press('Enter')
+      await waitFor(() => expect(h.player.play).toHaveBeenCalledTimes(1))
+      expect(screen.getByRole('button', { name: '■ stop' })).toBeInTheDocument()
+      press('Enter')
+      await flush()
+      expect(h.rec.stop).toHaveBeenCalledTimes(1) // the open mic is released
+      await sleepMs(400)
+      expect(h.player.play).toHaveBeenCalledTimes(1)
+      expect(h.api.segments.postAttempt).not.toHaveBeenCalled()
+      expect(usePractice.getState().recordingNow).toBe(false)
+      expect(screen.getByRole('button', { name: '● Chorus ×2' })).toBeInTheDocument()
+    })
+
+    it('a denied microphone shows the error and plays nothing', async () => {
+      h.rec.start.mockRejectedValue(new Error('Microphone permission was denied'))
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      press('c')
+      expect(await screen.findByRole('alert')).toHaveTextContent('Microphone permission was denied')
+      expect(h.player.play).not.toHaveBeenCalled()
+      expect(screen.getByRole('button', { name: '● Enter' })).toBeInTheDocument()
+      expect(usePractice.getState().recordingNow).toBe(false)
+    })
+  })
+
+  describe('Flow', () => {
+    async function startFlow(sub: 'after' | 'along' = 'along') {
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      await waitFor(() => expect(usePractice.getState().sessionId).toBe(5))
+      fireEvent.click(screen.getByRole('button', { name: 'Flow' }))
+      fireEvent.click(screen.getByRole('button', { name: sub }))
+      fireEvent.click(screen.getByRole('button', { name: 'Start' }))
+    }
+
+    it('along: records once, plays the range back to back, uploads one flow slice per sentence and shows the summary', async () => {
+      clipsTake(2)
+      h.rec.stop.mockReturnValue(new Float32Array(44100 * 10))
+      await startFlow('along')
+      expect(await screen.findByText(/Flow finished · 2 sentences/)).toBeInTheDocument()
+      await waitFor(() => expect(h.api.segments.postAttempt).toHaveBeenCalledTimes(2))
+      expect(h.rec.start).toHaveBeenCalledTimes(1)
+      expect(h.player.play.mock.calls.map((c) => (c as unknown[])[0])).toEqual(['/seg/11.opus', '/seg/12.opus'])
+      expect(uploads()).toEqual([[11, 'flow'], [12, 'flow']])
+      expect(h.api.segments.postAttempt).toHaveBeenCalledWith(11, expect.any(Blob), { session_id: 5, mode: 'flow' })
+      // clip 1 played 0–2 s, clip 2 2–4 s; each slice spans its clip with 150 ms slack
+      expect(wavLengths()).toEqual([[Math.floor(2.15 * 44100), 44100], [Math.floor(4.15 * 44100) - Math.floor(1.85 * 44100), 44100]])
+      await waitFor(() => expect(h.api.lessons.get).toHaveBeenCalledTimes(2)) // scores refreshed
+      expect(usePractice.getState().recordingNow).toBe(false)
+      fireEvent.click(screen.getAllByRole('button', { name: '▶ ref+you' })[1])
+      const [, items] = h.playSequence.mock.calls.at(-1) as unknown as [unknown, { url: string; rate: number }[]]
+      expect(items).toEqual([{ url: '/seg/12.opus', rate: 1 }, { url: 'blob:take', rate: 1 }])
+    })
+
+    it('stopping midway submits the finished sentences, each to its own sentence, and drops the unfinished one', async () => {
+      clipsTake(2, (n) => n === 2)
+      h.rec.stop.mockReturnValue(new Float32Array(44100 * 10))
+      await startFlow('along')
+      await waitFor(() => expect(h.player.play).toHaveBeenCalledTimes(2))
+      expect(screen.getByText('speak along')).toBeInTheDocument()
+      press('Enter')
+      expect(await screen.findByText(/Flow finished · 1 sentences/)).toBeInTheDocument()
+      await waitFor(() => expect(h.api.segments.postAttempt).toHaveBeenCalledTimes(1))
+      expect(uploads()).toEqual([[11, 'flow']])
+      expect(h.rec.stop).toHaveBeenCalledTimes(1)
+    })
+
+    it('skip (→) drops the current sentence and moves on', async () => {
+      clipsTake(2, (n) => n === 1)
+      h.rec.stop.mockReturnValue(new Float32Array(44100 * 10))
+      await startFlow('along')
+      await waitFor(() => expect(h.player.play).toHaveBeenCalledTimes(1))
+      press('ArrowRight')
+      expect(await screen.findByText(/Flow finished · 1 sentences · 1 skipped/)).toBeInTheDocument()
+      await waitFor(() => expect(uploads()).toEqual([[12, 'flow']]))
+    })
+
+    it('switching mode mid-run abandons it: mic closed, nothing uploaded, stage back', async () => {
+      clipsTake(2, () => true)
+      await startFlow('after')
+      await waitFor(() => expect(h.player.play).toHaveBeenCalledTimes(1))
+      expect(screen.getByText('your turn')).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: 'Echo' }))
+      await flush()
+      expect(h.rec.stop).toHaveBeenCalledTimes(1)
+      await sleepMs(300)
+      expect(h.player.play).toHaveBeenCalledTimes(1)
+      expect(h.api.segments.postAttempt).not.toHaveBeenCalled()
+      expect(usePractice.getState().recordingNow).toBe(false)
+      expect(screen.getByText('你好', { selector: 'p.sentence' })).toBeInTheDocument()
+    })
+
+    it('unmounting mid-run closes the mic and uploads nothing', async () => {
+      clipsTake(2, () => true)
+      await startFlow('after')
+      await waitFor(() => expect(h.player.play).toHaveBeenCalledTimes(1))
+      cleanup()
+      await sleepMs(300)
+      expect(h.rec.stop).toHaveBeenCalledTimes(1)
+      expect(h.player.play).toHaveBeenCalledTimes(1)
+      expect(h.api.segments.postAttempt).not.toHaveBeenCalled()
+      expect(usePractice.getState().recordingNow).toBe(false)
+    })
+
+    it('a denied microphone returns to the setup with a readable error', async () => {
+      h.rec.start.mockRejectedValue(new Error('Microphone permission was denied'))
+      await startFlow('along')
+      expect(await screen.findByRole('alert')).toHaveTextContent('Microphone permission was denied')
+      expect(screen.getByRole('button', { name: '● Start flow' })).toBeInTheDocument()
+      expect(h.player.play).not.toHaveBeenCalled()
+      expect(usePractice.getState().recordingNow).toBe(false)
+    })
+  })
+
+  it('Guided: listen → whisper (text shown, no mic) → record (text hidden), uploads as guided, then advances', async () => {
+    renderPractice()
+    await screen.findByText('你好', { selector: 'p.sentence' })
+    fireEvent.click(screen.getByRole('button', { name: 'Guided' }))
+    press('Enter')
+    expect(await screen.findByRole('button', { name: '● Whisper along (text visible)' })).toBeInTheDocument()
+    expect(screen.getByText('你好', { selector: 'p.sentence' })).toBeInTheDocument()
+    press('Enter')
+    expect(await screen.findByRole('button', { name: '● Now record, text hidden' })).toBeInTheDocument()
+    expect(h.player.play).toHaveBeenCalledTimes(2)
+    expect(h.rec.start).not.toHaveBeenCalled() // the whisper pass is not recorded
+    expect(screen.queryByText('你好', { selector: 'p.sentence' })).toBeNull()
+    press('Enter')
+    expect(await screen.findByRole('button', { name: '■ stop' })).toBeInTheDocument()
+    await flush()
+    press('Enter')
+    await flush()
+    expect(uploads()).toEqual([[11, 'guided']])
+    await waitFor(() => expect(usePractice.getState().idx).toBe(1))
+    expect(await screen.findByRole('button', { name: '● Listen once' })).toBeInTheDocument()
+    expect(screen.getByText('再见', { selector: 'p.sentence' })).toBeInTheDocument()
   })
 })

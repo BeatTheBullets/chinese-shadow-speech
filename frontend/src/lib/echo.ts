@@ -10,3 +10,5 @@ export function echoReducer(s: EchoState, e: EchoEvent): EchoState {
     case 'playback': return e === 'PLAYBACK_DONE' ? 'idle' : e === 'RECORD' ? 'recording' : e === 'PLAY' ? 'playing' : s
   }
 }
+// A take (or Flow slice) shorter than this is dropped rather than saved, in every mode.
+export const MIN_TAKE_S = 0.2

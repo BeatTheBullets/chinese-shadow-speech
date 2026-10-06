@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { concat, downsample, encodeWav16, findSilenceEnd, rms } from './pcm'
+import { concat, downsample, encodeWav16, findSilenceEnd, rms, sliceSamples, tail } from './pcm'
 
 // jsdom's Blob has no arrayBuffer()
 const readBlob = (b: Blob) => new Promise<ArrayBuffer>((res, rej) => {
@@ -31,5 +31,26 @@ describe('pcm', () => {
     expect(findSilenceEnd(concat([new Float32Array(sr * 0.5), speech]), sr)).toBeNull()
     expect(findSilenceEnd(new Float32Array(sr * 3), sr)).toBeNull()      // never spoke
     expect(rms(new Float32Array([0.5, -0.5]))).toBeCloseTo(0.5)
+  })
+})
+
+describe('sliceSamples', () => {
+  const all = Float32Array.from({ length: 100 }, (_, i) => i) // 10 Hz, recording started at t = 5 s
+  it('cuts the clock window relative to the recording start', () => {
+    expect(Array.from(sliceSamples(all, 5, 10, 6, 6.5))).toEqual([10, 11, 12, 13, 14])
+  })
+  it('clamps windows that start before or end after the recording', () => {
+    expect(sliceSamples(all, 5, 10, 4, 5.5).length).toBe(5)
+    expect(Array.from(sliceSamples(all, 5, 10, 14.8, 20))).toEqual([98, 99])
+    expect(sliceSamples(all, 5, 10, 30, 31).length).toBe(0)
+  })
+})
+
+describe('tail', () => {
+  it('returns the last n samples across chunk boundaries without joining everything', () => {
+    const chunks = [Float32Array.of(1, 2, 3), Float32Array.of(4, 5), Float32Array.of(6)]
+    expect(Array.from(tail(chunks, 4))).toEqual([3, 4, 5, 6])
+    expect(Array.from(tail(chunks, 10))).toEqual([1, 2, 3, 4, 5, 6])
+    expect(tail([], 4).length).toBe(0)
   })
 })

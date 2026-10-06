@@ -5,6 +5,25 @@ export function concat(chunks: Float32Array[]): Float32Array {
   return out
 }
 
+// The last n samples of a chunked recording, copying only the chunks it needs.
+export function tail(chunks: Float32Array[], n: number): Float32Array {
+  const parts: Float32Array[] = []
+  let need = n
+  for (let i = chunks.length - 1; i >= 0 && need > 0; i--) {
+    const c = chunks[i]
+    parts.unshift(c.length > need ? c.subarray(c.length - need) : c)
+    need -= c.length
+  }
+  return concat(parts)
+}
+
+// Samples between clock times t0..t1 of a recording whose first sample was taken at startTime.
+export function sliceSamples(all: Float32Array, startTime: number, sampleRate: number, t0: number, t1: number): Float32Array {
+  const a = Math.max(0, Math.floor((t0 - startTime) * sampleRate))
+  const z = Math.min(all.length, Math.floor((t1 - startTime) * sampleRate))
+  return all.slice(a, Math.max(a, z))
+}
+
 export function downsample(x: Float32Array, fromSr: number, toSr = 16000): Float32Array {
   if (fromSr === toSr) return x
   const ratio = fromSr / toSr
