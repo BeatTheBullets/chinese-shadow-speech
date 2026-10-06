@@ -42,8 +42,13 @@ export function useFlow(deps: FlowDeps) {
   const skipCtrl = useRef<AbortController | null>(null)
   const token = useRef(0)                   // bumped by clear(): late updates from an older run are ignored
   const urls = useRef<string[]>([])         // blob: URLs of the shown results, freed on clear and unmount
+  const recording = useRef<Promise<unknown> | null>(null) // the recording phase of the run in progress
+  const alive = useRef(true)
 
-  useEffect(() => () => { urls.current.forEach((u) => URL.revokeObjectURL(u)); urls.current = [] }, [])
+  useEffect(() => {
+    alive.current = true
+    return () => { alive.current = false; urls.current.forEach((u) => URL.revokeObjectURL(u)); urls.current = [] }
+  }, [])
 
   function clear() {
     token.current++
@@ -59,7 +64,10 @@ export function useFlow(deps: FlowDeps) {
     const gapFactor = useSettings.getState().practice.flowGapFactor
     setState((f) => ({ ...f, phase: 'running', sub, range: { from, to }, current: from, micPeak: 0 }))
     const startedAt = Date.now()
-    const take = await record(my, segments.map((s, k) => ({ segmentId: s.id, idx: from + k, url: api.segments.audioUrl(s.id), duration: s.end_s - s.start_s })), sub, gapFactor)
+    const capture = record(my, segments.map((s, k) => ({ segmentId: s.id, idx: from + k, url: api.segments.audioUrl(s.id), duration: s.end_s - s.start_s })), sub, gapFactor)
+    recording.current = capture
+    const take = await capture
+    if (recording.current === capture) recording.current = null
     if (token.current !== my) return
     if (!take) { setState((f) => ({ ...f, phase: 'setup', micPeak: 0 })); return }
     const { got, played } = take
@@ -84,7 +92,8 @@ export function useFlow(deps: FlowDeps) {
         return { ...f, pending, results: f.results.map((x) => (x.segmentId === t.rg.segmentId ? { ...x, attemptId } : x)) }
       }))
     }
-    if (token.current === my) {
+    // Refresh the scores even if the summary was closed meanwhile (e.g. Flow stopped by a mode switch).
+    if (alive.current) {
       api.lessons.get(lessonId).then((l) => { const ps = usePractice.getState(); if (ps.lesson?.id === lessonId) ps.replaceSegments(l.segments) }).catch(() => {})
     }
   }
@@ -130,7 +139,11 @@ export function useFlow(deps: FlowDeps) {
     state,
     setForm: (p: Partial<Pick<FlowState, 'sub' | 'from' | 'to'>>) => setState((f) => ({ ...f, ...p })),
     start,
-    stop: () => stopCtrl.current?.abort(),
+    // Ends the run gracefully; resolves once the finished sentences are sliced and their uploads have started.
+    stop: (): Promise<void> => {
+      stopCtrl.current?.abort()
+      return recording.current ? recording.current.then(() => {}) : Promise.resolve()
+    },
     skip: () => skipCtrl.current?.abort(),
     clear,
   }

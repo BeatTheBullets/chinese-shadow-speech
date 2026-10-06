@@ -50,6 +50,7 @@ export default function Practice() {
   const runRef = useRef<{ kind: RunKind; ctrl: AbortController } | null>(null)
   const [runKind, setRunKind] = useState<RunKind | null>(null)
   const playId = useRef(0)
+  const alive = useRef(true)                              // false once the page has unmounted
   const echoRef = useRef<EchoState>('idle')
   const [echo, setEcho] = useState<EchoState>('idle')
   const dispatch = (e: EchoEvent) => { echoRef.current = echoReducer(echoRef.current, e); setEcho(echoRef.current) }
@@ -92,11 +93,15 @@ export default function Practice() {
 
   // Leaving the page: end any run and stop audio. useMic drops the recording (including one still at the
   // permission prompt) and closes the context.
-  useEffect(() => () => {
-    abortRun()
-    clearVad()
-    stopPlayback()
-    usePractice.getState().setRecording(false)
+  useEffect(() => {
+    alive.current = true
+    return () => {
+      alive.current = false
+      abortRun()
+      clearVad()
+      stopPlayback()
+      usePractice.getState().setRecording(false)
+    }
   }, [player]) // eslint-disable-line react-hooks/exhaustive-deps -- unmount-only; these touch refs and player only
 
   useEffect(() => {
@@ -339,7 +344,12 @@ export default function Practice() {
     cancelActivity()
     ps.setIdx(j)
   }
-  function switchMode(m: Mode) {
+  // Clicking the active mode does nothing. Leaving Flow mid-run stops it gracefully first (the finished sentences
+  // are still sliced and uploaded) and then switches.
+  async function switchMode(m: Mode) {
+    if (m === usePractice.getState().mode) return
+    if (runRef.current?.kind === 'flow') await flow.stop()
+    if (!alive.current) return
     cancelActivity(); flow.clear(); flow.setForm({ from: null, to: null })
     usePractice.getState().setMode(m)
   }
@@ -356,8 +366,8 @@ export default function Practice() {
     void flow.start(from, to, flow.state.sub)
   }
   // From the Flow summary to a drill of one sentence.
-  function drill(mode: Mode, i: number) {
-    switchMode(mode)
+  async function drill(mode: Mode, i: number) {
+    await switchMode(mode)
     const ps = usePractice.getState()
     if (i !== ps.idx) ps.setIdx(i)
     if (mode === 'chorus') void chorus()
@@ -375,7 +385,7 @@ export default function Practice() {
     if (ps.lesson?.id !== lessonId) return // the store still holds another lesson (this one is loading)
     const run = runRef.current
     if (run?.kind === 'flow') { // while Flow runs: Enter stops (finished sentences are kept), → skips, speed works
-      if (a === 'record') flow.stop()
+      if (a === 'record') void flow.stop()
       else if (a === 'next') flow.skip()
       else if (a === 'speed075') ps.setRate(ps.rate === 0.75 ? 1 : 0.75)
       return
@@ -441,7 +451,7 @@ export default function Practice() {
   return (
     <div className="h-full flex flex-col">
       <TopBar title={st.lesson.title} speaker={st.lesson.speaker} idx={flowRunning ? fs.current : st.idx} total={segments.length} mode={st.mode}
-        onMode={switchMode} elapsedS={elapsed} />
+        onMode={(m) => void switchMode(m)} elapsedS={elapsed} />
       <div className="flex-1 flex min-h-0">
         <main className="flex-1 flex flex-col min-w-0">
           {flowRunning ? (<>
@@ -453,7 +463,7 @@ export default function Practice() {
               {st.mode === 'flow' && fs.phase === 'summary' ? (
                 <FlowSummary segments={segments} results={fs.results} skipped={fs.skipped} elapsedS={fs.elapsedS}
                   onPlayPair={(r) => playItems(pairOf(r))} onReplayAll={() => playItems([...fs.results].sort((x, y) => x.idx - y.idx).flatMap(pairOf))}
-                  onRunAgain={() => { if (fs.range) startFlow(fs.range.from, fs.range.to) }} onEcho={(i) => drill('echo', i)} onChorus={(i) => drill('chorus', i)}
+                  onRunAgain={() => { if (fs.range) startFlow(fs.range.from, fs.range.to) }} onEcho={(i) => void drill('echo', i)} onChorus={(i) => void drill('chorus', i)}
                   onFlagWeakest={flagWeakest} onExportWeakest={() => { /* TODO(Task 11): send the weakest three to Anki with exportToAnki */ }}
                   onDone={flow.clear} />
               ) : (<>

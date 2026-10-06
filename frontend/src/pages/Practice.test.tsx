@@ -398,19 +398,49 @@ describe('<Practice>', () => {
       await waitFor(() => expect(uploads()).toEqual([[12, 'flow']]))
     })
 
-    it('switching mode mid-run abandons it: mic closed, nothing uploaded, stage back', async () => {
+    it('switching mode mid-run stops gracefully: finished sentences are uploaded, the unfinished one dropped, then it switches', async () => {
+      clipsTake(2, (n) => n === 2)
+      h.rec.stop.mockReturnValue(new Float32Array(44100 * 10))
+      await startFlow('along')
+      await waitFor(() => expect(h.player.play).toHaveBeenCalledTimes(2))
+      fireEvent.click(screen.getByRole('button', { name: 'Echo' }))
+      await waitFor(() => expect(usePractice.getState().mode).toBe('echo'))
+      await waitFor(() => expect(uploads()).toEqual([[11, 'flow']]))
+      expect(h.rec.stop).toHaveBeenCalledTimes(1)
+      await waitFor(() => expect(h.api.lessons.get).toHaveBeenCalledTimes(2)) // scores still refresh after the summary was closed
+      await sleepMs(300)
+      expect(h.player.play).toHaveBeenCalledTimes(2)
+      expect(usePractice.getState().recordingNow).toBe(false)
+      expect(screen.getByText('你好', { selector: 'p.sentence' })).toBeInTheDocument()
+      expect(screen.queryByText(/Flow finished/)).toBeNull()
+    })
+
+    it('scores still refresh when the summary is closed while uploads are in flight', async () => {
+      clipsTake(2)
+      h.rec.stop.mockReturnValue(new Float32Array(44100 * 10))
+      const upload = deferred<{ id: number }>()
+      h.api.segments.postAttempt.mockReturnValue(upload.promise)
+      await startFlow('along')
+      expect(await screen.findByText(/Flow finished/)).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: 'done' }))
+      await flush()
+      expect(h.api.lessons.get).toHaveBeenCalledTimes(1)
+      upload.resolve({ id: 1 })
+      await waitFor(() => expect(h.api.lessons.get).toHaveBeenCalledTimes(2))
+    })
+
+    it('clicking the active Flow tab mid-run does nothing', async () => {
       clipsTake(2, () => true)
       await startFlow('after')
       await waitFor(() => expect(h.player.play).toHaveBeenCalledTimes(1))
+      const stops = h.player.stop.mock.calls.length
+      fireEvent.click(screen.getByRole('button', { name: 'Flow' }))
+      await sleepMs(100)
       expect(screen.getByText('your turn')).toBeInTheDocument()
-      fireEvent.click(screen.getByRole('button', { name: 'Echo' }))
-      await flush()
-      expect(h.rec.stop).toHaveBeenCalledTimes(1)
-      await sleepMs(300)
-      expect(h.player.play).toHaveBeenCalledTimes(1)
+      expect(h.player.stop).toHaveBeenCalledTimes(stops)
+      expect(h.rec.stop).not.toHaveBeenCalled()
       expect(h.api.segments.postAttempt).not.toHaveBeenCalled()
-      expect(usePractice.getState().recordingNow).toBe(false)
-      expect(screen.getByText('你好', { selector: 'p.sentence' })).toBeInTheDocument()
+      expect(usePractice.getState().recordingNow).toBe(true)
     })
 
     it('unmounting mid-run closes the mic and uploads nothing', async () => {

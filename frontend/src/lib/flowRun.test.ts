@@ -65,7 +65,7 @@ describe('playFlow', () => {
     expect(r.skipped).toBe(0)
   })
 
-  it('stop during the after-gap keeps that sentence and plays nothing more', async () => {
+  it('stop during the after-gap drops that sentence (the learner may be mid-word) and plays nothing more', async () => {
     const stop = new AbortController()
     const run = start('after', stop.signal)
     await vi.advanceTimersByTimeAsync(0)
@@ -74,7 +74,8 @@ describe('playFlow', () => {
     stop.abort()
     const r = await run
     expect(r.actual).toHaveLength(1)
-    expect(r.actual[0].playEnd).toBe(12)
+    expect(r.actual[0].playEnd).toBeUndefined()
+    expect(r.skipped).toBe(0) // stopped, not skipped
     expect(player.play).toHaveBeenCalledTimes(1)
     expect(vi.getTimerCount()).toBe(0)
   })
