@@ -536,7 +536,7 @@ PATCH  /segments/{id}                {difficulty_flag, text}  (text edit re-runs
 POST   /segments/{id}/resplit        {at_char_index} → two segments (time from ref alignment)
 POST   /segments/{id}/merge-next
 POST   /sessions                     {lesson_id, mode} → session
-PATCH  /sessions/{id}                {ended_at}
+PATCH  /sessions/{id}                {ended: true}  (server stamps ended_at)
 GET    /lessons/{id}/stats          per-segment last/best/trend, lesson mean per session
 GET    /stats/activity               minutes/day, attempts/day
 GET    /stats/sentences              last vs best across lessons, regressed list

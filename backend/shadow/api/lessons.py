@@ -9,7 +9,7 @@ from sqlmodel import Session, select
 from shadow.ingest.pipeline import ingest_upload
 from shadow.schemas import LessonDetail, LessonOut, SegmentOut
 from shadow.store.db import get_session
-from shadow.store.models import Attempt, Lesson, Segment
+from shadow.store.models import Attempt, Lesson, PracticeSession, Segment, SyllableScore
 
 router = APIRouter()
 
@@ -94,10 +94,22 @@ def delete_lesson(lesson_id: int, request: Request, db: Session = Depends(get_se
     for it ends cleanly: its status updates become no-ops and it writes no segment rows."""
     lesson = _get_lesson(db, lesson_id)
     segs = db.exec(select(Segment).where(Segment.lesson_id == lesson_id)).all()
+    attempt_files: list[Path] = []
     if segs:
-        for a in db.exec(select(Attempt).where(Attempt.segment_id.in_([s.id for s in segs]))).all():
+        seg_ids = [s.id for s in segs]
+        for sc in db.exec(select(SyllableScore).where(SyllableScore.segment_id.in_(seg_ids))).all():
+            db.delete(sc)
+        for a in db.exec(select(Attempt).where(Attempt.segment_id.in_(seg_ids))).all():
+            if a.audio_path:
+                attempt_files.append(Path(a.audio_path))
             db.delete(a)
+        db.flush()
+    for ps in db.exec(select(PracticeSession).where(PracticeSession.lesson_id == lesson_id)).all():
+        db.delete(ps)
+    db.flush()
     for s in segs:
         db.delete(s)
     db.delete(lesson); db.commit()
+    for f in attempt_files:
+        f.unlink(missing_ok=True)
     shutil.rmtree(request.app.state.files.lesson_dir(lesson_id), ignore_errors=True)
