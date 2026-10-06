@@ -37,10 +37,18 @@ export class ClipPlayer {
     if (this.current) { this.current.pause(); this.current.currentTime = 0; this.current = null }
   }
   play(url: string, rate: number, onTime?: (t: number) => void): Promise<void> {
+    return this.run(url, rate, 0, null, onTime)
+  }
+  // Plays fromS..toS (clip-relative seconds) and pauses at toS. Same cancellation as play(): a later
+  // play()/playRange()/stop() settles it, and none of its callbacks or its end-of-range pause fire afterwards.
+  playRange(url: string, rate: number, fromS: number, toS: number, onTime?: (t: number) => void): Promise<void> {
+    return this.run(url, rate, fromS, toS, onTime)
+  }
+  private run(url: string, rate: number, fromS: number, toS: number | null, onTime?: (t: number) => void): Promise<void> {
     this.stop()
     const token: PlayToken = { cancelled: false }
     this.active = token
-    const a = this.el(url); this.current = a; a.playbackRate = rate; a.currentTime = 0
+    const a = this.el(url); this.current = a; a.playbackRate = rate; a.currentTime = fromS
     return new Promise((resolve, reject) => {
       let raf = 0
       const cleanup = () => { cancelAnimationFrame(raf); a.onended = null; a.onerror = null }
@@ -51,8 +59,17 @@ export class ClipPlayer {
       }
       // Store cancel function so stop() can call it
       token.cancel = cancel
+      // Natural end: of the file, or of the range
+      const finish = (t: number) => {
+        cleanup()
+        onTime?.(t)
+        if (this.current === a) this.current = null
+        if (this.active === token) this.active = null
+        resolve()
+      }
       const tick = () => {
         if (token.cancelled || this.active !== token) return
+        if (toS != null && a.currentTime >= toS) { a.pause(); finish(toS); return }
         onTime?.(a.currentTime)
         raf = requestAnimationFrame(tick)
       }
@@ -60,11 +77,7 @@ export class ClipPlayer {
         if (token.cancelled || this.active !== token) return
         // Ignore if element hasn't actually ended (stale queued event from previous play)
         if (!a.ended) return
-        cleanup()
-        onTime?.(a.duration)
-        if (this.current === a) this.current = null
-        if (this.active === token) this.active = null
-        resolve()
+        finish(a.duration)
       }
       a.onerror = () => {
         if (token.cancelled || this.active !== token) return
@@ -75,7 +88,8 @@ export class ClipPlayer {
       a.play()
         .then(() => {
           if (token.cancelled || this.active !== token) return
-          if (onTime) raf = requestAnimationFrame(tick)
+          // A range needs the frame loop to notice its end even without onTime
+          if (onTime || toS != null) raf = requestAnimationFrame(tick)
         })
         .catch((err) => {
           if (token.cancelled || this.active !== token) return

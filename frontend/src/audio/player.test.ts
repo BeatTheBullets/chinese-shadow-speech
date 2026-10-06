@@ -285,6 +285,106 @@ describe('ClipPlayer', () => {
     clearSpy.mockRestore()
   })
 
+  describe('playRange', () => {
+    const flushRaf = () => { for (const item of rafQueue.splice(0)) item.callback(0) }
+    const pauseMock = () => HTMLMediaElement.prototype.pause as ReturnType<typeof vi.fn>
+    const settledFlag = (p: Promise<void>) => { const f = { done: false }; p.then(() => { f.done = true }, () => { f.done = true }); return f }
+
+    it('seeks to fromS, applies the rate, and pauses and resolves at toS', async () => {
+      const onTime = vi.fn()
+      const p = player.playRange('r.wav', 0.75, 1.2, 1.5, onTime)
+      const settled = settledFlag(p)
+      await flush()
+      const el = elFor('r.wav')
+      expect(el.currentTime).toBeCloseTo(1.2, 5)
+      expect(el.playbackRate).toBe(0.75)
+      flushRaf()
+      expect(onTime).toHaveBeenLastCalledWith(1.2)
+      await flush()
+      expect(settled.done).toBe(false)
+
+      el.currentTime = 1.51
+      pauseMock().mockClear()
+      flushRaf()
+      await p
+      expect(pauseMock()).toHaveBeenCalled()
+      expect(onTime).toHaveBeenLastCalledWith(1.5)
+      expect(player['current']).toBeNull()
+      expect(rafQueue.length).toBe(0)
+    })
+
+    it('watches for the range end even without an onTime callback', async () => {
+      const p = player.playRange('r.wav', 1, 0.5, 0.8)
+      await flush()
+      expect(rafQueue.length).toBe(1)
+      elFor('r.wav').currentTime = 0.8
+      flushRaf()
+      await p
+      expect(rafQueue.length).toBe(0)
+    })
+
+    it('stop() settles the range and nothing fires afterwards', async () => {
+      const onTime = vi.fn()
+      const p = player.playRange('r.wav', 1, 1, 1.5, onTime)
+      await flush()
+      flushRaf()
+      const calls = onTime.mock.calls.length
+      player.stop()
+      await p
+      const el = elFor('r.wav')
+      el.currentTime = 2
+      pauseMock().mockClear()
+      flushRaf()
+      expect(onTime.mock.calls.length).toBe(calls)
+      expect(pauseMock()).not.toHaveBeenCalled()
+    })
+
+    it('a new play() of the same url cancels the range; the old range end does not pause it', async () => {
+      const onRange = vi.fn()
+      const p1 = player.playRange('r.wav', 1, 1, 1.5, onRange)
+      await flush()
+      flushRaf()
+      const rangeCalls = onRange.mock.calls.length
+      const onPlay = vi.fn()
+      const p2 = player.play('r.wav', 1, onPlay)
+      const settled2 = settledFlag(p2)
+      await p1
+      await flush()
+      const el = elFor('r.wav')
+      expect(el.currentTime).toBe(0)
+      el.currentTime = 1.6 // past the old range end
+      pauseMock().mockClear()
+      flushRaf()
+      await flush()
+      expect(pauseMock()).not.toHaveBeenCalled()
+      expect(onRange.mock.calls.length).toBe(rangeCalls)
+      expect(onPlay).toHaveBeenLastCalledWith(1.6)
+      expect(settled2.done).toBe(false)
+      expect(player['current']).toBe(el)
+      player.stop()
+      await p2
+    })
+
+    it('a range cancels a pending play()', async () => {
+      const p1 = player.play('a.mp3', 1)
+      await flush()
+      const p2 = player.playRange('a.mp3', 1, 0.2, 0.4)
+      await p1
+      expect(player['current']).toBe(elFor('a.mp3'))
+      player.stop()
+      await p2
+    })
+
+    it('resolves on natural end when the file ends before toS', async () => {
+      const p = player.playRange('r.wav', 1, 1, 99)
+      await flush()
+      finish('r.wav')
+      await p
+      expect(player['current']).toBeNull()
+      expect(rafQueue.length).toBe(0)
+    })
+  })
+
   it('peaksFor throws on non-ok response', async () => {
     vi.stubGlobal(
       'fetch',
