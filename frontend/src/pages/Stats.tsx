@@ -5,6 +5,7 @@ import Shell from '../components/Shell'
 import { activityBars } from '../lib/stats'
 
 const EMPTY = 'No scores yet — tone scoring arrives in Phase 2.'
+const plural = (n: number) => `${n} attempt${n === 1 ? '' : 's'}`
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
 // One series (minutes per day), so one hue: the theme's reference blue, thin bars with a rounded data end, recessive
@@ -18,7 +19,7 @@ function ActivityChart({ days }: { days: ActivityStats['days'] }) {
   const h = hover != null ? bars[hover] : null
   return (
     <div>
-      <p className="text-sm text-fgdim h-5">{h ? `${days[hover!].date} · ${h.minutes} min · ${h.attempts} attempts` : 'Minutes per day, attempts below each bar'}</p>
+      <p className="text-sm text-fgdim h-5">{h ? `${days[hover!].date} · ${h.minutes} min · ${plural(h.attempts)}` : 'Minutes per day, attempts below each bar'}</p>
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label="Minutes practised per day, last 30 days">
         <line x1="0" x2={W} y1={top + plotH} y2={top + plotH} stroke="#2a3139" />
         <line x1="0" x2={W} y1={top} y2={top} stroke="#2a3139" strokeDasharray="2 4" />
@@ -31,13 +32,13 @@ function ActivityChart({ days }: { days: ActivityStats['days'] }) {
               {bh > 0 && <path d={`M${x},${top + plotH} V${top + Math.min(4, bh) + plotH - bh} q0,-${Math.min(4, bh)} ${Math.min(4, bh)},-${Math.min(4, bh)} H${x + bw - Math.min(4, bh)} q${Math.min(4, bh)},0 ${Math.min(4, bh)},${Math.min(4, bh)} V${top + plotH} Z`} fill={hover === i ? '#b5cde6' : '#8fb3d9'} />}
               <text x={x + bw / 2} y={top + plotH + 12} fontSize="9" textAnchor="middle" fill="#7c8793">{b.label}</text>
               <text x={x + bw / 2} y={top + plotH + 26} fontSize="9" textAnchor="middle" fill="#cfd6dd">{b.attempts || ''}</text>
-              <title>{`${days[i].date}: ${b.minutes} min, ${b.attempts} attempts`}</title>
+              <title>{`${days[i].date}: ${b.minutes} min, ${plural(b.attempts)}`}</title>
             </g>)
         })}
       </svg>
       <details className="text-sm text-fgdim mt-2"><summary className="cursor-pointer">Table</summary>
         <table className="mt-1"><thead><tr><th className="text-left pr-4">Day</th><th className="text-right pr-4">Min</th><th className="text-right">Attempts</th></tr></thead>
-          <tbody>{[...days].reverse().filter((d) => d.minutes || d.attempts).map((d) => <tr key={d.date}><td className="pr-4">{d.date}</td><td className="text-right pr-4">{d.minutes}</td><td className="text-right">{d.attempts}</td></tr>)}</tbody></table>
+          <tbody>{days.map((d, i) => ({ d, b: bars[i] })).reverse().filter(({ b }) => b.minutes || b.attempts).map(({ d, b }) => <tr key={d.date}><td className="pr-4">{d.date}</td><td className="text-right pr-4">{b.minutes}</td><td className="text-right">{b.attempts}</td></tr>)}</tbody></table>
       </details>
     </div>
   )
@@ -68,8 +69,8 @@ export default function Stats() {
       <Panel title="Activity · last 30 days">{activity ? <ActivityChart days={activity.days} /> : <p className="text-sm text-fgdim">Loading…</p>}</Panel>
       <Panel title="Sentences">
         {sentences && (sentences.regressed.length || sentences.by_last.length) ? (<>
-          {sentences.regressed.length > 0 && <div><h3 className="text-sm text-fgdim">Regressed</h3>{sentences.regressed.map((s) => <div key={s.segment_id} className={row}><span>#{s.segment_id}</span><span>last {Math.round(s.last * 100)}</span><span>best {Math.round(s.best * 100)}</span><span className="text-fgdim">{s.attempts} attempts</span></div>)}</div>}
-          {sentences.by_last.length > 0 && <div><h3 className="text-sm text-fgdim">By last score</h3>{sentences.by_last.map((s) => <div key={s.segment_id} className={row}><span>#{s.segment_id}</span><span>last {Math.round(s.last * 100)}</span><span>best {Math.round(s.best * 100)}</span><span className="text-fgdim">{s.attempts} attempts</span></div>)}</div>}
+          {sentences.regressed.length > 0 && <div><h3 className="text-sm text-fgdim">Regressed</h3>{sentences.regressed.map((s) => <div key={s.segment_id} className={row}><span>#{s.segment_id}</span><span>last {Math.round(s.last * 100)}</span><span>best {Math.round(s.best * 100)}</span><span className="text-fgdim">{plural(s.attempts)}</span></div>)}</div>}
+          {sentences.by_last.length > 0 && <div><h3 className="text-sm text-fgdim">By last score</h3>{sentences.by_last.map((s) => <div key={s.segment_id} className={row}><span>#{s.segment_id}</span><span>last {Math.round(s.last * 100)}</span><span>best {Math.round(s.best * 100)}</span><span className="text-fgdim">{plural(s.attempts)}</span></div>)}</div>}
         </>) : <Empty />}
       </Panel>
       <Panel title="Characters">

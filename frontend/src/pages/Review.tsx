@@ -29,9 +29,10 @@ export default function Review() {
   async function sendAll() {
     if (!exportNote) { setMsg('Configure the export note type in Settings'); return }
     setSending(true); setMsg('')
-    let n = 0, failed = ''
-    for (const r of rows) { try { await exportToAnki(r.segment, ankiUrl, exportNote); n++ } catch (e) { failed = message(e) } }
-    setMsg(`${n} sent to Anki${failed ? ` · some failed: ${failed}` : ''}`)
+    const todo = rows.filter((r) => r.segment.anki_note_id == null), skipped = rows.length - todo.length
+    let n = 0; const failures: string[] = []
+    for (const r of todo) { try { await exportToAnki(r.segment, ankiUrl, exportNote); n++ } catch (e) { failures.push(message(e)) } }
+    setMsg(`${n} sent to Anki${skipped ? ` · ${skipped} skipped (already exported)` : ''}${failures.length ? ` · ${failures.length} failed: ${[...new Set(failures)].join('; ')}` : ''}`)
     setSending(false)
   }
   return (

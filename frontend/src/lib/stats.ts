@@ -4,5 +4,5 @@ export function flaggedFirst(lessons: LessonDetail[]): { lesson: Lesson; segment
     .flatMap((l) => l.segments.filter((s) => s.difficulty_flag || (s.last_score != null && s.last_score < 0.6)).map((segment) => ({ lesson: l, segment })))
 }
 export function activityBars(days: { date: string; minutes: number; attempts: number }[]) {
-  return days.map((d) => ({ label: 'SMTWTFS'[new Date(d.date + 'T00:00:00Z').getUTCDay()], minutes: d.minutes, attempts: d.attempts }))
+  return days.map((d) => ({ label: 'SMTWTFS'[new Date(d.date + 'T00:00:00Z').getUTCDay()], minutes: Math.round(d.minutes * 10) / 10, attempts: d.attempts }))
 }

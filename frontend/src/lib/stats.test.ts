@@ -13,4 +13,11 @@ describe('stats helpers', () => {
   it('activityBars labels weekdays', () => {
     expect(activityBars([{ date: '2026-10-05', minutes: 3, attempts: 2 }])[0]).toEqual({ label: 'M', minutes: 3, attempts: 2 })
   })
+  it('activityBars rounds minutes to one decimal for display', () => {
+    expect(activityBars([{ date: '2026-10-05', minutes: 3.3333333333333335, attempts: 1 }])[0].minutes).toBe(3.3)
+  })
+  it('activityBars labels by the UTC weekday (Sunday and Saturday)', () => {
+    expect(activityBars([{ date: '2026-10-04', minutes: 0, attempts: 0 }, { date: '2026-10-10', minutes: 0, attempts: 0 }]).map((b) => b.label)).toEqual(['S', 'S'])
+    expect(activityBars([{ date: '2026-10-06', minutes: 0, attempts: 0 }, { date: '2026-10-07', minutes: 0, attempts: 0 }]).map((b) => b.label)).toEqual(['T', 'W'])
+  })
 })
