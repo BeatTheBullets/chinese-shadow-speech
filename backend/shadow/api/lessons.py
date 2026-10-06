@@ -2,12 +2,14 @@ from __future__ import annotations
 import shutil
 import uuid
 from pathlib import Path
-from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
-from sqlmodel import Session
+from pydantic import BaseModel
+from sqlmodel import Session, select
 from shadow.ingest.pipeline import ingest_upload
+from shadow.schemas import LessonDetail, LessonOut, SegmentOut
 from shadow.store.db import get_session
-from shadow.store.models import Lesson
+from shadow.store.models import Attempt, Lesson, Segment
 
 router = APIRouter()
 
@@ -34,3 +36,68 @@ async def create_lesson(request: Request, file: UploadFile = File(...), subtitle
     lesson_id = lesson.id
     job_id = jobs.submit(lambda progress: ingest_upload(deps, engine, lesson_id, media_path, sub, progress), lesson_id)
     return {"job_id": job_id, "lesson_id": lesson_id}
+
+
+def _segment_out(db: Session, seg: Segment) -> SegmentOut:
+    atts = db.exec(select(Attempt).where(Attempt.segment_id == seg.id).order_by(Attempt.created_at, Attempt.id)).all()
+    scores = [a.score_json["overall"] for a in atts if a.score_json and "overall" in a.score_json]
+    return SegmentOut(**seg.model_dump(), last_score=scores[-1] if scores else None,
+                      best_score=max(scores) if scores else None, attempts=len(atts))
+
+
+def _lesson_out(db: Session, lesson: Lesson) -> LessonOut:
+    segs = db.exec(select(Segment).where(Segment.lesson_id == lesson.id)).all()
+    outs = [_segment_out(db, s) for s in segs]
+    last = [o.last_score for o in outs if o.last_score is not None]
+    return LessonOut(**lesson.model_dump(exclude={"meta_json", "transcript_json"}), segment_count=len(segs),
+                     practised_count=sum(1 for o in outs if o.attempts),
+                     mean_last_score=sum(last) / len(last) if last else None)
+
+
+def _get_lesson(db: Session, lesson_id: int) -> Lesson:
+    lesson = db.get(Lesson, lesson_id)
+    if lesson is None:
+        raise HTTPException(404, "lesson not found")
+    return lesson
+
+
+@router.get("/lessons", response_model=list[LessonOut])
+def list_lessons(db: Session = Depends(get_session)):
+    lessons = db.exec(select(Lesson).order_by(Lesson.created_at.desc(), Lesson.id.desc())).all()
+    return [_lesson_out(db, lesson) for lesson in lessons]
+
+
+@router.get("/lessons/{lesson_id}", response_model=LessonDetail)
+def get_lesson(lesson_id: int, db: Session = Depends(get_session)):
+    base = _lesson_out(db, _get_lesson(db, lesson_id))
+    segs = db.exec(select(Segment).where(Segment.lesson_id == lesson_id).order_by(Segment.idx)).all()
+    return LessonDetail(**base.model_dump(), segments=[_segment_out(db, s) for s in segs])
+
+
+class LessonPatch(BaseModel):
+    title: str | None = None
+    speaker: str | None = None
+
+
+@router.patch("/lessons/{lesson_id}", response_model=LessonOut)
+def patch_lesson(lesson_id: int, body: LessonPatch, db: Session = Depends(get_session)):
+    lesson = _get_lesson(db, lesson_id)
+    for k, v in body.model_dump(exclude_none=True).items():
+        setattr(lesson, k, v)
+    db.add(lesson); db.commit(); db.refresh(lesson)
+    return _lesson_out(db, lesson)
+
+
+@router.delete("/lessons/{lesson_id}", status_code=204)
+def delete_lesson(lesson_id: int, request: Request, db: Session = Depends(get_session)):
+    """Deletes the lesson, its segments, their attempts and the lesson's files. An ingest job still running
+    for it ends cleanly: its status updates become no-ops and it writes no segment rows."""
+    lesson = _get_lesson(db, lesson_id)
+    segs = db.exec(select(Segment).where(Segment.lesson_id == lesson_id)).all()
+    if segs:
+        for a in db.exec(select(Attempt).where(Attempt.segment_id.in_([s.id for s in segs]))).all():
+            db.delete(a)
+    for s in segs:
+        db.delete(s)
+    db.delete(lesson); db.commit()
+    shutil.rmtree(request.app.state.files.lesson_dir(lesson_id), ignore_errors=True)

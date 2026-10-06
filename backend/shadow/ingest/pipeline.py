@@ -26,8 +26,11 @@ class NoSpeechError(RuntimeError):
 
 
 def _set_status(engine: Engine, lesson_id: int, status: str, error: str | None = None, **fields) -> None:
+    """No-op when the lesson has been deleted (e.g. while its ingest job was running)."""
     with Session(engine) as db:
         lesson = db.get(Lesson, lesson_id)
+        if lesson is None:
+            return
         lesson.status, lesson.error = status, error
         for k, v in fields.items():
             setattr(lesson, k, v)
@@ -35,8 +38,11 @@ def _set_status(engine: Engine, lesson_id: int, status: str, error: str | None =
 
 
 def _merge_meta(engine: Engine, lesson_id: int, **items) -> None:
+    """No-op when the lesson has been deleted."""
     with Session(engine) as db:
         lesson = db.get(Lesson, lesson_id)
+        if lesson is None:
+            return
         lesson.meta_json = {**(lesson.meta_json or {}), **items}
         db.add(lesson); db.commit()
 
@@ -147,6 +153,9 @@ def build_segments(deps: Deps, engine: Engine, lesson_id: int, source_wav: Path,
             _merge_meta(engine, lesson_id, translation_error=str(e) or type(e).__name__)
 
     with Session(engine) as db:
+        if db.get(Lesson, lesson_id) is None:     # deleted while this job ran: write no orphan rows
+            log.warning("lesson %d was deleted during ingest; discarding its segments", lesson_id)
+            return
         idx = idx_offset
         for i, s in enumerate(sentences):
             if bounds[i] is not None:

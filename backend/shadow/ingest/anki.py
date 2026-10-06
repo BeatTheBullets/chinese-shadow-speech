@@ -77,7 +77,8 @@ def existing_note_ids(engine: Engine, lesson_id: int) -> set[int]:
 def skipped_notes(engine: Engine, lesson_id: int) -> dict[str, str]:
     """{note_id: reason} of notes the lesson could not use (lesson.meta_json["skipped_notes"]; JSON keys are str)."""
     with Session(engine) as db:
-        return dict((db.get(Lesson, lesson_id).meta_json or {}).get("skipped_notes", {}))
+        lesson = db.get(Lesson, lesson_id)               # None if deleted while a job runs
+        return dict(((lesson.meta_json if lesson else None) or {}).get("skipped_notes", {}))
 
 
 def handled_note_ids(engine: Engine, lesson_id: int) -> set[int]:
