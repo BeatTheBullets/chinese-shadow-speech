@@ -86,6 +86,8 @@ export default function Practice() {
       if (cancelled) return
       const ps = usePractice.getState(), s = useSettings.getState()
       ps.setLesson(l); ps.setTextPrefs(s.textPrefs[String(lessonId)] ?? defaultTextPrefs); ps.setRate(s.practice.defaultRate)
+      const seg = new URLSearchParams(window.location.search).get('seg')   // Review links here with ?seg=idx
+      if (seg != null && Number.isInteger(Number(seg)) && Number(seg) >= 0 && Number(seg) < l.segments.length) ps.setIdx(Number(seg))
     }).catch((e) => { if (!cancelled) setLoadError(`Could not load the lesson: ${message(e)}`) })
     return () => { cancelled = true }
   }, [lessonId])
