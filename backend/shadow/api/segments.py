@@ -60,6 +60,7 @@ def segment_audio(segment_id: int, request: Request, fmt: str = "opus", db: Sess
 class SegmentPatch(BaseModel):
     difficulty_flag: bool | None = None
     text: str | None = None
+    anki_note_id: int | None = None        # the note an export to Anki created (no re-enrich)
 
 
 @router.patch("/segments/{segment_id}", response_model=SegmentOut)
@@ -78,9 +79,12 @@ def patch_segment(segment_id: int, body: SegmentPatch, request: Request, db: Ses
             log.exception("re-enrich of segment %d failed", segment_id)
             why = "audio processing (ffmpeg) failed" if isinstance(e, subprocess.CalledProcessError) else (str(e) or type(e).__name__)
             raise HTTPException(500, f"the edited sentence could not be processed, so the text was not changed: {why}")
-    if body.difficulty_flag is not None:
+    if body.difficulty_flag is not None or body.anki_note_id is not None:
         db.refresh(seg)
-        seg.difficulty_flag = body.difficulty_flag
+        if body.difficulty_flag is not None:
+            seg.difficulty_flag = body.difficulty_flag
+        if body.anki_note_id is not None:
+            seg.anki_note_id = body.anki_note_id
         db.add(seg); db.commit()
     return _fresh_out(db, segment_id)
 

@@ -11,7 +11,7 @@ const h = vi.hoisted(() => ({
     sessions: { create: vi.fn(), end: vi.fn() },
     segments: { audioUrl: (id: number, fmt = 'opus') => `/seg/${id}.${fmt}`, postAttempt: vi.fn(), patch: vi.fn(), resplit: vi.fn(), mergeNext: vi.fn(), clipChanged: vi.fn() },
   },
-  exportToAnki: vi.fn(),
+  exportAndRecord: vi.fn(),
   rec: { start: vi.fn(), stop: vi.fn(), sampleRate: 44100, startTime: 0 },
   clock: { t: 0 }, // AudioContext.currentTime
   toWav16k: vi.fn(() => new Blob(['wav'])),
@@ -21,7 +21,7 @@ const h = vi.hoisted(() => ({
   twoTrack: null as null | { onLoopSyllable: (i: number) => void },
 }))
 vi.mock('../api/client', async (importOriginal) => ({ ...(await importOriginal<typeof import('../api/client')>()), api: h.api }))
-vi.mock('../anki/export', () => ({ exportToAnki: h.exportToAnki }))
+vi.mock('../anki/export', async (importOriginal) => ({ ...(await importOriginal<typeof import('../anki/export')>()), exportAndRecord: h.exportAndRecord }))
 vi.mock('../audio/recorder', () => ({
   Recorder: class {
     get sampleRate() { return h.rec.sampleRate }
@@ -596,22 +596,46 @@ describe('<Practice>', () => {
       await screen.findByText('你好', { selector: 'p.sentence' })
       press('a')
       expect(await screen.findByRole('alert')).toHaveTextContent('Configure the export note type in Settings')
-      expect(h.exportToAnki).not.toHaveBeenCalled()
+      expect(h.exportAndRecord).not.toHaveBeenCalled()
     })
 
-    it('A sends the current sentence and confirms', async () => {
+    it('A sends the current sentence, confirms and records the note; a second A asks first', async () => {
       useSettings.setState({ exportNote: cfg })
-      h.exportToAnki.mockResolvedValue(1)
+      h.exportAndRecord.mockImplementation(async (s: Segment) => ({ ...s, anki_note_id: 1 }))
       renderPractice()
       await screen.findByText('你好', { selector: 'p.sentence' })
       press('a')
       expect(await screen.findByText('Sent to Anki')).toBeInTheDocument()
-      expect(h.exportToAnki).toHaveBeenCalledWith(expect.objectContaining({ id: 11 }), useSettings.getState().ankiUrl, cfg)
+      expect(h.exportAndRecord).toHaveBeenCalledWith(expect.objectContaining({ id: 11 }), useSettings.getState().ankiUrl, cfg)
+      expect(usePractice.getState().lesson!.segments[0].anki_note_id).toBe(1)
+      const ask = vi.spyOn(window, 'confirm').mockReturnValue(false)
+      press('a')
+      expect(ask).toHaveBeenCalledWith('"你好" is already in Anki. Send it again?')
+      await flush()
+      expect(h.exportAndRecord).toHaveBeenCalledTimes(1)
+      ask.mockRestore()
+    })
+
+    it('A on a sentence imported from Anki sends it only when confirmed', async () => {
+      useSettings.setState({ exportNote: cfg })
+      h.api.lessons.get.mockResolvedValue({ ...lesson, segments: [{ ...seg(11, 0, '你好'), anki_note_id: 5 }, seg(12, 1, '再见')] })
+      h.exportAndRecord.mockImplementation(async (s: Segment) => s)
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      const ask = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true)
+      press('a')
+      await flush()
+      expect(h.exportAndRecord).not.toHaveBeenCalled()
+      press('a')
+      expect(await screen.findByText('Sent to Anki')).toBeInTheDocument()
+      expect(h.exportAndRecord).toHaveBeenCalledTimes(1)
+      expect(ask).toHaveBeenCalledTimes(2)
+      ask.mockRestore()
     })
 
     it('an AnkiConnect error is shown readably', async () => {
       useSettings.setState({ exportNote: cfg })
-      h.exportToAnki.mockRejectedValue(new Error('"你好" is already in Anki, not added again.'))
+      h.exportAndRecord.mockRejectedValue(new Error('"你好" is already in Anki, not added again.'))
       renderPractice()
       await screen.findByText('你好', { selector: 'p.sentence' })
       press('a')
@@ -620,7 +644,7 @@ describe('<Practice>', () => {
 
     it('the Flow summary sends the weakest sentences', async () => {
       useSettings.setState({ exportNote: cfg })
-      h.exportToAnki.mockResolvedValue(1)
+      h.exportAndRecord.mockImplementation(async (s: Segment) => ({ ...s, anki_note_id: s.id * 100 }))
       const scored = { ...lesson, segments: [{ ...seg(11, 0, '你好'), last_score: 0.5 }, { ...seg(12, 1, '再见'), last_score: 0.9 }] }
       h.api.lessons.get.mockResolvedValueOnce(lesson).mockResolvedValue(scored)
       h.player.play.mockImplementation(() => { h.clock.t += 2; return Promise.resolve() })
@@ -634,7 +658,8 @@ describe('<Practice>', () => {
       await waitFor(() => expect(send).toBeEnabled())
       fireEvent.click(send)
       expect(await screen.findByText('Sent 2 sentences to Anki')).toBeInTheDocument()
-      expect(h.exportToAnki.mock.calls.map((c) => (c[0] as Segment).id)).toEqual([11, 12])
+      expect(h.exportAndRecord.mock.calls.map((c) => (c[0] as Segment).id)).toEqual([11, 12])
+      expect(usePractice.getState().lesson!.segments.map((x) => x.anki_note_id)).toEqual([1100, 1200])
     })
   })
 })

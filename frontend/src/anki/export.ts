@@ -1,4 +1,4 @@
-import { api } from '../api/client'
+import { api, ApiError } from '../api/client'
 import type { Segment } from '../api/types'
 import type { ExportNote } from '../store/settings'
 import { anki, type AddNote } from './client'
@@ -42,5 +42,31 @@ export async function exportToAnki(seg: Segment, ankiUrl: string, cfg: ExportNot
     if (!/duplicate/i.test((e as Error).message)) throw e
     if (!window.confirm(`"${seg.text}" is already in the Anki deck ${cfg.deckName}. Add it anyway?`)) throw new Error(`"${seg.text}" is already in Anki, not added again.`)
     return addNote(ankiUrl, buildExportNote(seg, b64, cfg, true))
+  }
+}
+
+// A sentence already has a note in Anki: it was imported from Anki, or the app sent it there before.
+export const inAnki = (seg: Segment) => seg.anki_note_id != null
+
+// The question to ask before sending a sentence that is already in Anki again; null when there is nothing to ask.
+export function reexportQuestion(seg: Segment): string | null {
+  return inAnki(seg) ? `"${seg.text}" is already in Anki. Send it again?` : null
+}
+
+// Bulk export leaves out sentences already in Anki.
+export function splitForExport<T extends { segment: Segment }>(rows: T[]): { todo: T[]; skipped: number } {
+  const todo = rows.filter((r) => !inAnki(r.segment))
+  return { todo, skipped: rows.length - todo.length }
+}
+
+// Sends one sentence and records the new note on it (so Review skips it and A asks first); resolves to the
+// updated sentence. A sentence imported from Anki keeps its own note id, which a re-import identifies it by.
+export async function exportAndRecord(seg: Segment, ankiUrl: string, cfg: ExportNote): Promise<Segment> {
+  const noteId = await exportToAnki(seg, ankiUrl, cfg)
+  if (inAnki(seg)) return seg
+  try { return await api.segments.patch(seg.id, { anki_note_id: noteId }) }
+  catch (e) {
+    const why = e instanceof ApiError ? e.detail : e instanceof Error ? e.message : String(e)
+    throw new Error(`"${seg.text}" was sent to Anki, but could not be marked as sent: ${why}`)
   }
 }

@@ -56,7 +56,7 @@ export const api = {
       return `${base}/segments/${id}/audio?fmt=${fmt}${v ? `&v=${v}` : ''}`
     },
     clipChanged: (id: number) => { clipRev.set(id, Math.max(Date.now(), (clipRev.get(id) ?? 0) + 1)) },
-    patch: (id: number, body: { difficulty_flag?: boolean; text?: string }) => req<Segment>(`/segments/${id}`, json('PATCH', body)),
+    patch: (id: number, body: { difficulty_flag?: boolean; text?: string; anki_note_id?: number }) => req<Segment>(`/segments/${id}`, json('PATCH', body)),
     resplit: (id: number, at_char_index: number) => req<Segment[]>(`/segments/${id}/resplit`, json('POST', { at_char_index })),
     mergeNext: (id: number) => req<Segment>(`/segments/${id}/merge-next`, { method: 'POST' }),
     attempts: (id: number) => req<Attempt[]>(`/segments/${id}/attempts`),

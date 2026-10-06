@@ -101,6 +101,18 @@ def test_patch_text_survives_translation_failure(client, tmp_path, monkeypatch):
     assert out.status_code == 200 and out.json()["translation"] is None
 
 
+def test_patch_records_the_exported_anki_note_without_reenrich(client, tmp_path):
+    lid = _upload(client, tmp_path)
+    seg = _segments(client, lid)[1]
+    before = client.app.state.files.clip_wav(lid, 1).stat().st_mtime_ns
+    out = client.patch(f"/segments/{seg['id']}", json={"anki_note_id": 1700000000123}).json()
+    assert out["anki_note_id"] == 1700000000123
+    assert (out["text"], out["words_json"], out["ref_alignment_json"], out["translation"]) == \
+        (seg["text"], seg["words_json"], seg["ref_alignment_json"], seg["translation"])
+    assert client.app.state.files.clip_wav(lid, 1).stat().st_mtime_ns == before          # no re-enrich
+    assert _segments(client, lid)[1]["anki_note_id"] == 1700000000123
+
+
 def _row(client, sid):
     with Session(client.app.state.engine) as db:
         return db.get(Segment, sid)

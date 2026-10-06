@@ -1,5 +1,5 @@
 import { afterEach, describe, it, expect, vi } from 'vitest'
-import { buildExportNote, exportToAnki } from './export'
+import { buildExportNote, exportAndRecord, exportToAnki, reexportQuestion, splitForExport } from './export'
 const seg = { id: 12, lesson_id: 1, idx: 0, start_s: 0, end_s: 1, text: '你好。', translation: 'Hello.', words_json: [{ word: '你好', pinyin: 'nǐhǎo', tones: [2, 3], char_from: 0, char_to: 1, syllables: [] }], ref_alignment_json: null, difficulty_flag: false, anki_note_id: null, last_score: null, best_score: null, attempts: 0 }
 const cfg = { deckName: 'Shadow', modelName: 'Mining', fields: { sentence: 'Sentence', pinyin: 'Reading', translation: 'Meaning', audio: 'Audio' } }
 describe('buildExportNote', () => {
@@ -64,5 +64,54 @@ describe('exportToAnki', () => {
       .mockResolvedValueOnce(new Response('ABC'))
       .mockRejectedValueOnce(new TypeError('Failed to fetch'))
     await expect(exportToAnki(seg, 'http://anki', cfg)).rejects.toThrow(/Cannot reach AnkiConnect at http:\/\/anki/)
+  })
+})
+
+describe('exportAndRecord', () => {
+  afterEach(() => { vi.restoreAllMocks() })
+  const ankiReply = (result: unknown) => new Response(JSON.stringify({ result, error: null }))
+
+  it('sends the sentence, then records the new note id on it and resolves to the updated sentence', async () => {
+    const f = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response('ABC'))
+      .mockResolvedValueOnce(ankiReply(777))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ...seg, anki_note_id: 777 })))
+    const out = await exportAndRecord(seg, 'http://anki', cfg)
+    expect(out.anki_note_id).toBe(777)
+    expect(String(f.mock.calls[2][0])).toMatch(/\/segments\/12$/)
+    expect(f.mock.calls[2][1]).toMatchObject({ method: 'PATCH', body: JSON.stringify({ anki_note_id: 777 }) })
+  })
+
+  it('keeps the note id of a sentence imported from Anki (a re-import identifies its notes by it)', async () => {
+    const f = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response('ABC'))
+      .mockResolvedValueOnce(ankiReply(778))
+    const imported = { ...seg, anki_note_id: 5 }
+    expect(await exportAndRecord(imported, 'http://anki', cfg)).toBe(imported)
+    expect(f).toHaveBeenCalledTimes(2)
+  })
+
+  it('says so when the note was added but could not be recorded', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response('ABC'))
+      .mockResolvedValueOnce(ankiReply(779))
+      .mockResolvedValueOnce(new Response('{"detail":"boom"}', { status: 500, statusText: 'Internal Server Error' }))
+    await expect(exportAndRecord(seg, 'http://anki', cfg)).rejects.toThrow(/sent to Anki, but could not be marked/)
+  })
+})
+
+describe('reexportQuestion', () => {
+  it('asks only for a sentence already in Anki', () => {
+    expect(reexportQuestion(seg)).toBeNull()
+    expect(reexportQuestion({ ...seg, anki_note_id: 5 })).toMatch(/"你好。" is already in Anki/)
+  })
+})
+
+describe('splitForExport', () => {
+  it('skips sentences already in Anki, imported from it or sent before', () => {
+    const rows = [{ segment: seg }, { segment: { ...seg, id: 13, anki_note_id: 5 } }, { segment: { ...seg, id: 14 } }]
+    const { todo, skipped } = splitForExport(rows)
+    expect(todo.map((r) => r.segment.id)).toEqual([12, 14])
+    expect(skipped).toBe(1)
   })
 })

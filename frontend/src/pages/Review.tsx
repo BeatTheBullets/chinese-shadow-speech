@@ -4,7 +4,8 @@ import { api } from '../api/client'
 import type { LessonDetail } from '../api/types'
 import Shell from '../components/Shell'
 import { flaggedFirst } from '../lib/stats'
-import { exportToAnki } from '../anki/export'
+import { exportAndRecord, splitForExport } from '../anki/export'
+import type { Segment } from '../api/types'
 import { useSettings } from '../store/settings'
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
@@ -29,10 +30,12 @@ export default function Review() {
   async function sendAll() {
     if (!exportNote) { setMsg('Configure the export note type in Settings'); return }
     setSending(true); setMsg('')
-    const todo = rows.filter((r) => r.segment.anki_note_id == null), skipped = rows.length - todo.length
+    const { todo, skipped } = splitForExport(rows)
     let n = 0; const failures: string[] = []
-    for (const r of todo) { try { await exportToAnki(r.segment, ankiUrl, exportNote); n++ } catch (e) { failures.push(message(e)) } }
-    setMsg(`${n} sent to Anki${skipped ? ` · ${skipped} skipped (already exported)` : ''}${failures.length ? ` · ${failures.length} failed: ${[...new Set(failures)].join('; ')}` : ''}`)
+    // each sent sentence is marked in Anki, so sending again skips it
+    const mark = (seg: Segment) => setLessons((ls) => ls.map((l) => (l.id !== seg.lesson_id ? l : { ...l, segments: l.segments.map((x) => (x.id === seg.id ? seg : x)) })))
+    for (const r of todo) { try { mark(await exportAndRecord(r.segment, ankiUrl, exportNote)); n++ } catch (e) { failures.push(message(e)) } }
+    setMsg(`${n} sent to Anki${skipped ? ` · ${skipped} skipped (already in Anki)` : ''}${failures.length ? ` · ${failures.length} failed: ${[...new Set(failures)].join('; ')}` : ''}`)
     setSending(false)
   }
   return (

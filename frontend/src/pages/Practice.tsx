@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { exportToAnki } from '../anki/export'
+import { exportAndRecord, reexportQuestion } from '../anki/export'
 import { api, ApiError } from '../api/client'
 import type { LessonDetail, Mode, Segment } from '../api/types'
 import { playClip, sleep } from '../audio/abortable'
@@ -448,7 +448,8 @@ export default function Practice() {
       .catch((e) => setError(e instanceof ApiError && e.status === 409 ? 'There is no next sentence to merge with.' : `Could not merge: ${readable(e)}`))
   }
 
-  // Sends sentences to Anki one after another (a duplicate asks before it is added). The only write to Anki.
+  // Sends sentences to Anki one after another (a duplicate asks before it is added) and records each new note on
+  // its sentence. The only write to Anki.
   async function sendToAnki(segs: Segment[]) {
     const { exportNote, ankiUrl } = useSettings.getState()
     if (!exportNote) { setError('Configure the export note type in Settings'); return }
@@ -458,7 +459,10 @@ export default function Practice() {
     const failed: string[] = []
     try {
       for (const s of segs) {
-        try { await exportToAnki(s, ankiUrl, exportNote); sent++ }
+        try {
+          const updated = await exportAndRecord(s, ankiUrl, exportNote); sent++
+          if (alive.current) usePractice.getState().updateSegment(updated)
+        }
         catch (e) { failed.push(message(e)) }
       }
     } finally { exporting.current = false }
@@ -509,7 +513,11 @@ export default function Practice() {
         if (s) api.segments.patch(s.id, { difficulty_flag: !s.difficulty_flag }).then(usePractice.getState().updateSegment).catch((e) => setError(`Could not flag: ${message(e)}`))
         return
       }
-      case 'exportAnki': { const s = currentSegment(ps); if (s) void sendToAnki([s]); return }
+      case 'exportAnki': {
+        const s = currentSegment(ps), ask = s && reexportQuestion(s)
+        if (s && (!ask || window.confirm(ask))) void sendToAnki([s])
+        return
+      }
       default: return
     }
   }
