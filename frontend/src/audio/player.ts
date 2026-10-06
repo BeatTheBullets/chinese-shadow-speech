@@ -21,7 +21,7 @@ export class ClipPlayer {
 
   private el(url: string): HTMLAudioElement {
     let a = this.els.get(url)
-    if (!a) { a = new Audio(url); a.preload = 'auto'; (a as any).preservesPitch = true; this.els.set(url, a) }
+    if (!a) { a = new Audio(url); a.preload = 'auto'; a.preservesPitch = true; this.els.set(url, a) }
     return a
   }
   async preload(url: string) { const a = this.el(url); if (a.readyState < 2) await new Promise<void>((r) => { a.oncanplaythrough = () => r(); a.onerror = () => r(); a.load() }) }

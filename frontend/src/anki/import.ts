@@ -12,7 +12,7 @@ export function stripHtml(s: string): string {
   const withBreaks = (s ?? '').replace(/<br\s*\/?>/gi, ' ').replace(/<[^>]+>/g, '')
   const el = document.createElement('textarea')
   el.innerHTML = withBreaks
-  return el.value.replace(/ /g, ' ').replace(/\s+/g, ' ').trim()
+  return el.value.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim()
 }
 
 const field = (n: NoteInfo, name?: string) => (name && n.fields[name] ? n.fields[name].value : '')

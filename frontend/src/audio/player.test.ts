@@ -21,12 +21,12 @@ describe('peaks', () => {
 
 describe('ClipPlayer', () => {
   let player: ClipPlayer
-  let originalPlay: any
-  let originalPause: any
-  let originalAudioContext: any
+  let originalPlay: HTMLMediaElement['play']
+  let originalPause: HTMLMediaElement['pause']
+  let originalAudioContext: typeof AudioContext
   let originalAudio: typeof Audio
-  let originalRAF: any
-  let originalCAF: any
+  let originalRAF: typeof window.requestAnimationFrame
+  let originalCAF: typeof window.cancelAnimationFrame
   let rafQueue: { id: number; callback: FrameRequestCallback }[]
   let rafCounter: number
   let audioElements: Map<HTMLAudioElement, { ended: boolean; url?: string }>
@@ -72,12 +72,12 @@ describe('ClipPlayer', () => {
       decodeAudioData = vi.fn(async () => ({
         getChannelData: () => new Float32Array([0.5, 0.9, 0.3]),
       }))
-    } as any
+    } as unknown as typeof AudioContext
 
     // Spy on Audio constructor to track elements and their ended state
     const OriginalAudio = originalAudio
     window.Audio = function (src?: string) {
-      const audio = new OriginalAudio(src) as any
+      const audio = new OriginalAudio(src)
       audioElements.set(audio, { ended: false, url: src })
 
       // Add ended getter/setter
@@ -94,7 +94,7 @@ describe('ClipPlayer', () => {
       })
 
       return audio
-    } as any
+    } as unknown as typeof Audio
   })
 
   afterEach(() => {
@@ -183,10 +183,10 @@ describe('ClipPlayer', () => {
 
     // Override play to track which URLs are played
     const originalPlay_ = player.play.bind(player)
-    player.play = ((url: string, rate: number, onTime?: any) => {
+    player.play = ((url: string, rate: number, onTime?: (t: number) => void) => {
       playedUrls.push(url)
       return originalPlay_(url, rate, onTime)
-    }) as any
+    }) as typeof player.play
 
     const sequence = playSequence(player, items, 100, controller.signal)
 
