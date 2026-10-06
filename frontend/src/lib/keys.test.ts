@@ -26,4 +26,13 @@ describe('keys', () => {
     expect(actionForKey({ ...base, key: 'ArrowLeft', altKey: true })).toBeNull() // history back
     expect(actionForKey({ ...base, key: ' ', repeat: true })).toBeNull()
   })
+  it('ignores keys inside an open dialog, buttons included', () => {
+    const dlg = document.createElement('div'); dlg.setAttribute('role', 'dialog')
+    const btn = document.createElement('button'); dlg.appendChild(btn)
+    expect(shouldHandleKey(dlg)).toBe(false)
+    expect(shouldHandleKey(btn)).toBe(false)
+    const base = { target: btn, ctrlKey: false, metaKey: false, altKey: false, repeat: false }
+    expect(actionForKey({ ...base, key: ' ' })).toBeNull()
+    expect(actionForKey({ ...base, key: 'ArrowRight' })).toBeNull()
+  })
 })

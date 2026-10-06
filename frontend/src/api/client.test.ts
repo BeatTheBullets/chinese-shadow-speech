@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { api } from './client'
+import { api, ApiError } from './client'
 
 describe('api client', () => {
   beforeEach(() => { vi.restoreAllMocks() })
@@ -14,6 +14,23 @@ describe('api client', () => {
   it('throws with status text on error', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{"detail":"nope"}', { status: 404 }))
     await expect(api.lessons.get(9)).rejects.toThrow(/404/)
+  })
+
+  it('errors carry the status and the backend detail', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{"detail":"no next segment"}', { status: 409, statusText: 'Conflict' }))
+    const e = await api.segments.mergeNext(3).catch((x) => x)
+    expect(e).toBeInstanceOf(ApiError)
+    expect(e).toMatchObject({ status: 409, detail: 'no next segment' })
+    expect(e.message).toBe('409 Conflict: {"detail":"no next segment"}')
+  })
+
+  it('a changed clip gets a fresh audio URL', () => {
+    expect(api.segments.audioUrl(41, 'mp3')).toBe(`${api.base}/segments/41/audio?fmt=mp3`)
+    api.segments.clipChanged(41)
+    const fresh = api.segments.audioUrl(41, 'mp3')
+    expect(fresh).toMatch(/^.*\/segments\/41\/audio\?fmt=mp3&v=\d+$/)
+    expect(api.segments.audioUrl(41)).toMatch(/fmt=opus&v=\d+$/)
+    expect(api.segments.audioUrl(42)).toBe(`${api.base}/segments/42/audio?fmt=opus`)
   })
 
   it('builds multipart for attempts', async () => {

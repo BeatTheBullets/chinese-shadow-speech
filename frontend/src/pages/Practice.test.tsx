@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { LessonDetail, Segment } from '../api/types'
@@ -9,8 +9,9 @@ const h = vi.hoisted(() => ({
   api: {
     lessons: { get: vi.fn() },
     sessions: { create: vi.fn(), end: vi.fn() },
-    segments: { audioUrl: (id: number, fmt = 'opus') => `/seg/${id}.${fmt}`, postAttempt: vi.fn(), patch: vi.fn() },
+    segments: { audioUrl: (id: number, fmt = 'opus') => `/seg/${id}.${fmt}`, postAttempt: vi.fn(), patch: vi.fn(), resplit: vi.fn(), mergeNext: vi.fn(), clipChanged: vi.fn() },
   },
+  exportToAnki: vi.fn(),
   rec: { start: vi.fn(), stop: vi.fn(), sampleRate: 44100, startTime: 0 },
   clock: { t: 0 }, // AudioContext.currentTime
   toWav16k: vi.fn(() => new Blob(['wav'])),
@@ -19,7 +20,8 @@ const h = vi.hoisted(() => ({
   ctxClose: vi.fn(() => Promise.resolve()),
   twoTrack: null as null | { onLoopSyllable: (i: number) => void },
 }))
-vi.mock('../api/client', () => ({ api: h.api }))
+vi.mock('../api/client', async (importOriginal) => ({ ...(await importOriginal<typeof import('../api/client')>()), api: h.api }))
+vi.mock('../anki/export', () => ({ exportToAnki: h.exportToAnki }))
 vi.mock('../audio/recorder', () => ({
   Recorder: class {
     get sampleRate() { return h.rec.sampleRate }
@@ -40,6 +42,7 @@ vi.mock('../components/TwoTrack', () => ({
   default: (p: { onLoopSyllable: (i: number) => void }) => { h.twoTrack = p; return <div data-testid="two-track" /> },
 }))
 
+import { ApiError } from '../api/client'
 import Practice from './Practice'
 
 const seg = (id: number, idx: number, text: string): Segment => ({
@@ -486,5 +489,152 @@ describe('<Practice>', () => {
     await waitFor(() => expect(usePractice.getState().idx).toBe(1))
     expect(await screen.findByRole('button', { name: '● Listen once' })).toBeInTheDocument()
     expect(screen.getByText('再见', { selector: 'p.sentence' })).toBeInTheDocument()
+  })
+
+  describe('drawer actions', () => {
+    const openMenu = (row: number, item: string) => {
+      fireEvent.click(screen.getByRole('button', { name: `Actions for sentence ${row}` }))
+      fireEvent.click(screen.getByRole('menuitem', { name: item }))
+    }
+    const reloadWith = (segments: Segment[]) => h.api.lessons.get.mockResolvedValueOnce(lesson).mockResolvedValueOnce({ ...lesson, segments })
+
+    it('Edit text acts on the clicked row, not the current sentence, then reloads and stays on the current sentence', async () => {
+      reloadWith([seg(11, 0, '你好'), seg(12, 1, '再见了')])
+      h.api.segments.patch.mockResolvedValue(seg(12, 1, '再见了'))
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      openMenu(2, 'Edit text')
+      const dialog = screen.getByRole('dialog')
+      expect(dialog).toHaveAttribute('aria-modal', 'true')
+      fireEvent.change(screen.getByRole('textbox'), { target: { value: '再见了' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Save and re-align' }))
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+      expect(h.api.segments.patch).toHaveBeenCalledWith(12, { text: '再见了' })
+      expect(h.api.segments.clipChanged).toHaveBeenCalledWith(12)
+      expect(h.api.lessons.get).toHaveBeenCalledTimes(2)
+      expect(usePractice.getState().idx).toBe(0)
+      expect(usePractice.getState().lesson!.segments[1].text).toBe('再见了')
+    })
+
+    it('a rejected edit keeps the dialog open with the backend message', async () => {
+      h.api.segments.patch.mockRejectedValue(new ApiError(400, 'Bad Request', '{"detail":"text needs at least one speech character"}', 'text needs at least one speech character'))
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      openMenu(1, 'Edit text')
+      fireEvent.change(screen.getByRole('textbox'), { target: { value: '。' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Save and re-align' }))
+      expect(await within(screen.getByRole('dialog')).findByRole('alert')).toHaveTextContent('Could not save the edit: text needs at least one speech character')
+      expect(h.api.lessons.get).toHaveBeenCalledTimes(1)
+    })
+
+    it('global shortcuts do nothing while the dialog is open, including keys on its buttons', async () => {
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      openMenu(1, 'Split here')
+      const dialog = screen.getByRole('dialog')
+      fireEvent.keyDown(within(dialog).getByRole('button', { name: '好' }), { key: ' ' })
+      fireEvent.keyDown(within(dialog).getByRole('button', { name: 'Cancel' }), { key: 'ArrowRight' })
+      press('l'); press('ArrowRight'); press(' ')
+      expect(h.player.play).not.toHaveBeenCalled()
+      expect(usePractice.getState()).toMatchObject({ idx: 0, drawerOpen: true })
+      fireEvent.keyDown(dialog, { key: 'Escape' })
+      expect(screen.queryByRole('dialog')).toBeNull()
+      press('ArrowRight')
+      expect(usePractice.getState().idx).toBe(1)
+    })
+
+    it('Split here resplits the clicked row at the chosen character and reloads', async () => {
+      reloadWith([seg(11, 0, '你'), seg(13, 1, '好'), seg(12, 2, '再见')])
+      h.api.segments.resplit.mockResolvedValue([seg(11, 0, '你'), seg(13, 1, '好')])
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      act(() => usePractice.getState().setIdx(1))
+      openMenu(1, 'Split here')
+      expect(within(screen.getByRole('dialog')).getByRole('button', { name: '你' })).toBeDisabled()
+      fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: '好' }))
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+      expect(h.api.segments.resplit).toHaveBeenCalledWith(11, 1)
+      expect(h.api.segments.clipChanged.mock.calls.map((c) => c[0])).toEqual([11, 13])
+      expect(usePractice.getState().idx).toBe(2) // still on 再见, now third
+      expect(screen.getByText('再见', { selector: 'p.sentence' })).toBeInTheDocument()
+    })
+
+    it('Merge with next merges the clicked row; when the current sentence merged away it lands on the merged one', async () => {
+      reloadWith([seg(11, 0, '你好再见')])
+      h.api.segments.mergeNext.mockResolvedValue(seg(11, 0, '你好再见'))
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      act(() => usePractice.getState().setIdx(1))
+      expect(screen.getByRole('button', { name: 'Actions for sentence 2' })).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: 'Actions for sentence 2' }))
+      expect(screen.getByRole('menuitem', { name: 'Merge with next' })).toBeDisabled() // the last row has no next
+      openMenu(1, 'Merge with next')
+      await waitFor(() => expect(usePractice.getState().lesson!.segments).toHaveLength(1))
+      expect(h.api.segments.mergeNext).toHaveBeenCalledWith(11)
+      expect(h.api.segments.clipChanged).toHaveBeenCalledWith(11)
+      expect(usePractice.getState().idx).toBe(0)
+      expect(screen.getByText('你好再见', { selector: 'p.sentence' })).toBeInTheDocument()
+    })
+
+    it('a merge without a next sentence shows a readable message', async () => {
+      h.api.segments.mergeNext.mockRejectedValue(new ApiError(409, 'Conflict', '{"detail":"no next segment"}', 'no next segment'))
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      openMenu(1, 'Merge with next')
+      expect(await screen.findByRole('alert')).toHaveTextContent('There is no next sentence to merge with.')
+      expect(h.api.lessons.get).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('Anki export', () => {
+    const cfg = { deckName: 'Shadow', modelName: 'Mining', fields: { sentence: 'Sentence', audio: 'Audio' } }
+    afterEach(() => { cleanup(); useSettings.setState({ exportNote: null }) })
+
+    it('A without an export note type points to Settings and sends nothing', async () => {
+      useSettings.setState({ exportNote: null })
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      press('a')
+      expect(await screen.findByRole('alert')).toHaveTextContent('Configure the export note type in Settings')
+      expect(h.exportToAnki).not.toHaveBeenCalled()
+    })
+
+    it('A sends the current sentence and confirms', async () => {
+      useSettings.setState({ exportNote: cfg })
+      h.exportToAnki.mockResolvedValue(1)
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      press('a')
+      expect(await screen.findByText('Sent to Anki')).toBeInTheDocument()
+      expect(h.exportToAnki).toHaveBeenCalledWith(expect.objectContaining({ id: 11 }), useSettings.getState().ankiUrl, cfg)
+    })
+
+    it('an AnkiConnect error is shown readably', async () => {
+      useSettings.setState({ exportNote: cfg })
+      h.exportToAnki.mockRejectedValue(new Error('"你好" is already in Anki, not added again.'))
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      press('a')
+      expect(await screen.findByRole('alert')).toHaveTextContent('Anki export failed: "你好" is already in Anki, not added again.')
+    })
+
+    it('the Flow summary sends the weakest sentences', async () => {
+      useSettings.setState({ exportNote: cfg })
+      h.exportToAnki.mockResolvedValue(1)
+      const scored = { ...lesson, segments: [{ ...seg(11, 0, '你好'), last_score: 0.5 }, { ...seg(12, 1, '再见'), last_score: 0.9 }] }
+      h.api.lessons.get.mockResolvedValueOnce(lesson).mockResolvedValue(scored)
+      h.player.play.mockImplementation(() => { h.clock.t += 2; return Promise.resolve() })
+      h.rec.stop.mockReturnValue(new Float32Array(44100 * 10))
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      fireEvent.click(screen.getByRole('button', { name: 'Flow' }))
+      fireEvent.click(screen.getByRole('button', { name: 'along' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Start' }))
+      const send = await screen.findByRole('button', { name: 'A → Anki weakest 3' })
+      await waitFor(() => expect(send).toBeEnabled())
+      fireEvent.click(send)
+      expect(await screen.findByText('Sent 2 sentences to Anki')).toBeInTheDocument()
+      expect(h.exportToAnki.mock.calls.map((c) => (c[0] as Segment).id)).toEqual([11, 12])
+    })
   })
 })

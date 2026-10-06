@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { api } from '../api/client'
-import type { Mode, Segment } from '../api/types'
+import { exportToAnki } from '../anki/export'
+import { api, ApiError } from '../api/client'
+import type { LessonDetail, Mode, Segment } from '../api/types'
 import { playClip, sleep } from '../audio/abortable'
 import { findSilenceEnd, sliceSamples } from '../audio/pcm'
 import { ClipPlayer, peaks as peaksOf, playSequence } from '../audio/player'
 import { toWav16k } from '../audio/recorder'
 import { useMic } from '../audio/useMic'
 import Drawer from '../components/Drawer'
+import EditDialog from '../components/EditDialog'
 import FlowSummary from '../components/FlowSummary'
 import FlowView, { FlowSetup, FlowTransport } from '../components/FlowView'
 import Sentence from '../components/Sentence'
@@ -27,11 +29,13 @@ const LOOP_GAP_MS = 250
 const CHORUS_GAP_MS = 300  // between chorus passes (§6)
 const CHORUS_TAIL_MS = 300 // the chorus take runs this long past the end of the last pass
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
+// The backend's own explanation (FastAPI `detail`) rather than the raw status line.
+const readable = (e: unknown) => (e instanceof ApiError ? e.detail : message(e))
 
 // A multi-step run in progress. Aborting its controller (stop, mode switch, navigation, unmount) ends it.
 type RunKind = 'chorus' | 'flow' | 'guided'
 
-// Practice page: Echo, Chorus, Flow and Guided modes (drawer actions and Anki export arrive in Task 11).
+// Practice page: Echo, Chorus, Flow and Guided modes, the drawer's edit/split/merge and the Anki export.
 // Handlers read the stores with getState() so timers and late promises never act on a stale render's values.
 export default function Practice() {
   const { id } = useParams()
@@ -64,6 +68,13 @@ export default function Practice() {
   const [loadError, setLoadError] = useState('')
   const [started] = useState(() => Date.now())
   const [elapsed, setElapsed] = useState(0)
+  // The edit/split dialog, on drawer row `idx`. While it is open the page shortcuts are off.
+  const [dialog, setDialog] = useState<{ mode: 'edit' | 'split'; idx: number } | null>(null)
+  const dialogOpen = useRef(false)
+  dialogOpen.current = dialog != null
+  const [dialogBusy, setDialogBusy] = useState(false)
+  const [dialogError, setDialogError] = useState('')
+  const exporting = useRef(false)
   const flow = useFlow({ lessonId, player, mic, beginRun: () => beginRun('flow'), endRun, setError })
 
   useEffect(() => { const t = setInterval(() => setElapsed((Date.now() - started) / 1000), 1000); return () => clearInterval(t) }, [started])
@@ -104,17 +115,19 @@ export default function Practice() {
     }
   }, [player]) // eslint-disable-line react-hooks/exhaustive-deps -- unmount-only; these touch refs and player only
 
+  // The clip URL changes when an edit re-cuts the clip, so its waveform reloads too.
+  const refUrl = segId != null ? api.segments.audioUrl(segId) : null
   useEffect(() => {
-    if (segId == null) return
+    if (refUrl == null) return
     let cancelled = false
-    const url = api.segments.audioUrl(segId)
+    const url = refUrl
     void player.preload(url)
     setRefPeaks(null); setRefHead(null); setYouHead(null)
     player.peaksFor(url, 400).then((p) => { if (!cancelled) setRefPeaks(p) }).catch(() => {})
     const ps = usePractice.getState(); const nxt = ps.lesson?.segments[ps.idx + 1]
     if (nxt) void player.preload(api.segments.audioUrl(nxt.id))
     return () => { cancelled = true }
-  }, [segId, player])
+  }, [refUrl, player])
 
   // Guided starts over on every new sentence and mode.
   useEffect(() => { setGuided('listen') }, [segId, st.mode])
@@ -380,6 +393,84 @@ export default function Practice() {
   }
   const pairOf = (r: FlowResult) => [{ url: api.segments.audioUrl(r.segmentId), rate: usePractice.getState().rate }, { url: r.url, rate: 1 }]
 
+  // Edit, split and merge rebuild sentences on the server. Everything in flight stops first; afterwards the lesson
+  // reloads and stays on the current sentence if it still exists, else on `fallbackId`, else the same position.
+  // `change` resolves to the ids whose clip it re-cut; its failure rejects. A failed reload after a successful change
+  // only shows an error, so the caller never offers to repeat a change that was already made.
+  async function changeSegments(change: () => Promise<number[]>, fallbackId?: number) {
+    cancelActivity()
+    const changed = await change()
+    changed.forEach((id) => api.segments.clipChanged(id))
+    let l: LessonDetail
+    try { l = await api.lessons.get(lessonId) }
+    catch (e) { if (alive.current) setError(`The change was saved, but the lesson could not reload: ${readable(e)}`); return }
+    const ps = usePractice.getState()
+    if (!alive.current || ps.lesson?.id !== lessonId) return
+    const curId = currentSegment(ps)?.id
+    const find = (id: number | undefined) => (id == null ? -1 : l.segments.findIndex((x) => x.id === id))
+    const kept = find(curId)
+    let j = kept >= 0 ? kept : find(fallbackId)
+    if (j < 0) j = Math.max(0, Math.min(l.segments.length - 1, ps.idx))
+    ps.replaceSegments(l.segments)
+    // A new sentence or a re-cut clip drops the last take (setIdx); otherwise only the position follows the sentence.
+    if (kept < 0 || changed.includes(curId!)) ps.setIdx(j)
+    else if (j !== ps.idx) usePractice.setState({ idx: j })
+  }
+  function openDialog(mode: 'edit' | 'split', i: number) {
+    cancelActivity()
+    setDialogError(''); setDialogBusy(false); setDialog({ mode, idx: i })
+  }
+  // Applies a dialog action to the row it was opened on (not the current sentence); the dialog stays open on failure.
+  function applyDialog(what: string, change: (target: Segment) => Promise<number[]>) {
+    const target = dialog && usePractice.getState().lesson?.segments[dialog.idx]
+    if (!target || dialogBusy) return
+    setDialogBusy(true); setDialogError('')
+    changeSegments(() => change(target))
+      .then(() => setDialog(null))
+      .catch((e) => setDialogError(`${what}: ${readable(e)}`))
+      .finally(() => setDialogBusy(false))
+  }
+  function saveEdit(text: string) {
+    const target = dialog && usePractice.getState().lesson?.segments[dialog.idx]
+    if (target && text.trim() === target.text) { setDialog(null); return } // unchanged: nothing to re-align
+    applyDialog('Could not save the edit', (t) => api.segments.patch(t.id, { text }).then(() => [t.id]))
+  }
+  function splitAt(at: number) {
+    applyDialog('Could not split', (t) => api.segments.resplit(t.id, at).then((halves) => halves.map((x) => x.id)))
+  }
+  function mergeNext(i: number) {
+    const target = usePractice.getState().lesson?.segments[i]
+    if (!target) return
+    setError('')
+    changeSegments(() => api.segments.mergeNext(target.id).then(() => [target.id]), target.id)
+      .catch((e) => setError(e instanceof ApiError && e.status === 409 ? 'There is no next sentence to merge with.' : `Could not merge: ${readable(e)}`))
+  }
+
+  // Sends sentences to Anki one after another (a duplicate asks before it is added). The only write to Anki.
+  async function sendToAnki(segs: Segment[]) {
+    const { exportNote, ankiUrl } = useSettings.getState()
+    if (!exportNote) { setError('Configure the export note type in Settings'); return }
+    if (exporting.current || !segs.length) return
+    exporting.current = true; setError('')
+    let sent = 0
+    const failed: string[] = []
+    try {
+      for (const s of segs) {
+        try { await exportToAnki(s, ankiUrl, exportNote); sent++ }
+        catch (e) { failed.push(message(e)) }
+      }
+    } finally { exporting.current = false }
+    if (!alive.current) return
+    if (failed.length) setError(`Anki export failed: ${failed.join(' ')}`)
+    if (sent) usePractice.getState().setHint(sent === 1 ? 'Sent to Anki' : `Sent ${sent} sentences to Anki`)
+  }
+  function exportWeakest() {
+    const segs = usePractice.getState().lesson?.segments ?? []
+    const byId = new Map(segs.map((s) => [s.id, s]))
+    const weakest = weakestResults(flow.state.results, new Map(segs.map((s) => [s.id, s.last_score])), 3)
+    void sendToAnki(weakest.map((r) => byId.get(r.segmentId)).filter((s): s is Segment => s != null))
+  }
+
   function act(a: Action) {
     const ps = usePractice.getState()
     if (ps.lesson?.id !== lessonId) return // the store still holds another lesson (this one is loading)
@@ -416,13 +507,15 @@ export default function Practice() {
         if (s) api.segments.patch(s.id, { difficulty_flag: !s.difficulty_flag }).then(usePractice.getState().updateSegment).catch((e) => setError(`Could not flag: ${message(e)}`))
         return
       }
-      default: return // exportAnki: Task 11
+      case 'exportAnki': { const s = currentSegment(ps); if (s) void sendToAnki([s]); return }
+      default: return
     }
   }
   const actRef = useRef(act)
   actRef.current = act
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (dialogOpen.current) return // the dialog keeps its own keys (even with focus outside it, e.g. on the body)
       const a = actionForKey(e)
       if (!a) return
       e.preventDefault()
@@ -464,7 +557,7 @@ export default function Practice() {
                 <FlowSummary segments={segments} results={fs.results} skipped={fs.skipped} elapsedS={fs.elapsedS}
                   onPlayPair={(r) => playItems(pairOf(r))} onReplayAll={() => playItems([...fs.results].sort((x, y) => x.idx - y.idx).flatMap(pairOf))}
                   onRunAgain={() => { if (fs.range) startFlow(fs.range.from, fs.range.to) }} onEcho={(i) => void drill('echo', i)} onChorus={(i) => void drill('chorus', i)}
-                  onFlagWeakest={flagWeakest} onExportWeakest={() => { /* TODO(Task 11): send the weakest three to Anki with exportToAnki */ }}
+                  onFlagWeakest={flagWeakest} onExportWeakest={exportWeakest}
                   onDone={flow.clear} />
               ) : (<>
                 {st.mode === 'flow' && <FlowSetup segments={segments} from={range.from} to={range.to} sub={fs.sub} onChange={flow.setForm} onStart={() => act('record')} />}
@@ -477,8 +570,12 @@ export default function Practice() {
             <Transport onAction={act} rate={st.rate} onRate={st.setRate} recording={echo === 'recording'} busy={echo === 'uploading'} flagged={seg.difficulty_flag} hint={st.hint} error={error} recordLabel={recordLabel} />
           </>)}
         </main>
-        {!flowRunning && <Drawer segments={segments} idx={st.idx} open={st.drawerOpen} pendingIds={fs.pending} onJump={goTo} onToggle={st.toggleDrawer} />}
+        {!flowRunning && <Drawer segments={segments} idx={st.idx} open={st.drawerOpen} pendingIds={fs.pending} onJump={goTo} onToggle={st.toggleDrawer}
+          onEdit={(i) => openDialog('edit', i)} onSplit={(i) => openDialog('split', i)} onMerge={mergeNext} />}
       </div>
+      {dialog && segments[dialog.idx] && (
+        <EditDialog key={`${dialog.mode}-${segments[dialog.idx].id}`} segment={segments[dialog.idx]} mode={dialog.mode} busy={dialogBusy} error={dialogError}
+          onSave={saveEdit} onSplit={splitAt} onClose={() => { if (!dialogBusy) setDialog(null) }} />)}
     </div>
   )
 }

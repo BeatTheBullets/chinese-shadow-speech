@@ -6,12 +6,30 @@ import type {
 // Same-origin in production (the backend serves the built SPA); the dev server talks to the backend directly.
 const base: string = import.meta.env.VITE_API ?? (import.meta.env.DEV ? 'http://127.0.0.1:8000' : '')
 
+// A non-2xx answer. `detail` is FastAPI's `{"detail": ...}` message when there is one, else the raw body.
+export class ApiError extends Error {
+  constructor(readonly status: number, statusText: string, body: string, readonly detail: string) {
+    super(`${status} ${statusText}: ${body}`)
+  }
+}
+function detailOf(body: string): string {
+  try {
+    const d = (JSON.parse(body) as { detail?: unknown }).detail
+    if (typeof d === 'string') return d
+  } catch { /* not JSON */ }
+  return body
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${base}${path}`, init)
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}: ${await res.text()}`)
+  if (!res.ok) { const body = await res.text(); throw new ApiError(res.status, res.statusText, body, detailOf(body)) }
   if (res.status === 204) return undefined as T
   return (await res.json()) as T
 }
+// Edit, split and merge re-cut a sentence's clip under the same id; a new revision gives its audio a fresh URL so
+// neither the player's cache nor the browser's serves the old clip.
+const clipRev = new Map<number, number>()
+
 const json = (method: string, body: unknown): RequestInit => ({ method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
 
 export const api = {
@@ -33,7 +51,11 @@ export const api = {
       req<{ jobs: { job_id: string; lesson_id: number; title: string }[] }>('/lessons/anki', json('POST', { query_name, notes })),
   },
   segments: {
-    audioUrl: (id: number, fmt: 'opus' | 'wav' | 'mp3' = 'opus') => `${base}/segments/${id}/audio?fmt=${fmt}`,
+    audioUrl: (id: number, fmt: 'opus' | 'wav' | 'mp3' = 'opus') => {
+      const v = clipRev.get(id)
+      return `${base}/segments/${id}/audio?fmt=${fmt}${v ? `&v=${v}` : ''}`
+    },
+    clipChanged: (id: number) => { clipRev.set(id, Math.max(Date.now(), (clipRev.get(id) ?? 0) + 1)) },
     patch: (id: number, body: { difficulty_flag?: boolean; text?: string }) => req<Segment>(`/segments/${id}`, json('PATCH', body)),
     resplit: (id: number, at_char_index: number) => req<Segment[]>(`/segments/${id}/resplit`, json('POST', { at_char_index })),
     mergeNext: (id: number) => req<Segment>(`/segments/${id}/merge-next`, { method: 'POST' }),
