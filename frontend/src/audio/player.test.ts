@@ -12,8 +12,6 @@ describe('peaks', () => {
   it('handles fewer samples than buckets with exact values', () => {
     const result = peaks(new Float32Array([0.4]), 4)
     expect(result.length).toBe(4)
-    // Algorithm: per = 1/4 = 0.25
-    // Each bucket reads sample 0 = 0.4
     expect(result[0]).toBeCloseTo(0.4, 5)
     expect(result[1]).toBeCloseTo(0.4, 5)
     expect(result[2]).toBeCloseTo(0.4, 5)
@@ -28,144 +26,203 @@ describe('ClipPlayer', () => {
   let originalAudioContext: any
   let originalRAF: any
   let originalCAF: any
+  let rafQueue: { id: number; callback: FrameRequestCallback }[]
+  let rafCounter: number
+  let audioElements: Map<HTMLAudioElement, { ended: boolean }>
 
   beforeEach(() => {
     player = new ClipPlayer()
+    rafQueue = []
+    rafCounter = 0
+    audioElements = new Map()
 
-    // Stub HTMLMediaElement.prototype - play returns controllable promise
+    // Save originals
     originalPlay = HTMLMediaElement.prototype.play
     originalPause = HTMLMediaElement.prototype.pause
+    originalRAF = window.requestAnimationFrame
+    originalCAF = window.cancelAnimationFrame
+    originalAudioContext = global.AudioContext
 
-    const playPromises = new Map<HTMLMediaElement, { resolve: (v?: any) => void; reject: (e: any) => void }>()
-
+    // Stub play to return resolved promise
     HTMLMediaElement.prototype.play = vi.fn(async function (this: HTMLMediaElement) {
-      const p = new Promise<void>((resolve, reject) => {
-        playPromises.set(this, { resolve, reject })
-      })
-      return p
+      return Promise.resolve()
     })
 
-    HTMLMediaElement.prototype.pause = vi.fn(function () {
+    // Stub pause
+    HTMLMediaElement.prototype.pause = vi.fn(function (this: HTMLMediaElement) {
       // noop
     })
 
-    // Store playPromises for test access
-    ;(HTMLMediaElement.prototype.play as any).playPromises = playPromises
+    // Manual rAF/cAF queue
+    window.requestAnimationFrame = vi.fn((cb: FrameRequestCallback) => {
+      const id = ++rafCounter
+      rafQueue.push({ id, callback: cb })
+      return id
+    })
+
+    window.cancelAnimationFrame = vi.fn((id: number) => {
+      const idx = rafQueue.findIndex((item) => item.id === id)
+      if (idx !== -1) rafQueue.splice(idx, 1)
+    })
 
     // Mock AudioContext
-    originalAudioContext = global.AudioContext
     global.AudioContext = class MockAudioContext {
       decodeAudioData = vi.fn(async () => ({
         getChannelData: () => new Float32Array([0.5, 0.9, 0.3]),
       }))
     } as any
 
-    // Stub requestAnimationFrame/cancelAnimationFrame
-    originalRAF = window.requestAnimationFrame
-    originalCAF = window.cancelAnimationFrame
+    // Spy on Audio constructor to track elements and their ended state
+    const OriginalAudio = window.Audio
+    window.Audio = function (src?: string) {
+      const audio = new OriginalAudio(src) as any
+      audioElements.set(audio, { ended: false })
 
-    const rafCallbacks = new Map<number, () => void>()
-    let rafCounter = 0
+      // Add ended getter/setter
+      Object.defineProperty(audio, 'ended', {
+        get() {
+          return audioElements.get(this)?.ended ?? false
+        },
+        set(val: boolean) {
+          if (audioElements.has(this)) {
+            audioElements.get(this)!.ended = val
+          }
+        },
+        configurable: true,
+      })
 
-    window.requestAnimationFrame = vi.fn((cb: FrameRequestCallback) => {
-      const id = ++rafCounter
-      rafCallbacks.set(id, cb as any)
-      return id
-    })
-
-    window.cancelAnimationFrame = vi.fn((id: number) => {
-      rafCallbacks.delete(id)
-    })
-
-    ;(window.requestAnimationFrame as any).rafCallbacks = rafCallbacks
+      return audio
+    } as any
   })
 
   afterEach(() => {
     HTMLMediaElement.prototype.play = originalPlay
     HTMLMediaElement.prototype.pause = originalPause
-    global.AudioContext = originalAudioContext
     window.requestAnimationFrame = originalRAF
     window.cancelAnimationFrame = originalCAF
+    global.AudioContext = originalAudioContext
+    rafQueue = []
+    audioElements.clear()
   })
 
-  it('stop() resolves a pending play()', async () => {
-    const playPromise = player.play('test.mp3', 1.0)
-
-    player.stop()
-
-    const result = await playPromise
-    expect(result).toBeUndefined()
-  })
-
-  it('onTime not called after stop()', async () => {
+  it('onTime not called after stop', async () => {
     const onTime = vi.fn()
     const playPromise = player.play('test.mp3', 1.0, onTime)
 
-    // Give the play a moment to request the first rAF
-    await new Promise((r) => setTimeout(r, 10))
+    // Wait for rAF to be queued
+    await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
 
+    expect(rafQueue.length).toBeGreaterThan(0)
+
+    // Flush first rAF - onTime should be called
+    const firstBatch = [...rafQueue]
+    for (const item of firstBatch) {
+      item.callback(0)
+    }
+    expect(onTime.mock.calls.length).toBeGreaterThan(0)
     const callsBeforeStop = onTime.mock.calls.length
+
+    // Stop the play
     player.stop()
     await playPromise
 
-    // Wait to ensure no more callbacks
-    await new Promise((r) => setTimeout(r, 50))
+    // Flush more rAF callbacks - should not call onTime again
+    for (const item of rafQueue) {
+      item.callback(0)
+    }
 
-    // No new calls should have happened after stop
     expect(onTime.mock.calls.length).toBe(callsBeforeStop)
   })
 
-  it('abort during play item prevents next item from playing', async () => {
-    const playPromises = (HTMLMediaElement.prototype.play as any).playPromises
+  it('stale ended event does not resolve new play of same URL', async () => {
+    // Play once
+    const play1 = player.play('test.mp3', 1.0)
+    await Promise.resolve()
+
+    // Stop the first play
+    player.stop()
+    await play1
+
+    // Start second play of same URL (reuses cached element)
+    const play2 = player.play('test.mp3', 1.0)
+    await Promise.resolve()
+
+    // Get the current audio element
+    const audioList = Array.from(audioElements.keys())
+    const audio = audioList[audioList.length - 1]
+
+    // Dispatch ended event while element.ended is false (stale event from before)
+    audio.dispatchEvent(new Event('ended'))
+
+    // Second play should NOT resolve (stale event should be ignored because a.ended is false)
+    let play2Resolved = false
+    play2.then(() => { play2Resolved = true })
+    await new Promise((r) => setTimeout(r, 50))
+    expect(play2Resolved).toBe(false)
+    expect(player['current']).toBe(audio)
+
+    // Clean up
+    player.stop()
+  })
+
+  it('abort during item prevents next item from playing', async () => {
+    const playedUrls: string[] = []
 
     const controller = new AbortController()
-
     const items = [
       { url: 'test1.mp3', rate: 1.0 },
       { url: 'test2.mp3', rate: 1.0 },
     ]
 
+    // Override play to track which URLs are played
+    const originalPlay_ = player.play.bind(player)
+    player.play = ((url: string, rate: number, onTime?: any) => {
+      playedUrls.push(url)
+      return originalPlay_(url, rate, onTime)
+    }) as any
+
     const sequence = playSequence(player, items, 100, controller.signal)
 
-    // Let the first play start
-    await new Promise((r) => setTimeout(r, 20))
+    // Let first play start
+    await Promise.resolve()
 
     // Abort during first play
     controller.abort()
     await sequence
 
-    // Verify only first URL started playing
-    expect(playPromises.size).toBeGreaterThanOrEqual(1)
+    // Only first item should have been played
+    expect(playedUrls).toEqual(['test1.mp3'])
   })
 
-  it('natural finish followed by later abort does not call stop', async () => {
-    const playPromises = (HTMLMediaElement.prototype.play as any).playPromises
+  it('natural finish unaffected by later abort', async () => {
     const stopSpy = vi.spyOn(player, 'stop')
 
     const controller = new AbortController()
-
     const items = [{ url: 'test1.mp3', rate: 1.0 }]
 
-    const sequence = playSequence(player, items, 1000, controller.signal)
+    const sequence = playSequence(player, items, 100, controller.signal)
 
-    // Let the first play start
-    await new Promise((r) => setTimeout(r, 20))
+    // Let play start
+    await Promise.resolve()
 
-    // Manually resolve the play to simulate natural completion
-    const audios = Array.from(playPromises.keys())
-    for (const audio of audios) {
-      playPromises.get(audio)?.resolve()
-    }
+    // Simulate natural end: set ended = true and dispatch event
+    const audioList = Array.from(audioElements.keys())
+    const audio = audioList[audioList.length - 1]
+    audioElements.get(audio)!.ended = true
+    audio.dispatchEvent(new Event('ended'))
 
-    // Wait for the play to complete
-    await new Promise((r) => setTimeout(r, 100))
-
-    // Now abort (but play is already done)
-    controller.abort()
+    // Wait for sequence to complete naturally
     await sequence
+    const stopCallsAfterNaturalEnd = stopSpy.mock.calls.length
 
-    // stop() should have been called at most once (initial stop at start of sequence)
-    // After natural completion, we shouldn't call stop again on abort
+    // Now abort (play already done)
+    controller.abort()
+
+    // Verify stop wasn't called again for the completed play
+    expect(stopSpy.mock.calls.length).toBe(stopCallsAfterNaturalEnd)
+
     stopSpy.mockRestore()
   })
 

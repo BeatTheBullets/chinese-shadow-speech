@@ -10,7 +10,7 @@ export function peaks(samples: Float32Array, buckets: number): Float32Array {
   return out
 }
 
-type PlayToken = { cancelled: boolean }
+type PlayToken = { cancelled: boolean; cancel?: () => void }
 
 export class ClipPlayer {
   private els = new Map<string, HTMLAudioElement>()
@@ -30,9 +30,8 @@ export class ClipPlayer {
     if (this.active) {
       const token = this.active
       token.cancelled = true
-      const originalToken = token as any
-      if (originalToken._cancel) {
-        originalToken._cancel()
+      if (token.cancel) {
+        token.cancel()
       }
     }
     if (this.current) { this.current.pause(); this.current.currentTime = 0; this.current = null }
@@ -51,8 +50,7 @@ export class ClipPlayer {
         resolve()
       }
       // Store cancel function so stop() can call it
-      const originalToken = token as any
-      originalToken._cancel = cancel
+      token.cancel = cancel
       const tick = () => {
         if (token.cancelled || this.active !== token) return
         onTime?.(a.currentTime)
@@ -60,6 +58,8 @@ export class ClipPlayer {
       }
       a.onended = () => {
         if (token.cancelled || this.active !== token) return
+        // Ignore if element hasn't actually ended (stale queued event from previous play)
+        if (!a.ended) return
         cleanup()
         onTime?.(a.duration)
         if (this.current === a) this.current = null
@@ -110,7 +110,10 @@ export async function playSequence(player: ClipPlayer, items: { url: string; rat
     }
     if (signal?.aborted) { player.stop(); return }
     const gapPromise = new Promise<void>((r) => {
-      const timer = setTimeout(r, gapMs)
+      const timer = setTimeout(() => {
+        if (signal) signal.removeEventListener('abort', gapAbortHandler)
+        r()
+      }, gapMs)
       const gapAbortHandler = () => { clearTimeout(timer); r() }
       if (signal) signal.addEventListener('abort', gapAbortHandler, { once: true })
     })
