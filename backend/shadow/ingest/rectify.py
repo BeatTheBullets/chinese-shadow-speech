@@ -40,12 +40,15 @@ def make_chunks(tr: Transcript, max_chars: int = 600, context: int = 60) -> list
     return chunks
 
 
-def validate(out: RectifyOutput, chunk: Chunk, tr: Transcript) -> list[RectSentenceOut] | None:
-    return check(out, chunk, tr)[0]
+def validate(out: RectifyOutput, chunk: Chunk, tr: Transcript, locked: bool = False) -> list[RectSentenceOut] | None:
+    return check(out, chunk, tr, locked)[0]
 
 
-def check(out: RectifyOutput, chunk: Chunk, tr: Transcript) -> tuple[list[RectSentenceOut] | None, str]:
-    """Validate `out`; returns (sentences, "") or (None, reason it was rejected)."""
+def check(out: RectifyOutput, chunk: Chunk, tr: Transcript,
+          locked: bool = False) -> tuple[list[RectSentenceOut] | None, str]:
+    """Validate `out`; returns (sentences, "") or (None, reason it was rejected). `locked` (subtitle text) requires
+    each sentence's speech characters to equal the raw ones exactly; otherwise (ASR text) they may differ by less
+    than 25 %."""
     sents = sorted(out.sentences, key=lambda s: s.from_)
     if not sents:
         return None, "no sentences"
@@ -62,6 +65,8 @@ def check(out: RectifyOutput, chunk: Chunk, tr: Transcript) -> tuple[list[RectSe
         raw_speech, text_speech = strip_punct(raw), strip_punct(text)
         if not (2 <= len(text) <= 60):
             return None, f"text length {len(text)} outside 2..60"
+        if locked and text_speech != raw_speech:
+            return None, f"text {text!r} changes the characters of {raw!r}"
         if Levenshtein.distance(text_speech, raw_speech) / max(len(raw_speech), 1) >= 0.25:
             return None, f"text {text!r} differs too much from raw {raw!r}"
         result.append(RectSentenceOut(a, b, text))
@@ -88,7 +93,9 @@ def fallback_sentences(tr: Transcript, chunk: Chunk) -> list[RectSentenceOut]:
 
 
 def rectify_transcript(tr: Transcript, llm: LLM | None, enabled: bool = True,
-                       max_chars: int = 600, context: int = 60) -> list[RectSentenceOut]:
+                       max_chars: int = 600, context: int = 60, locked: bool = False) -> list[RectSentenceOut]:
+    """Sentences covering `tr`, chosen by the LLM per chunk or, when it is off, fails or its output is rejected,
+    by punctuation and segment ends. `locked`: `tr` is subtitle text, whose characters must not change."""
     sentences: list[RectSentenceOut] = []
     chunks = make_chunks(tr, max_chars, context)
     for n, chunk in enumerate(chunks):
@@ -97,12 +104,12 @@ def rectify_transcript(tr: Transcript, llm: LLM | None, enabled: bool = True,
             try:
                 chunk_chars = [c.c for c in tr.chars[chunk.start:chunk.end + 1]]
                 ctx = [c.c for c in tr.chars[chunk.context_start:chunk.start]]
-                out = llm.rectify(chunk_chars, ctx)
+                out = llm.rectify(chunk_chars, ctx, locked=locked)
             except Exception:
                 log.warning("rectify chunk %d/%d: LLM call failed, using fallback segmentation",
                             n + 1, len(chunks), exc_info=True)
             else:
-                validated, reason = check(out, chunk, tr)
+                validated, reason = check(out, chunk, tr, locked)
                 if validated is None:
                     log.warning("rectify chunk %d/%d: LLM output rejected (%s), using fallback segmentation",
                                 n + 1, len(chunks), reason)

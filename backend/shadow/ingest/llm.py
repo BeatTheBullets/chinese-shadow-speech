@@ -36,7 +36,9 @@ class TranslationCountMismatch(ValueError):
 
 
 class LLM(Protocol):
-    def rectify(self, chunk_chars: list[str], context_chars: list[str]) -> RectifyOutput: ...
+    def rectify(self, chunk_chars: list[str], context_chars: list[str], locked: bool = False) -> RectifyOutput:
+        """Sentence ranges and text for `chunk_chars`. `locked`: the chars are a verified human transcript, so
+        only boundaries and punctuation may be chosen; otherwise ASR errors are repaired too."""
     def translate(self, sentences: list[str]) -> list[str]: ...
 
 
@@ -44,8 +46,10 @@ class FakeLLM:
     def __init__(self, rectify_fn: Callable[[list[str], list[str]], RectifyOutput],
                  translate_fn: Callable[[list[str]], list[str]]):
         self._r, self._t = rectify_fn, translate_fn
+        self.rectify_locked: list[bool] = []        # the mode of each rectify call, in order
 
-    def rectify(self, chunk_chars, context_chars):
+    def rectify(self, chunk_chars, context_chars, locked=False):
+        self.rectify_locked.append(locked)
         return self._r(chunk_chars, context_chars)
 
     def translate(self, sentences):
@@ -59,6 +63,17 @@ RECTIFY_SYSTEM = (
     "indices into the given chars, never into the context) and text: the corrected, punctuated simplified-Chinese "
     "text for exactly those characters. Fix homophone errors, punctuation and clearly wrong fillers only. Do not "
     "paraphrase, add or drop content. Ranges must be contiguous, non-overlapping and cover every index."
+)
+
+# For subtitle text: a verified human transcript whose characters must come back unchanged.
+RECTIFY_LOCKED_SYSTEM = (
+    "You split a verified human transcript of Mandarin speech into sentences for shadowing practice. You receive "
+    "characters with indices. Group them into natural, shadowable sentences or clauses of roughly "
+    "{min_chars}-{max_chars} characters; prefer splitting long sentences at commas, 的时候, 但是, 所以. For each "
+    "group return from/to (inclusive indices into the given chars, never into the context) and text: exactly those "
+    "characters, in order, punctuated. The text is already correct: only choose sentence boundaries and add or "
+    "adjust punctuation; never change, add or drop characters. Ranges must be contiguous, non-overlapping and "
+    "cover every index."
 )
 
 
@@ -105,14 +120,16 @@ class AnthropicLLM:
         text = next(b.text for b in resp.content if b.type == "text")
         return json.loads(text)
 
-    def rectify(self, chunk_chars: list[str], context_chars: list[str]) -> RectifyOutput:
+    def rectify(self, chunk_chars: list[str], context_chars: list[str], locked: bool = False) -> RectifyOutput:
         payload = {
             "context_before": "".join(context_chars),
             "chars": [{"i": i, "c": c} for i, c in enumerate(chunk_chars)],
         }
-        key = "rectify:" + self.model + ":" + "".join(chunk_chars)
+        # the repair-mode key is unchanged so responses cached before locked mode existed are still used
+        key = ("rectify-locked:" if locked else "rectify:") + self.model + ":" + "".join(chunk_chars)
+        system = RECTIFY_LOCKED_SYSTEM if locked else RECTIFY_SYSTEM
         return self._cached(key, lambda: self._call(
-            RECTIFY_SYSTEM.format(min_chars=self.min_chars, max_chars=self.max_chars),
+            system.format(min_chars=self.min_chars, max_chars=self.max_chars),
             json.dumps(payload, ensure_ascii=False), RectifyOutput), RectifyOutput.model_validate)
 
     def translate(self, sentences: list[str]) -> list[str]:

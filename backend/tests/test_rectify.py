@@ -8,8 +8,8 @@ import pytest
 from shadow.ingest.text import Cue
 from shadow.ingest.transcript import transcript_from_cues
 from shadow.ingest import llm as llm_mod
-from shadow.ingest.llm import RectifyOutput, RectSentence, FakeLLM, AnthropicLLM
-from shadow.ingest.rectify import make_chunks, validate, fallback_sentences, rectify_transcript, Chunk
+from shadow.ingest.llm import RectifyOutput, RectSentence, FakeLLM, AnthropicLLM, RECTIFY_LOCKED_SYSTEM, RECTIFY_SYSTEM
+from shadow.ingest.rectify import make_chunks, check, validate, fallback_sentences, rectify_transcript, Chunk
 
 TEXT = "我今天想跟你们聊一聊学中文的方法，其实方法有很多，但是最重要的是坚持。"
 
@@ -93,6 +93,65 @@ def test_validate_rejects_text_longer_than_60_chars():
     chunk = make_chunks(tr)[0]
     assert (chunk.start, chunk.end) == (0, 69)
     assert validate(RectifyOutput(sentences=[sent(0, 69, TEXT * 2)]), chunk, tr) is None
+
+
+# Locked mode (subtitle text is a verified human transcript): only boundaries and punctuation may change.
+UNPUNCTUATED = "我今天想跟你们聊一聊学中文的方法其实方法有很多但是最重要的是坚持"     # 32 chars, as subtitles often are
+
+
+def tr_unpunctuated():
+    return transcript_from_cues([Cue(0.0, 10.0, UNPUNCTUATED)])
+
+
+def test_locked_check_accepts_added_punctuation_and_moved_boundaries():
+    tr = tr_unpunctuated()
+    chunk = make_chunks(tr)[0]
+    out = RectifyOutput(sentences=[
+        sent(0, 15, "我今天想跟你们聊一聊学中文的方法。"),
+        sent(16, 22, "其实，方法有很多，"),
+        sent(23, 31, "但是最重要的是坚持！"),
+    ])
+    res, reason = check(out, chunk, tr, locked=True)
+    assert reason == "" and [(s.char_from, s.char_to) for s in res] == [(0, 15), (16, 22), (23, 31)]
+
+
+def test_locked_check_rejects_a_changed_speech_character_that_repair_mode_accepts():
+    tr = tr_unpunctuated()
+    chunk = make_chunks(tr)[0]
+    out = RectifyOutput(sentences=[
+        sent(0, 15, "我今天想跟你们聊一聊学中文的办法。"),        # 方 → 办: one character in sixteen
+        sent(16, 31, "其实方法有很多，但是最重要的是坚持。"),
+    ])
+    assert check(out, chunk, tr)[0] is not None
+    res, reason = check(out, chunk, tr, locked=True)
+    assert res is None and "办法" in reason
+
+
+@pytest.mark.parametrize("text", ["我今天想跟你们聊一聊学中文的方法啊。", "我今天想跟你们聊一聊中文的方法。"],
+                         ids=["added_char", "dropped_char"])
+def test_locked_check_rejects_added_or_dropped_characters(text):
+    tr = tr_unpunctuated()
+    chunk = make_chunks(tr)[0]
+    out = RectifyOutput(sentences=[sent(0, 15, text), sent(16, 31, UNPUNCTUATED[16:])])
+    assert check(out, chunk, tr, locked=True)[0] is None
+
+
+def test_locked_check_accepts_traditional_characters_that_simplify_to_the_raw_text():
+    tr = tr_unpunctuated()
+    chunk = make_chunks(tr)[0]
+    out = RectifyOutput(sentences=[sent(0, 15, "我今天想跟你們聊一聊學中文的方法。"), sent(16, 31, UNPUNCTUATED[16:])])
+    res, _ = check(out, chunk, tr, locked=True)
+    assert res is not None and res[0].text == "我今天想跟你们聊一聊学中文的方法。"
+
+
+def test_rectify_transcript_asks_the_llm_for_the_mode_and_validates_by_it():
+    tr = tr_unpunctuated()
+    changed = RectifyOutput(sentences=[sent(0, 15, "我今天想跟你们聊一聊学中文的办法。"), sent(16, 31, UNPUNCTUATED[16:])])
+    llm = FakeLLM(lambda c, x: changed, lambda xs: xs)
+    assert [s.text for s in rectify_transcript(tr, llm)][0] == "我今天想跟你们聊一聊学中文的办法。"
+    locked = rectify_transcript(tr, llm, locked=True)
+    assert [s.text for s in locked] == [UNPUNCTUATED]            # rejected: fallback keeps the subtitle text
+    assert llm.rectify_locked == [False, True]
 
 
 def test_fallback_splits_at_sentence_punct():
@@ -225,4 +284,24 @@ def test_anthropic_cache_key_includes_prompt_version(monkeypatch, tmp_path):
     llm.rectify(["你", "好"], [])
     monkeypatch.setattr(llm_mod, "PROMPT_VERSION", "2")
     llm.rectify(["你", "好"], [])
+    assert len(stub.calls) == 2 and len(list(tmp_path.glob("*.json"))) == 2
+
+
+def test_anthropic_rectify_locked_mode_sends_the_locked_prompt(monkeypatch, tmp_path):
+    llm, stub = make_anthropic(monkeypatch, tmp_path, [GOOD, GOOD])
+    llm.rectify(["你", "好"], [])
+    llm.rectify(["你", "好"], [], locked=True)
+    repair, locked = (c["system"] for c in stub.calls)
+    assert repair == RECTIFY_SYSTEM.format(min_chars=6, max_chars=25)
+    assert locked == RECTIFY_LOCKED_SYSTEM.format(min_chars=6, max_chars=25)
+    assert "never change, add or drop characters" in locked and "homophone" not in locked
+    assert all("temperature" not in c for c in stub.calls)
+
+
+def test_anthropic_rectify_cache_key_includes_the_mode(monkeypatch, tmp_path):
+    llm, stub = make_anthropic(monkeypatch, tmp_path, [GOOD, GOOD])
+    llm.rectify(["你", "好"], [])
+    llm.rectify(["你", "好"], [], locked=True)
+    llm.rectify(["你", "好"], [])
+    llm.rectify(["你", "好"], [], locked=True)
     assert len(stub.calls) == 2 and len(list(tmp_path.glob("*.json"))) == 2
