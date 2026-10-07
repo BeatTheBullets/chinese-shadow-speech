@@ -3,18 +3,23 @@
 from __future__ import annotations
 import re
 import shutil
+import tempfile
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Iterable, Iterator, Protocol
 from urllib.parse import parse_qs, urlparse
 
 _ID = re.compile(r"[A-Za-z0-9_-]{11}")
-_YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com"}
+_YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com",
+                  "youtube-nocookie.com", "www.youtube-nocookie.com"}
 _SHORT_HOSTS = {"youtu.be", "www.youtu.be"}
 # Manual tracks first, simplified before traditional (zh-CN / zh-HK are the regional names of the same scripts), then
 # auto-generated ones. No other language is ever chosen, so none is ever downloaded.
 MANUAL_LANGS = ("zh-Hans", "zh-CN", "zh-Hant", "zh-TW", "zh-HK", "zh")
-AUTO_LANGS = ("zh-Hans", "zh")
+# Auto-generated: YouTube lists a machine translation into every language (zh-Hans, zh, ...) for each ASR track; only
+# the track labelled "<code>-orig" is the speech actually recognised, so Chinese is accepted only as a `zh*-orig` key.
+AUTO_ORIG_LANGS = ("zh-Hans-orig", "zh-orig")
 SUBTITLE_EXTS = ("vtt", "srt")              # what parse_subtitles reads
 
 COOKIES_HINT = "this video needs a cookies file — see Settings"
@@ -35,9 +40,9 @@ def parse_video_id(url: str) -> str | None:
     parts = [p for p in u.path.split("/") if p]
     if host in _SHORT_HOSTS:
         cand = parts[0] if parts else ""
-    elif host in _YOUTUBE_HOSTS and u.path == "/watch":
+    elif host in _YOUTUBE_HOSTS and parts == ["watch"]:
         cand = parse_qs(u.query).get("v", [""])[0]
-    elif host in _YOUTUBE_HOSTS and len(parts) >= 2 and parts[0] in ("shorts", "live"):
+    elif host in _YOUTUBE_HOSTS and len(parts) >= 2 and parts[0] in ("shorts", "live", "embed"):
         cand = parts[1]
     else:
         return None
@@ -73,8 +78,10 @@ class SubtitleChoice:
 
 
 def choose_subtitle(info: VideoInfo) -> SubtitleChoice | None:
-    """The Chinese track to use (see MANUAL_LANGS / AUTO_LANGS) in a format the subtitle parser reads, or None."""
-    for tracks, langs, auto in ((info.subtitles, MANUAL_LANGS, False), (info.automatic_captions, AUTO_LANGS, True)):
+    """The Chinese track to use (manual MANUAL_LANGS, else an original-language auto track) in a format the subtitle parser reads, or None."""
+    orig = sorted((k for k in info.automatic_captions if k.startswith("zh") and k.endswith("-orig")),
+                  key=lambda k: (k not in AUTO_ORIG_LANGS, k))
+    for tracks, langs, auto in ((info.subtitles, MANUAL_LANGS, False), (info.automatic_captions, orig, True)):
         for lang in langs:
             ext = next((e for e in SUBTITLE_EXTS if e in tracks.get(lang, [])), None)
             if ext:
@@ -97,10 +104,14 @@ def info_from_ytdlp(raw: dict[str, Any]) -> VideoInfo:
         is_live=raw.get("live_status") == "is_live" or bool(raw.get("is_live")))
 
 
-def readable_error(raw: str) -> str:
+def readable_error(raw: str, warnings: Iterable[str] = ()) -> str:
     """yt-dlp's error message reworded into what the user can do about it (checked in this order: yt-dlp appends
-    "Use --cookies" to private-video errors too)."""
+    "Use --cookies" to private-video errors too). `warnings` are what yt-dlp reported on the way: a missing JavaScript
+    runtime or a failed challenge is only ever a warning, followed by a vague "format not available" error."""
     m = raw.lower()
+    w = " ".join(warnings).lower()
+    if "try again later" in m or "rate-limit" in m:
+        return "YouTube: YouTube is rate-limiting this computer — try again later"
     if any(k in m for k in ("private video", "video unavailable", "this video is unavailable", "has been removed",
                             "members-only", "this video is not available")):
         return "YouTube: this video is private or unavailable"
@@ -109,10 +120,13 @@ def readable_error(raw: str) -> str:
     if any(k in m for k in ("unable to download webpage", "urlopen error", "timed out", "name resolution",
                             "network is unreachable", "connection reset", "connection refused")):
         return "YouTube: could not reach YouTube (network error) — check the connection and try again"
-    if any(k in m for k in ("javascript runtime", "deno", "n challenge", "signature extraction")):
+    deno_words = ("javascript runtime", "deno", "n challenge", "signature solving", "signature extraction")
+    if any(k in m or k in w for k in deno_words):
         return f"YouTube: {DENO_HINT}"
-    if any(k in m for k in ("unable to extract", "nsig", "signature", "please report this issue",
+    if any(k in m for k in ("unable to extract", "nsig", "signature", "http error 403", "please report this issue",
                             "requested format is not available", "only images are available")):
+        if shutil.which("deno") is None:
+            return f"YouTube: {DENO_HINT}"
         return f"YouTube: extraction failed, yt-dlp is probably outdated — {UPDATE_HINT}"
     first = raw.strip().splitlines()[0] if raw.strip() else "unknown error"
     return f"YouTube download failed: {first}"
@@ -124,38 +138,73 @@ class Downloader(Protocol):
     def fetch_subtitle(self, url: str, choice: SubtitleChoice) -> str: ...
 
 
+class _Warnings:
+    """yt-dlp logger: keeps warnings (where it reports a missing JavaScript runtime) and drops everything else."""
+
+    def __init__(self) -> None:
+        self.warnings: list[str] = []
+
+    def debug(self, msg: str) -> None: ...
+    def info(self, msg: str) -> None: ...
+    def error(self, msg: str) -> None: ...
+
+    def warning(self, msg: str) -> None:
+        self.warnings.append(msg)
+
+
 class YtDlpDownloader:
     """yt-dlp's Python API. Only the chosen Chinese subtitle track is ever fetched."""
 
     def __init__(self, cookies_file: str = ""):
         self.cookies_file = cookies_file
-        self._raw: dict[str, dict[str, Any]] = {}        # url -> info dict from probe(), for its subtitle URLs
+        self._subs: dict[str, dict[str, Any]] = {}       # video id -> subtitle maps from probe(), until fetched
 
     def _opts(self, **extra: Any) -> dict[str, Any]:
-        opts: dict[str, Any] = {"quiet": True, "no_warnings": True, "noprogress": True, "noplaylist": True, **extra}
+        opts: dict[str, Any] = {"quiet": True, "noprogress": True, "noplaylist": True, "color": "no_color",
+                                "cachedir": False, **extra}
         if self.cookies_file:
             opts["cookiefile"] = str(Path(self.cookies_file).expanduser())
         return opts
 
+    @contextmanager
+    def _ydl(self, **extra: Any) -> Iterator[tuple[Any, _Warnings]]:
+        """A YoutubeDL on a temporary copy of the cookies file: yt-dlp saves cookies back on exit and must never
+        rewrite the user's file."""
+        import yt_dlp
+        log = _Warnings()
+        with tempfile.TemporaryDirectory(prefix="shadow-yt-") as tmp:
+            opts = self._opts(logger=log, **extra)
+            if "cookiefile" in opts:
+                try:
+                    shutil.copyfile(opts["cookiefile"], Path(tmp) / "cookies.txt")
+                except OSError as e:
+                    raise YoutubeError(f"YouTube: cannot read the cookies file: {e}") from e
+                opts["cookiefile"] = str(Path(tmp) / "cookies.txt")
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                yield ydl, log
+
     def probe(self, url: str) -> VideoInfo:
         import yt_dlp
+        log = _Warnings()
         try:
-            with yt_dlp.YoutubeDL(self._opts(skip_download=True)) as ydl:
+            with self._ydl(skip_download=True) as (ydl, log):
                 raw = ydl.extract_info(url, download=False)
-        except yt_dlp.utils.DownloadError as e:
-            raise YoutubeError(readable_error(str(e))) from e
-        self._raw[url] = raw
-        return info_from_ytdlp(raw)
+        except yt_dlp.utils.YoutubeDLError as e:
+            raise YoutubeError(readable_error(str(e), log.warnings)) from e
+        info = info_from_ytdlp(raw)
+        self._subs[info.video_id] = {k: raw.get(k) for k in ("subtitles", "automatic_captions")}
+        return info
 
     def download_audio(self, url: str, dest_dir: Path) -> Path:
         import yt_dlp
         dest_dir.mkdir(parents=True, exist_ok=True)
-        opts = self._opts(format="bestaudio/best", outtmpl={"default": str(dest_dir / "audio.%(ext)s")})
+        extra = {"format": "bestaudio", "outtmpl": {"default": str(dest_dir.resolve() / "audio.%(ext)s")}}
+        log = _Warnings()
         try:
-            with yt_dlp.YoutubeDL(opts) as ydl:
+            with self._ydl(**extra) as (ydl, log):
                 info = ydl.extract_info(url, download=True)
-        except yt_dlp.utils.DownloadError as e:
-            raise YoutubeError(readable_error(str(e))) from e
+        except yt_dlp.utils.YoutubeDLError as e:
+            raise YoutubeError(readable_error(str(e), log.warnings)) from e
         paths = [Path(d["filepath"]) for d in info.get("requested_downloads") or [] if d.get("filepath")]
         if not paths or not paths[0].exists():
             raise YoutubeError("YouTube download failed: yt-dlp wrote no audio file")
@@ -163,16 +212,18 @@ class YtDlpDownloader:
 
     def fetch_subtitle(self, url: str, choice: SubtitleChoice) -> str:
         import yt_dlp
+        log = _Warnings()
         try:
-            with yt_dlp.YoutubeDL(self._opts(skip_download=True)) as ydl:
-                raw = self._raw.get(url) or ydl.extract_info(url, download=False)
-                tracks = (raw.get("automatic_captions") if choice.auto else raw.get("subtitles")) or {}
+            with self._ydl(skip_download=True) as (ydl, log):
+                key = parse_video_id(url) or url
+                maps = self._subs.pop(key, None) or ydl.extract_info(url, download=False)
+                tracks = (maps.get("automatic_captions") if choice.auto else maps.get("subtitles")) or {}
                 track = next((t for t in tracks.get(choice.lang, []) if t.get("ext") == choice.ext), None)
                 if track is None:
                     raise YoutubeError(f"YouTube no longer offers the {choice.lang} subtitles")
                 return ydl.urlopen(track["url"]).read().decode("utf-8-sig", errors="replace")
-        except yt_dlp.utils.DownloadError as e:
-            raise YoutubeError(readable_error(str(e))) from e
+        except yt_dlp.utils.YoutubeDLError as e:
+            raise YoutubeError(readable_error(str(e), log.warnings)) from e
 
 
 class FakeDownloader:
