@@ -11,6 +11,7 @@ from shadow.deps import Deps
 from shadow.ingest import audio
 from shadow.ingest.align import Span, align_in_window, sentence_bounds, spans_to_json
 from shadow.ingest.enrich import make_clips, translate_all, words_for
+from shadow.ingest.passages import rebuild_passages
 from shadow.ingest.rectify import RectSentenceOut, rectify_transcript
 from shadow.ingest.repair import clamp_spans, coarse_times, repair_spans
 from shadow.ingest.subalign import MIN_SUBTITLE_MATCH, align_text_to_asr
@@ -253,6 +254,7 @@ def ingest_upload(deps: Deps, engine: Engine, lesson_id: int, media_path: Path,
         progress("rectify", 1.0)
 
         build_segments(deps, engine, lesson_id, source_wav, tr, sentences, progress)
+        rebuild_passages(engine, lesson_id)
         _set_status(engine, lesson_id, "ready", duration_s=duration, transcript_json=tr.to_json())
         progress("done", 1.0)
     except Exception as e:  # noqa: BLE001

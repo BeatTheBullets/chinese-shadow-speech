@@ -30,6 +30,15 @@ class SegmentOut(BaseModel):
     attempts: int = 0
 
 
+class PassageOut(BaseModel):
+    idx: int
+    title: str
+    start_s: float
+    end_s: float
+    segment_ids: list[int]
+    done: bool
+
+
 class LessonOut(BaseModel):
     id: int
     title: str
@@ -43,10 +52,13 @@ class LessonOut(BaseModel):
     segment_count: int = 0
     practised_count: int = 0
     mean_last_score: float | None = None
+    passage_count: int = 0
+    passages_done: int = 0
 
 
 class LessonDetail(LessonOut):
     segments: list[SegmentOut]
+    passages: list[PassageOut] = []
 
 
 class AttemptOut(BaseModel):

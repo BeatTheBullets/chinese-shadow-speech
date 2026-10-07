@@ -67,7 +67,7 @@ def test_delete_removes_the_lessons_passages(client, tmp_path):
     assert client.delete(f"/lessons/{lid}").status_code == 204
     with Session(client.app.state.engine) as db:
         assert db.exec(select(Passage).where(Passage.lesson_id == lid)).all() == []
-        assert len(db.exec(select(Passage).where(Passage.lesson_id == keep)).all()) == 1
+        assert [r.title for r in db.exec(select(Passage).where(Passage.lesson_id == keep, Passage.title == "p")).all()] == ["p"]    # ingest also built its own
 
 
 def test_status_helpers_tolerate_a_deleted_lesson(client):

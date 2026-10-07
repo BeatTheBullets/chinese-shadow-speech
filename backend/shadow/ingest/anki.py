@@ -14,6 +14,7 @@ from sqlmodel import Session, select
 from shadow.deps import Deps
 from shadow.ingest import audio
 from shadow.ingest.pipeline import MIN_CLIP_S, _merge_meta, _set_status, build_segments
+from shadow.ingest.passages import rebuild_passages
 from shadow.ingest.rectify import RectSentenceOut
 from shadow.ingest.text import strip_html, to_simplified
 from shadow.jobs import Progress
@@ -155,6 +156,7 @@ def ingest_anki_group(deps: Deps, engine: Engine, lesson_id: int, notes: list[An
             audio.write_wav(source_wav, np.concatenate(pieces))
             build_segments(deps, engine, lesson_id, source_wav, None, sentences, progress,
                            anki_note_ids=note_ids, idx_offset=start_idx, fixed_spans=spans, translations=translations)
+            rebuild_passages(engine, lesson_id)
         elif start_idx == 0:
             raise RuntimeError("no usable notes: " + "; ".join(f"{k}: {v}" for k, v in skipped.items()))
         _set_status(engine, lesson_id, "ready", duration_s=pos / audio.SR)

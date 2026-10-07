@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 from shadow.api.lessons import _segment_out
 from shadow.ingest import audio
+from shadow.ingest.passages import rebuild_passages
 from shadow.ingest.pipeline import MIN_CLIP_S
 from shadow.ingest.reenrich import reenrich_segment, renumber, shift_after
 from shadow.ingest.text import strip_punct, to_simplified
@@ -79,6 +80,7 @@ def patch_segment(segment_id: int, body: SegmentPatch, request: Request, db: Ses
             log.exception("re-enrich of segment %d failed", segment_id)
             why = "audio processing (ffmpeg) failed" if isinstance(e, subprocess.CalledProcessError) else (str(e) or type(e).__name__)
             raise HTTPException(500, f"the edited sentence could not be processed, so the text was not changed: {why}")
+        rebuild_passages(request.app.state.engine, seg.lesson_id)       # re-alignment can move the segment's bounds
     if body.difficulty_flag is not None or body.anki_note_id is not None:
         db.refresh(seg)
         if body.difficulty_flag is not None:
@@ -133,6 +135,7 @@ def resplit(segment_id: int, body: ResplitIn, request: Request, db: Session = De
     reenrich_segment(deps, engine, left_id, window=lw)
     reenrich_segment(deps, engine, right_id, window=rw)
     renumber(deps, engine, lesson_id)
+    rebuild_passages(engine, lesson_id)
     return [_fresh_out(db, left_id), _fresh_out(db, right_id)]
 
 
@@ -172,4 +175,5 @@ def merge_next(segment_id: int, request: Request, db: Session = Depends(get_sess
     sid = seg.id
     reenrich_segment(deps, engine, sid)
     renumber(deps, engine, lesson_id)
+    rebuild_passages(engine, lesson_id)
     return _fresh_out(db, sid)

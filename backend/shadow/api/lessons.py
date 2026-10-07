@@ -1,4 +1,5 @@
 from __future__ import annotations
+from dataclasses import asdict
 import shutil
 import threading
 import uuid
@@ -7,10 +8,11 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Resp
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from sqlmodel import Session, select
+from shadow.ingest.passages import PassagePlan, passage_views, plan_for
 from shadow.ingest.pipeline import ingest_upload, ingest_youtube
 from shadow.ingest.text import to_simplified
 from shadow.ingest.youtube import parse_video_id, source_ref, watch_url
-from shadow.schemas import LessonDetail, LessonOut, SegmentOut
+from shadow.schemas import LessonDetail, LessonOut, PassageOut, SegmentOut
 from shadow.store.db import get_session
 from shadow.store.files import FileLayout
 from shadow.store.models import Attempt, Lesson, Passage, PracticeSession, Segment, SyllableScore
@@ -79,13 +81,29 @@ def _segment_out(db: Session, seg: Segment) -> SegmentOut:
                       best_score=max(scores) if scores else None, attempts=len(atts))
 
 
-def _lesson_out(db: Session, lesson: Lesson) -> LessonOut:
-    segs = db.exec(select(Segment).where(Segment.lesson_id == lesson.id)).all()
+def _passages(db: Session, lesson: Lesson, segs: list[Segment], outs: list[SegmentOut]) -> list[PassageOut]:
+    """Stored passages, or for a lesson ingested before passages existed a plan computed now (not stored)."""
+    if not segs:
+        return []
+    rows = db.exec(select(Passage).where(Passage.lesson_id == lesson.id).order_by(Passage.idx)).all()
+    plans = [PassagePlan(r.start_s, r.end_s, r.title) for r in rows] or plan_for(lesson, segs)
+    views = passage_views(plans, [(o.id, o.start_s, o.attempts) for o in outs])
+    return [PassageOut(**asdict(v)) for v in views]
+
+
+def _lesson_parts(db: Session, lesson: Lesson) -> tuple[list[SegmentOut], list[PassageOut]]:
+    segs = db.exec(select(Segment).where(Segment.lesson_id == lesson.id).order_by(Segment.idx)).all()
     outs = [_segment_out(db, s) for s in segs]
+    return outs, _passages(db, lesson, segs, outs)
+
+
+def _lesson_out(db: Session, lesson: Lesson, parts: tuple[list[SegmentOut], list[PassageOut]] | None = None) -> LessonOut:
+    outs, passages = parts or _lesson_parts(db, lesson)
     last = [o.last_score for o in outs if o.last_score is not None]
-    return LessonOut(**lesson.model_dump(exclude={"meta_json", "transcript_json"}), segment_count=len(segs),
+    return LessonOut(**lesson.model_dump(exclude={"meta_json", "transcript_json"}), segment_count=len(outs),
                      practised_count=sum(1 for o in outs if o.attempts),
-                     mean_last_score=sum(last) / len(last) if last else None)
+                     mean_last_score=sum(last) / len(last) if last else None,
+                     passage_count=len(passages), passages_done=sum(1 for p in passages if p.done))
 
 
 def _get_lesson(db: Session, lesson_id: int) -> Lesson:
@@ -130,9 +148,9 @@ def list_lessons(db: Session = Depends(get_session)):
 
 @router.get("/lessons/{lesson_id}", response_model=LessonDetail)
 def get_lesson(lesson_id: int, db: Session = Depends(get_session)):
-    base = _lesson_out(db, _get_lesson(db, lesson_id))
-    segs = db.exec(select(Segment).where(Segment.lesson_id == lesson_id).order_by(Segment.idx)).all()
-    return LessonDetail(**base.model_dump(), segments=[_segment_out(db, s) for s in segs])
+    lesson = _get_lesson(db, lesson_id)
+    parts = _lesson_parts(db, lesson)
+    return LessonDetail(**_lesson_out(db, lesson, parts).model_dump(), segments=parts[0], passages=parts[1])
 
 
 class LessonPatch(BaseModel):
