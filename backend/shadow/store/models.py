@@ -79,3 +79,15 @@ class SyllableScore(SQLModel, table=True):
     tone_score: float | None = None
     seg_score: float | None = None
     status: str
+
+
+class Passage(SQLModel, table=True):
+    """A contiguous run of segments of about 2–3 minutes (addendum §4). Only the time range is stored: a segment
+    belongs to the passage whose range contains its start_s."""
+    __table_args__ = {"sqlite_autoincrement": True}   # ids never reused after a delete (clip URLs, prefs, exports)
+    id: int | None = Field(default=None, primary_key=True)
+    lesson_id: int = Field(foreign_key="lesson.id", index=True)
+    idx: int
+    title: str
+    start_s: float
+    end_s: float

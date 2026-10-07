@@ -1,6 +1,6 @@
 from sqlmodel import Session, select
 from shadow.ingest.pipeline import _merge_meta, _set_status
-from shadow.store.models import Segment
+from shadow.store.models import Passage, Segment
 from tests.helpers import make_tone_wav
 from tests.conftest import wait_job
 
@@ -57,6 +57,19 @@ def test_delete_removes_segment_rows(client, tmp_path):
         assert len(db.exec(select(Segment).where(Segment.lesson_id == keep)).all()) == 3
 
 
+def test_delete_removes_the_lessons_passages(client, tmp_path):
+    lid = _upload(client, tmp_path)
+    keep = _upload(client, tmp_path, "K")
+    with Session(client.app.state.engine) as db:
+        for lesson_id in (lid, keep):
+            db.add(Passage(lesson_id=lesson_id, idx=0, title="p", start_s=0.0, end_s=1.0))
+        db.commit()
+    assert client.delete(f"/lessons/{lid}").status_code == 204
+    with Session(client.app.state.engine) as db:
+        assert db.exec(select(Passage).where(Passage.lesson_id == lid)).all() == []
+        assert len(db.exec(select(Passage).where(Passage.lesson_id == keep)).all()) == 1
+
+
 def test_status_helpers_tolerate_a_deleted_lesson(client):
     """A lesson deleted while its ingest job runs must not crash the job's status bookkeeping."""
     engine = client.app.state.engine
@@ -103,7 +116,7 @@ def test_every_table_with_deletable_rows_uses_autoincrement(client):
     from sqlalchemy import text
     with client.app.state.engine.connect() as conn:
         ddl = dict(conn.execute(text("select name, sql from sqlite_master where type='table'")).all())
-    for table in ("lesson", "segment", "attempt", "session", "syllablescore"):
+    for table in ("lesson", "segment", "attempt", "session", "syllablescore", "passage"):
         assert "AUTOINCREMENT" in ddl[table], table
 
 

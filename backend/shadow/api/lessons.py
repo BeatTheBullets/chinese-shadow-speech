@@ -13,7 +13,7 @@ from shadow.ingest.youtube import parse_video_id, source_ref, watch_url
 from shadow.schemas import LessonDetail, LessonOut, SegmentOut
 from shadow.store.db import get_session
 from shadow.store.files import FileLayout
-from shadow.store.models import Attempt, Lesson, PracticeSession, Segment, SyllableScore
+from shadow.store.models import Attempt, Lesson, Passage, PracticeSession, Segment, SyllableScore
 
 router = APIRouter()
 _youtube_add_lock = threading.Lock()      # single-process app: makes check, replace and create one step
@@ -96,7 +96,7 @@ def _get_lesson(db: Session, lesson_id: int) -> Lesson:
 
 
 def _delete_lesson(db: Session, files: FileLayout, lesson: Lesson) -> None:
-    """Delete the lesson, its segments, their attempts and scores, its sessions and its files."""
+    """Delete the lesson, its segments, their attempts and scores, its sessions, its passages and its files."""
     lesson_id = lesson.id
     segs = db.exec(select(Segment).where(Segment.lesson_id == lesson_id)).all()
     attempt_files: list[Path] = []
@@ -111,6 +111,8 @@ def _delete_lesson(db: Session, files: FileLayout, lesson: Lesson) -> None:
         db.flush()
     for ps in db.exec(select(PracticeSession).where(PracticeSession.lesson_id == lesson_id)).all():
         db.delete(ps)
+    for p in db.exec(select(Passage).where(Passage.lesson_id == lesson_id)).all():
+        db.delete(p)
     db.flush()
     for s in segs:
         db.delete(s)
