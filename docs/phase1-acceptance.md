@@ -17,6 +17,9 @@ Items 1-8 are the checks automated tests and reviewers could not run; do them fi
 
 - [ ] Upload a 5-10 min Mandarin video: tile shows stages normalise, transcribe, rectify, align, enrich; lesson ready with 6-25-char sentences; clips start/end cleanly.
 - [ ] Upload the same video with its .srt: sentences follow the subtitles.
+- [ ] Upload it again with the .srt shifted by a few seconds (or from a release with a different intro): clips still start and end on the spoken sentences.
+- [ ] Upload it with a plain-text transcript (.txt, one line per sentence or paragraph): the lesson's text is the transcript's, not the ASR's.
+- [ ] Upload it with another episode's subtitles: the lesson shows a readable "subtitles don't match the audio (NN % of characters matched)" note and uses the ASR text.
 - [ ] Anki import: Settings, Connect, add query, Library, refresh: one lesson per source video; re-import adds only new notes.
 - [ ] Configure two import queries that share a video (e.g. `deck:Mining tag:asbplayer` and `rated:1`) and run both: one lesson for that video, no duplicate sentences.
 - [ ] Restart the backend during an ingest (Ctrl-C, or save a backend file under `make dev`): the tile shows an "interrupted" error you can delete, not a perpetual job.

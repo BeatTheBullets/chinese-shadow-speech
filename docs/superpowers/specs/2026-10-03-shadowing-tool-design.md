@@ -118,18 +118,30 @@ supply only the text.
   non-empty lines of a plain-text transcript. The cues' times are **not** used
   for clips (subtitles from another release, with a cut intro or for another
   episode would otherwise misplace every clip). Rolling auto-captions (yt-dlp
-  style, each line repeated as the first line of the next cue) are reduced to
-  one copy of each line. The subtitle's speech characters (non-punctuation) are
-  aligned to the ASR's speech characters with a character-level edit
-  alignment: matched or substituted characters (e.g. ASR homophone errors)
-  take the ASR character's times, subtitle characters the ASR missed are
-  interpolated between their anchored neighbours, text before the first / after
-  the last anchor is clamped to it, and punctuation is zero-length at the
-  previous character's end. If fewer than 50 % of the subtitle's speech
-  characters equal the ASR character they align with, the subtitles are taken
-  to be for other audio and ignored: the ASR transcript is used and the lesson
-  records `subtitle_ignored` ("subtitles don't match the audio (NN % of
-  characters matched)"); otherwise it records `subtitle_match` (the ratio).
+  style, each line repeated as the first line of the next cue, in at least
+  three cues and half of the multi-line cues) are reduced to one copy of each
+  line. The subtitle's speech characters (non-punctuation) are aligned to the
+  ASR's speech characters with a character-level edit alignment, of which only
+  part is trusted, because the ASR may hold speech the subtitles do not cover
+  (an intro, a song, a passage between cues) where a lone misheard or dropped
+  subtitle character could otherwise line up with the same character:
+  - characters in runs of at least 3 consecutive equal characters are
+    **trusted anchors** and take the ASR character's times;
+  - between two trusted runs, if the ASR holds at most 2 more characters than
+    the subtitles it is the same speech heard differently: characters lined up
+    with an ASR character (equal or substituted, e.g. homophones) take its
+    times and the rest are interpolated between their timed neighbours; if the
+    ASR holds more, nothing there is anchored and each subtitle character is
+    pinned to the trusted anchor on its side (the previous one if it is in the
+    same cue or line, else the next one);
+  - text before the first / after the last trusted anchor is pinned to it;
+  - punctuation is zero-length at the previous character's end.
+
+  If fewer than 50 % of the subtitle's speech characters are in trusted runs,
+  the subtitles are taken to be for other audio and ignored: the ASR transcript
+  is used and the lesson records `subtitle_ignored` ("subtitles don't match the
+  audio (NN % of characters matched)", NN rounded down); otherwise it records
+  `subtitle_match` (the share, to two decimals).
   Unparseable or empty subtitle files are ignored the same way, with their
   reason.
 
