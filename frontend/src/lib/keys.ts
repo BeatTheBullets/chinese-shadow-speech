@@ -1,7 +1,7 @@
-export type Action = 'play' | 'record' | 'chorus' | 'prev' | 'next' | 'flag' | 'toggleHanzi' | 'togglePinyin' | 'toggleTranslation' | 'toggleDrawer' | 'exportAnki' | 'replayYou' | 'speed075'
+export type Action = 'play' | 'record' | 'chorus' | 'prev' | 'next' | 'flag' | 'toggleHanzi' | 'togglePinyin' | 'toggleTranslation' | 'toggleDrawer' | 'exportAnki' | 'replayYou' | 'speed075' | 'help'
 export const KEYMAP: Record<string, Action> = {
   ' ': 'play', Enter: 'record', c: 'chorus', ArrowLeft: 'prev', ArrowRight: 'next', f: 'flag',
-  t: 'toggleHanzi', p: 'togglePinyin', e: 'toggleTranslation', l: 'toggleDrawer', a: 'exportAnki', r: 'replayYou', s: 'speed075',
+  t: 'toggleHanzi', p: 'togglePinyin', e: 'toggleTranslation', l: 'toggleDrawer', a: 'exportAnki', r: 'replayYou', s: 'speed075', '?': 'help',
 }
 // False while the user is typing (form fields, anything inside a contenteditable region) and for anything inside
 // a dialog, whose own buttons keep Space/Enter.
