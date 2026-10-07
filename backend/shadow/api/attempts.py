@@ -130,7 +130,9 @@ def flow_runs(lesson_id: int, db: Session = Depends(get_session)):
         runs.append(run)
     runs.sort(key=lambda r: (r[-1][0].created_at, r[-1][0].id), reverse=True)
     out: list[FlowRunOut] = []
-    for run in runs[:MAX_RUNS]:
+    for run in runs:                                    # a run with no playable take is left out, not counted
+        if len(out) == MAX_RUNS:
+            break
         items = [FlowRunItem(segment_id=a.segment_id, idx=idx, attempt_id=a.id) for a, idx in _latest_per_segment(run)]
         if items:
             out.append(FlowRunOut(started_at=_utc(run[-1][0].created_at), ended_at=_utc(run[0][0].created_at),

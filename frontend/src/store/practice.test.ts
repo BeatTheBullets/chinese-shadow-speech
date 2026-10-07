@@ -58,6 +58,15 @@ describe('practice store', () => {
       s.setLastAttempt(take('blob:a', 6)); s.recordTake(11, stored(9))
       expect(currentTake(usePractice.getState())).toEqual(stored(9))
     })
+    it('loaded takes merge in: a newer take recorded meanwhile, or one the answer lacks, is kept', () => {
+      const s = usePractice.getState()
+      s.setStoredTakes({ 11: stored(5), 12: stored(8) })
+      s.recordTake(11, stored(9))
+      s.setStoredTakes({ 11: stored(7), 13: stored(3) })
+      expect(usePractice.getState().storedTakes).toEqual({ 11: stored(9), 12: stored(8), 13: stored(3) })
+      s.setStoredTakes({ 12: stored(10) })
+      expect(usePractice.getState().storedTakes[12]).toEqual(stored(10))
+    })
     it('a new lesson starts with no stored takes', () => {
       usePractice.getState().setStoredTakes({ 11: stored(5) })
       usePractice.getState().setLesson(lesson)

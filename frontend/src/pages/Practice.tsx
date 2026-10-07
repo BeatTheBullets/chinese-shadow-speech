@@ -494,6 +494,7 @@ export default function Practice() {
     if (j < 0) j = Math.max(0, Math.min(l.segments.length - 1, ps.idx))
     ps.replaceSegments(l.segments, l.passages)
     loadTakes(lessonId, () => alive.current && usePractice.getState().lesson?.id === lessonId)
+    if (ps.mode === 'flow') loadFlowRuns() // a stored run may name a sentence that was merged away
     // A new sentence or a re-cut clip drops the last take (setIdx); otherwise only the position follows the sentence.
     if (kept < 0 || changed.includes(curId!)) ps.setIdx(j)
     else if (j !== ps.idx) usePractice.setState({ idx: j })

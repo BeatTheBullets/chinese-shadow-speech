@@ -167,6 +167,15 @@ def test_at_most_ten_runs_newest_first(client, tmp_path):
     assert [r["items"][0]["attempt_id"] for r in runs] == ids[::-1][:10]
 
 
+def test_runs_without_a_playable_take_do_not_count_toward_the_ten(client, tmp_path):
+    lid = _upload(client, tmp_path)
+    s0 = _segs(client, lid)[0]
+    sess = _session(client, lid)
+    ids = [_att(client, s0, k * 120, session_id=sess) for k in range(10)]
+    _att(client, s0, 10 * 120, session_id=sess, audio=False)        # the newest run lost its audio
+    assert [r["items"][0]["attempt_id"] for r in _runs(client, lid)] == ids[::-1]
+
+
 def test_flow_runs_skip_attempts_without_audio(client, tmp_path):
     lid = _upload(client, tmp_path)
     s0, s1, _ = _segs(client, lid)

@@ -268,6 +268,18 @@ describe('<Practice>', () => {
       expect(h.twoTrack!.youDuration).toBe(0)
     })
 
+    it('a takes answer arriving after a newer upload does not bring the older take back', async () => {
+      const takes = deferred<Take[]>()
+      h.api.lessons.takes.mockReturnValue(takes.promise)
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      press('Enter'); await flush(); press('Enter'); await flush()
+      await waitFor(() => expect(usePractice.getState().storedTakes[11]).toMatchObject({ id: 99 }))
+      await act(async () => { takes.resolve([take(11, 77, 1.5), take(12, 78, 2.5)]) })
+      expect(usePractice.getState().storedTakes[11]).toMatchObject({ id: 99, url: '/att/99.wav' })
+      expect(usePractice.getState().storedTakes[12]).toMatchObject({ id: 78 })
+    })
+
     it("a take recorded now is the one R replays, and stays the sentence's take after moving away and back", async () => {
       h.api.lessons.takes.mockResolvedValue([take(11, 77, 1.5)])
       renderPractice()
@@ -705,6 +717,20 @@ describe('<Practice>', () => {
       expect(usePractice.getState().idx).toBe(0)
       expect(usePractice.getState().lesson!.segments[1].text).toBe('再见了')
       expect(h.api.lessons.takes).toHaveBeenCalledTimes(2) // the stored takes follow the reloaded sentences
+    })
+
+    it('an edit in the Flow setup reloads the stored runs, so a replay never names a merged-away sentence', async () => {
+      reloadWith([seg(11, 0, '你好'), seg(12, 1, '再见了')])
+      h.api.segments.patch.mockResolvedValue(seg(12, 1, '再见了'))
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      await enterFlow()
+      expect(h.api.lessons.flowRuns).toHaveBeenCalledTimes(1)
+      openMenu(2, 'Edit text')
+      fireEvent.change(screen.getByRole('textbox'), { target: { value: '再见了' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Save and re-align' }))
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+      await waitFor(() => expect(h.api.lessons.flowRuns).toHaveBeenCalledTimes(2))
     })
 
     it('a rejected edit keeps the dialog open with the backend message', async () => {

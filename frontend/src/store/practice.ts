@@ -34,7 +34,15 @@ export const usePractice = create<PracticeState>((set) => ({
   updateSegment: (seg) => set((s) => s.lesson ? { lesson: { ...s.lesson, segments: s.lesson.segments.map((x) => (x.id === seg.id ? seg : x)) } } : {}),
   replaceSegments: (segments, passages) => set((s) => (s.lesson ? { lesson: { ...s.lesson, segments, ...(passages ? { passages } : {}) } } : {})),
   markPractised: (id) => set((s) => (s.practised.includes(id) ? {} : { practised: [...s.practised, id] })),
-  setStoredTakes: (storedTakes) => set({ storedTakes }),
+  // Merged in, the higher attempt id winning per sentence: an answer that was in flight never undoes a newer upload.
+  setStoredTakes: (takes) => set((s) => {
+    const storedTakes = { ...s.storedTakes }
+    for (const [id, t] of Object.entries(takes)) {
+      const cur = storedTakes[Number(id)]
+      if (!cur || cur.id <= t.id) storedTakes[Number(id)] = t
+    }
+    return { storedTakes }
+  }),
   recordTake: (segmentId, t) => set((s) => ({ storedTakes: { ...s.storedTakes, [segmentId]: t } })),
 }))
 export const currentSegment = (s: PracticeState): Segment | null => s.lesson?.segments[s.idx] ?? null
