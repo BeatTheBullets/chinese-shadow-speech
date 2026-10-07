@@ -1,6 +1,8 @@
 import random
 import pytest
-from shadow.ingest.subalign import MAX_STRETCH_EXTRA, MIN_ANCHOR_RUN, MIN_SUBTITLE_MATCH, align_text_to_asr
+from shadow.ingest.subalign import (
+    MAX_SILENCE_S, MAX_STRETCH_EXTRA, MIN_ANCHOR_RUN, MIN_SUBTITLE_MATCH, align_text_to_asr,
+)
 from shadow.ingest.text import Cue, is_punct
 from shadow.ingest.transcript import TimedChar, Transcript, transcript_from_cues
 
@@ -27,7 +29,7 @@ def assert_monotonic(tr: Transcript):
 
 
 def test_constants():
-    assert (MIN_SUBTITLE_MATCH, MIN_ANCHOR_RUN, MAX_STRETCH_EXTRA) == (0.5, 3, 2)
+    assert (MIN_SUBTITLE_MATCH, MIN_ANCHOR_RUN, MAX_STRETCH_EXTRA, MAX_SILENCE_S) == (0.5, 3, 2, 2.0)
 
 
 def test_identical_text_anchors_every_char_to_the_asr_times():
@@ -141,6 +143,20 @@ def asr_from(*parts: str) -> tuple[Transcript, list[tuple[float, float]]]:
     return Transcript(chars, [(0, len(chars) - 1)]), spans
 
 
+def asr_at(*parts: tuple[str, float]) -> tuple[Transcript, list[tuple[float, float]]]:
+    """The ASR transcript of each (text, start) part, and each part's (start, end)."""
+    chars, spans = [], []
+    for text, start in parts:
+        chars += timed(text, start)
+        spans.append((start, start + len(text) * STEP))
+    return Transcript(chars, [(0, len(chars) - 1)]), spans
+
+
+def piece_spans(tr: Transcript) -> list[tuple[float, float]]:
+    """The (start, end) of each segment's chars: the coarse span its sentences are aligned around."""
+    return [(min(c.start for c in tr.chars[a:b + 1]), max(c.end for c in tr.chars[a:b + 1])) for a, b in tr.segments]
+
+
 def assert_inside(tr: Transcript, lo: float, hi: float):
     for c in tr.chars:
         assert lo <= c.start <= c.end <= hi, (c, lo, hi)
@@ -194,3 +210,52 @@ def test_true_subtitles_with_asr_errors_inside_much_more_speech_match_and_stay_i
     a = align_text_to_asr([sub[i:i + 15] for i in range(0, 300, 15)], asr)
     assert a.ratio >= 0.8
     assert_inside(a.transcript, lo, hi)
+
+
+# --- cue boundaries and silences ------------------------------------------------------------------------------
+
+FIRST, SECOND = "我今天想跟你们聊一聊学中文了", "但是最重要的是坚持"
+
+
+def assert_spans_within(tr: Transcript, speech: list[tuple[float, float]]):
+    for (a, b), (lo, hi) in zip(piece_spans(tr), speech, strict=True):
+        assert lo <= a <= b <= hi, ((a, b), (lo, hi))
+
+
+def assert_outside(tr: Transcript, gap_start: float, gap_end: float):
+    for c in tr.chars:
+        assert c.end <= gap_start or c.start >= gap_end, (c, gap_start, gap_end)
+
+
+def test_a_run_does_not_extend_across_a_cue_boundary_into_unsubtitled_speech():
+    # FIRST's final 了 is dropped; the unsubtitled passage ends with 了 right before SECOND
+    gap = "然后我们放一段很长的音乐大家可以休息一下了"
+    asr, [first, (g0, g1), second] = asr_from(FIRST[:-1], gap, SECOND)
+    a = align_text_to_asr([FIRST, SECOND], asr)
+    assert_outside(a.transcript, g0, g1)
+    assert_spans_within(a.transcript, [first, second])
+
+
+def test_a_run_does_not_extend_backwards_across_a_cue_boundary_into_unsubtitled_speech():
+    # SECOND's first 但 is misheard as 担; the unsubtitled passage starts with 但 right after FIRST
+    gap = "但然后我们放一段很长的音乐大家可以休息一下"
+    asr, [first, (g0, g1), second] = asr_from(FIRST, gap, "担" + SECOND[1:])
+    a = align_text_to_asr([FIRST, SECOND], asr)
+    assert_outside(a.transcript, g0, g1)
+    assert_spans_within(a.transcript, [first, second])
+
+
+@pytest.mark.parametrize("noise", ["", "嗯"], ids=["nothing_heard", "one_char_heard_in_the_music"])
+def test_a_dropped_edge_char_is_not_spread_over_a_silence_between_cues(noise):
+    parts = [(FIRST[:-1], 0.0)] + ([(noise, 39.5)] if noise else []) + [(SECOND, 40.0)]
+    asr, spans = asr_at(*parts)
+    a = align_text_to_asr([FIRST, SECOND], asr)
+    assert_outside(a.transcript, spans[0][1], 40.0)
+    assert_spans_within(a.transcript, [spans[0], spans[-1]])
+
+
+def test_a_dropped_char_is_not_spread_over_a_long_silence_inside_one_cue():
+    asr, [(_, g0), (g1, _)] = asr_at(("我今天想跟你们", 0.0), ("一聊学中文", 30.0))   # the first 聊 is dropped
+    a = align_text_to_asr(["我今天想跟你们聊一聊学中文"], asr)
+    assert_outside(a.transcript, g0, g1)
+    assert_monotonic(a.transcript)
