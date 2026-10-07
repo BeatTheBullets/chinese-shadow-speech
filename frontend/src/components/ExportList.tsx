@@ -25,7 +25,7 @@ export default function ExportList({ items, onSent, onBusy, disabled = false }: 
   const sent = (s: Segment) => rows[s.id]?.status === 'sent' || s.anki_note_id != null
   const todo = items.filter((it) => picked.has(it.segment.id) && !sent(it.segment))
   if (!exportNote) {
-    return <p className="text-sm text-fgdim">Set up the Anki export in Settings first (<Link className="underline" to="/settings">Settings → Anki → Set up shadow-speech deck</Link>).</p>
+    return <p className="text-sm text-fgdim">Set up the Anki export in Settings first (<Link className="underline" to="/settings">Settings → Anki → Set up chinese-shadow-speech deck</Link>).</p>
   }
   const cfg = exportNote
   const toggle = (id: number) => setPicked((p) => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n })

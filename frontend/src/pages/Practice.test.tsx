@@ -1024,7 +1024,7 @@ describe('<Practice>', () => {
   })
 
   describe('session-end export', () => {
-    const cfg = { deckName: 'shadow-speech', modelName: 'Shadow Listening', fields: { sentence: 'Sentence', audio: 'Audio' } }
+    const cfg = { deckName: 'chinese-shadow-speech', modelName: 'Shadow Listening', fields: { sentence: 'Sentence', audio: 'Audio' } }
     const long: LessonDetail = { ...lesson, segments: [seg(11, 0, '我今天想学中文'), seg(12, 1, '再见')] }
     beforeEach(() => { useSettings.setState({ exportNote: cfg }); h.api.lessons.get.mockResolvedValue(long) })
     afterEach(() => { cleanup(); useSettings.setState({ exportNote: null }) })

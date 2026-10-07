@@ -46,7 +46,7 @@ describe('<Review> bulk export', () => {
   })
 
   it('lists practised sentences not in Anki and sends them with the same bulk send', async () => {
-    useSettings.setState({ exportNote: { deckName: 'shadow-speech', modelName: 'Shadow Listening', fields: { sentence: 'Sentence', audio: 'Audio' } } })
+    useSettings.setState({ exportNote: { deckName: 'chinese-shadow-speech', modelName: 'Shadow Listening', fields: { sentence: 'Sentence', audio: 'Audio' } } })
     h.api.lessons.list.mockResolvedValue([])
     h.api.review.unexported.mockResolvedValue([{ lesson_id: 3, lesson_title: 'YT', lesson_source_type: 'youtube', lesson_source_ref: 'youtube::abcDEF12345',
       last_attempt_at: '2026-10-07T09:05:00', segment: { ...seg(5, '我今天想学中文', null), difficulty_flag: false } }])
@@ -59,7 +59,7 @@ describe('<Review> bulk export', () => {
   })
 
   describe('a sentence in both lists', () => {
-    const cfg = { deckName: 'shadow-speech', modelName: 'Shadow Listening', fields: { sentence: 'Sentence', audio: 'Audio' } }
+    const cfg = { deckName: 'chinese-shadow-speech', modelName: 'Shadow Listening', fields: { sentence: 'Sentence', audio: 'Audio' } }
     const both = seg(1, '我今天想学中文', null)
     const flagged: LessonDetail = { ...lesson, segments: [both] }
     const unexported = [{ lesson_id: 1, lesson_title: 'L', lesson_source_type: 'upload', lesson_source_ref: '', last_attempt_at: '2026-10-07T09:05:00', segment: both }]

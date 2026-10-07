@@ -119,7 +119,7 @@ describe('splitForExport', () => {
 
 describe('listening card fields', () => {
   afterEach(() => { vi.restoreAllMocks() })
-  const full = { deckName: 'shadow-speech', modelName: 'Shadow Listening', fields: { sentence: 'Sentence', pinyin: 'Pinyin', translation: 'Translation', audio: 'Audio', source: 'Source', link: 'Link' } }
+  const full = { deckName: 'chinese-shadow-speech', modelName: 'Shadow Listening', fields: { sentence: 'Sentence', pinyin: 'Pinyin', translation: 'Translation', audio: 'Audio', source: 'Source', link: 'Link' } }
   const yt = { id: 7, title: '学中文', source_type: 'youtube', source_ref: 'youtube::abcDEF12345' }
 
   it('adds Source (title · mm:ss), the YouTube Link at that second, and the lesson tag', () => {

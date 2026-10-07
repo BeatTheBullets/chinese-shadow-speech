@@ -130,7 +130,7 @@ describe('Library YouTube hand-off', () => {
     await waitFor(() => expect(h.api.lessons.youtube).toHaveBeenCalledWith(url))
     expect(h.api.lessons.youtube).toHaveBeenCalledTimes(1)
     expect(ask).toHaveBeenCalledTimes(1)
-    expect(ask).toHaveBeenCalledWith(`Add ${url} to shadow-speech?`)
+    expect(ask).toHaveBeenCalledWith(`Add ${url} to chinese-shadow-speech?`)
     await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent(/^\/library$/))
     await screen.findByText('Adding the video: downloading…')
   })

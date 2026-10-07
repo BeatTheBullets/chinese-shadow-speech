@@ -14,7 +14,7 @@ const seg = (id: number, text: string): Segment => ({
 })
 const lesson = { id: 1, title: 'L', source_type: 'youtube', source_ref: 'youtube::abcDEF12345' }
 const items = [{ segment: seg(1, '我今天想学中文。'), lesson }, { segment: seg(2, '嗯嗯，对对。'), lesson }, { segment: seg(3, '好的。'), lesson }]
-const cfg = { deckName: 'shadow-speech', modelName: 'Shadow Listening', fields: { sentence: 'Sentence', audio: 'Audio' } }
+const cfg = { deckName: 'chinese-shadow-speech', modelName: 'Shadow Listening', fields: { sentence: 'Sentence', audio: 'Audio' } }
 const show = (onSent = vi.fn()) => render(<MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><ExportList items={items} onSent={onSent} /></MemoryRouter>)
 
 describe('<ExportList>', () => {

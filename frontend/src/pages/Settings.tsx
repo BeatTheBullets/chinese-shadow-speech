@@ -61,7 +61,7 @@ export default function Settings() {
         </div>
         <p className="text-sm text-fgdim">{status}</p>
         <div className="flex gap-2 items-center">
-          <button className="btn" onClick={() => void setupDeck()}>Set up shadow-speech deck</button>
+          <button className="btn" onClick={() => void setupDeck()}>Set up chinese-shadow-speech deck</button>
           <span className="text-xs text-fgdim">Listening cards: the sentence's audio on the front, sentence, pinyin, translation and a link to the video on the back.</span>
         </div>
         <h3 className="text-fg">Import queries</h3>
@@ -105,7 +105,7 @@ export default function Settings() {
       <section className="space-y-2">
         <h2 className="text-fghi">YouTube</h2>
         <p className="text-sm text-fgdim">Drag this link to the Brave bookmarks bar. On a YouTube video, click it to send the video here.</p>
-        <a ref={bookmarklet} className="btn inline-block" onClick={(e) => e.preventDefault()}>→ shadow-speech</a>
+        <a ref={bookmarklet} className="btn inline-block" onClick={(e) => e.preventDefault()}>→ chinese-shadow-speech</a>
         <p className="text-sm text-fgdim">Videos behind an age or "not a bot" check need your YouTube cookies: export them to a
           cookies.txt file and set <code>[youtube] cookies_file</code> in config.toml (see docs/running.md, YouTube).</p>
       </section>

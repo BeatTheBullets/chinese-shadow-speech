@@ -2,7 +2,7 @@ import type { ExportNote } from '../store/settings'
 import { anki, type NewModel } from './client'
 
 // Listening cards (addendum §5.1): the sentence's audio on the front, what was said on the back.
-export const LISTENING_DECK = 'shadow-speech'
+export const LISTENING_DECK = 'chinese-shadow-speech'
 export const LISTENING_MODEL = 'Shadow Listening'
 export const LISTENING_FIELDS = ['Audio', 'Sentence', 'Pinyin', 'Translation', 'Source', 'Link']
 

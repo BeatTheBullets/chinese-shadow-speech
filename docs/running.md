@@ -27,7 +27,7 @@ Data lives in `./data`, config in `./config.toml` (mounted read-only).
 
 ## YouTube
 YouTube lessons are on by default (`[youtube] enabled = true`). Paste a link into the Library's "Paste a YouTube link"
-field, or drag the "→ shadow-speech" bookmarklet from Settings to the Brave bookmarks bar and click it on a video page.
+field, or drag the "→ chinese-shadow-speech" bookmarklet from Settings to the Brave bookmarks bar and click it on a video page.
 Videos longer than `[youtube] max_minutes` (default 90) are refused. Chinese subtitles are used when the video has
 them (manual first, then auto-generated); otherwise the ASR text is used.
 

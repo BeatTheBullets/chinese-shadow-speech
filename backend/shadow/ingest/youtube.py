@@ -90,7 +90,7 @@ def choose_subtitle(info: VideoInfo) -> SubtitleChoice | None:
 
 
 def info_from_ytdlp(raw: dict[str, Any]) -> VideoInfo:
-    """The fields shadow-speech uses from a yt-dlp info dict."""
+    """The fields chinese-shadow-speech uses from a yt-dlp info dict."""
     def tracks(d: dict | None) -> dict[str, list[str]]:
         return {lang: [t.get("ext", "") for t in ts or []] for lang, ts in (d or {}).items()}
     chapters = [{"title": c.get("title") or "", "start_time": float(c["start_time"]), "end_time": float(c["end_time"])}

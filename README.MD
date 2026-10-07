@@ -1,6 +1,6 @@
-# shadow-speech — a Mandarin shadowing studio
+# chinese-shadow-speech — a Mandarin shadowing studio
 
-**shadow-speech** turns any Chinese YouTube video or audio file into a shadowing lesson. It cuts the speech into short
+**chinese-shadow-speech** turns any Chinese YouTube video or audio file into a shadowing lesson. It cuts the speech into short
 sentences, aligns every character to the audio, adds pinyin and a translation, and gives you four ways to practise
 speaking along. Everything you record is kept. The sentences you have practised go to Anki as listening cards.
 
@@ -28,7 +28,7 @@ Brave + Yomitan on Windows).
 
 ### Lessons from YouTube or your own files
 
-Paste a YouTube link into the Library, or click the **→ shadow-speech** bookmarklet on a YouTube page. You can also
+Paste a YouTube link into the Library, or click the **→ chinese-shadow-speech** bookmarklet on a YouTube page. You can also
 drop an audio or video file, with or without a subtitle file. A few minutes later the lesson is ready:
 
 - The whole video becomes one lesson, split into sentences of about 6–25 characters.
@@ -99,7 +99,7 @@ is drawn as a separate layer and never changes the sentence's markup.
 
 Speaking happens in the app; Anki is used for **listening** review.
 
-- **One-click setup:** Settings → **Set up shadow-speech deck** creates a deck and a *Shadow Listening* note type.
+- **One-click setup:** Settings → **Set up chinese-shadow-speech deck** creates a deck and a *Shadow Listening* note type.
   The front is the audio only ("What did you hear?"). The back shows the hanzi, pinyin, translation and a link back
   to the moment in the YouTube video.
 - **End of session:** a dialog offers the sentences you practised. Fillers like 嗯, 对 and 好的 start unticked.
@@ -202,7 +202,7 @@ In Anki: Tools → Add-ons → AnkiConnect → Config, add the app to the allowe
 "webCorsOriginList": ["http://localhost", "http://localhost:5173", "http://127.0.0.1:8000"]
 ```
 
-Then in the app: Settings → **Connect**, and **Set up shadow-speech deck**.
+Then in the app: Settings → **Connect**, and **Set up chinese-shadow-speech deck**.
 
 ### Production build
 

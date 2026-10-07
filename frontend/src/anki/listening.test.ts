@@ -14,7 +14,7 @@ describe('setupListeningDeck', () => {
     const r = await setupListeningDeck('http://anki')
     const sent = bodies(f)
     expect(sent.map((b) => b.action)).toEqual(['deckNames', 'createDeck', 'modelNames', 'createModel'])
-    expect(sent[1].params).toEqual({ deck: 'shadow-speech' })
+    expect(sent[1].params).toEqual({ deck: 'chinese-shadow-speech' })
     const model = sent[3].params
     expect(model).toEqual(listeningModel)
     expect(model.modelName).toBe('Shadow Listening')
@@ -36,7 +36,7 @@ describe('setupListeningDeck', () => {
 
   it('reuses an existing deck and note type without changing them', async () => {
     const f = vi.spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(reply(['shadow-speech'])).mockResolvedValueOnce(reply(['Shadow Listening']))
+      .mockResolvedValueOnce(reply(['chinese-shadow-speech'])).mockResolvedValueOnce(reply(['Shadow Listening']))
       .mockResolvedValueOnce(reply(['Audio', 'Sentence', 'Source']))
     const r = await setupListeningDeck('http://anki')
     expect(bodies(f).map((b) => b.action)).toEqual(['deckNames', 'modelNames', 'modelFieldNames'])
@@ -46,7 +46,7 @@ describe('setupListeningDeck', () => {
 
   it('refuses an existing note type without Sentence and Audio fields', async () => {
     vi.spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(reply(['shadow-speech'])).mockResolvedValueOnce(reply(['Shadow Listening']))
+      .mockResolvedValueOnce(reply(['chinese-shadow-speech'])).mockResolvedValueOnce(reply(['Shadow Listening']))
       .mockResolvedValueOnce(reply(['Front', 'Back']))
     await expect(setupListeningDeck('http://anki')).rejects.toBeInstanceOf(NoteTypeError)
   })

@@ -6,5 +6,5 @@ export function bookmarkletCode(origin: string): string {
 // The question asked when the library opens with ?add=<url>: an optional &title= is shown next to the link, never instead of it.
 export function addQuestion(url: string, title?: string | null): string {
   const t = title?.trim()
-  return t ? `Add ${t} (${url}) to shadow-speech?` : `Add ${url} to shadow-speech?`
+  return t ? `Add ${t} (${url}) to chinese-shadow-speech?` : `Add ${url} to chinese-shadow-speech?`
 }
