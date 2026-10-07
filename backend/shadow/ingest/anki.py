@@ -23,10 +23,10 @@ log = logging.getLogger(__name__)
 
 GAP_S = 0.5     # silence between consecutive clips in the concatenated source.wav
 _SOUND = re.compile(r"\[sound:[^\]]*\]")
-# Trailing timestamp of asbplayer's Source field: "<name> [h:]mm:ss.mmm" or "<name> (1h2m3s)" / "(2m3s)" / "(45s)".
+# Trailing timestamp of asbplayer's Source field: "<name> [h:]mm:ss.mmm", or "<name> (00h00m08.3s)" (its default,
+# zero-padded with a tenth of a second) / "(1h02m03s)" / "(2m03s)" / "(45s)" (its edit dialog).
 _TS = re.compile(r"\s+(?:(\d{1,2}):)?(\d{1,2}):(\d{2})[.,](\d{3})$")
-_TS_HMS = re.compile(r"\s*\((?:(\d+)h)?(?:(\d+)m)?(\d+)s\)$")
-_SUFFIX = re.compile(r"_\d+$")
+_TS_HMS = re.compile(r"\s*\((?:(\d+)h)?(?:(\d+)m)?(\d+(?:\.\d+)?)s\)$")
 
 
 class AnkiNoteIn(BaseModel):
@@ -50,9 +50,9 @@ def parse_source(source: str | None) -> tuple[str, float | None]:
         return s[: m.start()].strip(), h * 3600 + mi * 60 + se + ms / 1000
     m = _TS_HMS.search(s)
     if m:
-        h, mi, se = (int(x or 0) for x in m.groups())
-        return s[: m.start()].strip(), float(h * 3600 + mi * 60 + se)
-    return _SUFFIX.sub("", s).strip(), None
+        h, mi, se = int(m.group(1) or 0), int(m.group(2) or 0), float(m.group(3))
+        return s[: m.start()].strip(), h * 3600 + mi * 60 + se
+    return s.strip(), None
 
 
 def clean_sentence(text: str) -> str:

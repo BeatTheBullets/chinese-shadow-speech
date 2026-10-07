@@ -12,7 +12,7 @@ from tests.conftest import wait_job
 def test_parse_source_forms():
     assert parse_source("春天的茶.mp4 00:12:03.450") == ("春天的茶.mp4", 723.45)
     assert parse_source("春天的茶.mp4 12:03.450") == ("春天的茶.mp4", 723.45)
-    assert parse_source("春天的茶_12345") == ("春天的茶", None)
+    assert parse_source("春天的茶_12345") == ("春天的茶_12345", None)
     assert parse_source("春天的茶") == ("春天的茶", None)
     assert parse_source(None) == ("", None)
 
@@ -22,6 +22,29 @@ def test_parse_source_trailing_hms_timestamp():
     assert parse_source("春天的茶.mp4 (2m3s)") == ("春天的茶.mp4", 123.0)
     assert parse_source("春天的茶.mp4 (45s)") == ("春天的茶.mp4", 45.0)
     assert parse_source("<div>春天的茶.mp4 (45s)</div>") == ("春天的茶.mp4", 45.0)
+
+
+def test_parse_source_asbplayer_padded_timestamps():
+    assert parse_source("episode.ass (00h00m08.3s)") == ("episode.ass", 8.3)
+    assert parse_source("episode.ass") == ("episode.ass", None)
+    assert parse_source("ep.srt (01h02m03.5s)") == ("ep.srt", 3723.5)
+    assert parse_source("ep.srt (00h12m03.0s)") == ("ep.srt", 723.0)
+    assert parse_source("ep.srt (2m03s)") == ("ep.srt", 123.0)
+    assert parse_source("ep.srt (1h02m03s)") == ("ep.srt", 3723.0)
+    assert parse_source("<div>ep.srt (00h00m08.3s)</div>") == ("ep.srt", 8.3)
+
+
+def test_parse_source_keeps_numbered_names_distinct():
+    assert parse_source("Lesson_1") == ("Lesson_1", None)
+    assert parse_source("Lesson_2") == ("Lesson_2", None)
+
+
+def test_group_by_video_orders_padded_timestamps_within_one_video():
+    notes = [_note(1, "a", "ep01.srt (00h10m00.0s)"), _note(2, "b", "ep01.srt (00h02m05.5s)"),
+             _note(3, "c", "ep01.srt (00h00m08.3s)")]
+    g = group_by_video(notes)
+    assert list(g) == ["ep01.srt"]
+    assert [n.note_id for n in g["ep01.srt"]] == [3, 2, 1]
 
 
 def test_clean_sentence_strips_html_sound_tags_and_traditional():
