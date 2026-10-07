@@ -5,7 +5,7 @@ port = 8000
 [models]
 device = "auto"                     # auto | cuda | cpu
 asr = "iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch"
-aligner = "auto"                    # auto → qwen3_fa on cuda, mms_fa on cpu | qwen3_fa | mms_fa | mfa
+aligner = "auto"                    # auto → mms_fa | qwen3_fa | mms_fa | mfa
 gop_model = "wbbbbb/wav2vec2-large-chinese-zh-cn"
 
 [llm]

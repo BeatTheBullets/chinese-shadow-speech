@@ -77,9 +77,10 @@ class Settings(BaseModel):
             return "cpu"
 
     def resolved_aligner(self) -> str:
+        """`auto` is MMS_FA on every device: repaired MMS_FA beat repaired Qwen3 on lesson 1 (plan 2026-10-07, ledger)."""
         if self.models.aligner != "auto":
             return self.models.aligner
-        return "qwen3_fa" if self.resolved_device() == "cuda" else "mms_fa"
+        return "mms_fa"
 
 
 def load_settings(path: Path | None = None) -> Settings:

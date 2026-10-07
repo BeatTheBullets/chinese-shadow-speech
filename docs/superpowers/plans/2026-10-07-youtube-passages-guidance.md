@@ -4929,4 +4929,14 @@ git commit -m "feat(frontend): Review lists practised sentences not in Anki; Pha
 
 Filled in by the controller during execution.
 
-- Task 3, aligner comparison on lesson 1 (date, output table, verdict, decision):
+- Task 3, aligner comparison on lesson 1 (2026-10-07; 52 sentences, cuda, commit 30a3a3b):
+  ```
+  source              n  mean ms   median  <=100ms zero-len
+  asr                52    101.5     82.5    0.635    0.000
+  qwen3_raw          52    576.3    462.5    0.192    0.450
+  qwen3_repaired     52    111.0     85.0    0.577    0.000
+  mms_fa             52    432.3    117.5    0.462    0.000
+  mms_fa_repaired    52     81.6     55.0    0.788    0.000
+  verdict: qwen3_fa
+  ```
+  Script verdict `qwen3_fa`: repaired MMS_FA's mean onset error was 26 % lower, short of the 30 % threshold. Controller ruling: switch to `mms_fa` anyway, because repaired MMS_FA is clearly better on median (-35 %: 55.0 vs 85.0 ms) and on the share within 100 ms (0.79 vs 0.58), and the mean missed the threshold only narrowly. `auto` now resolves to `mms_fa` on every device; `qwen3_fa` stays selectable explicitly. Existing lessons improve only when re-ingested.

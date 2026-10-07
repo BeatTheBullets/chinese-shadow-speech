@@ -18,3 +18,10 @@ def test_data_dir_defaults_next_to_config(tmp_path: Path):
     toml.write_text("")
     s = load_settings(toml)
     assert s.data_dir == tmp_path / "data"
+
+
+def test_auto_aligner_is_mms_fa_on_every_device():
+    from shadow.config import ModelsCfg, Settings
+    for device in ("cuda", "cpu"):
+        assert Settings(models=ModelsCfg(device=device)).resolved_aligner() == "mms_fa"
+    assert Settings(models=ModelsCfg(device="cuda", aligner="qwen3_fa")).resolved_aligner() == "qwen3_fa"
