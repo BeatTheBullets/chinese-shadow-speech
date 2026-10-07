@@ -85,7 +85,10 @@ export function useFlow(deps: FlowDeps) {
     const session_id = usePractice.getState().sessionId ?? undefined
     for (const t of takes) {
       let attemptId: number | null = null
-      try { attemptId = (await api.segments.postAttempt(t.rg.segmentId, t.wav, { session_id, mode: 'flow' })).id }
+      try {
+        attemptId = (await api.segments.postAttempt(t.rg.segmentId, t.wav, { session_id, mode: 'flow' })).id
+        usePractice.getState().markPractised(t.rg.segmentId)
+      }
       catch (e) { mine(() => setError(`Upload failed: ${message(e)}`)) }
       mine(() => setState((f) => {
         const pending = new Set(f.pending); pending.delete(t.rg.segmentId)
@@ -94,7 +97,7 @@ export function useFlow(deps: FlowDeps) {
     }
     // Refresh the scores even if the summary was closed meanwhile (e.g. Flow stopped by a mode switch).
     if (alive.current) {
-      api.lessons.get(lessonId).then((l) => { const ps = usePractice.getState(); if (ps.lesson?.id === lessonId) ps.replaceSegments(l.segments) }).catch(() => {})
+      api.lessons.get(lessonId).then((l) => { const ps = usePractice.getState(); if (ps.lesson?.id === lessonId) ps.replaceSegments(l.segments, l.passages) }).catch(() => {})
     }
   }
 

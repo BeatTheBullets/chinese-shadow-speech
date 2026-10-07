@@ -20,6 +20,7 @@ import { echoReducer, MIN_TAKE_S, type EchoEvent, type EchoState } from '../lib/
 import { weakestResults, type FlowResult } from '../lib/flow'
 import { guidedText, nextGuidedStep, type GuidedStep } from '../lib/guided'
 import { actionForKey, type Action } from '../lib/keys'
+import { passageIndexOf, passageSpan } from '../lib/passages'
 import { usePractice, currentSegment, type LastAttempt } from '../store/practice'
 import { useSettings, defaultTextPrefs, type TextPrefs } from '../store/settings'
 import { useFlow } from './useFlow'
@@ -215,7 +216,8 @@ export default function Practice() {
     // The store moved to another sentence meanwhile (e.g. the lesson reloaded): save the take, skip the playback.
     if (currentSegment(ps)?.id !== s.id) {
       dispatch('CANCEL')
-      api.segments.postAttempt(s.id, wav, { session_id: ps.sessionId ?? undefined, mode }).catch((e) => setError(`Upload failed: ${message(e)}`))
+      api.segments.postAttempt(s.id, wav, { session_id: ps.sessionId ?? undefined, mode })
+        .then(() => usePractice.getState().markPractised(s.id)).catch((e) => setError(`Upload failed: ${message(e)}`))
       return
     }
     const url = URL.createObjectURL(wav)
@@ -223,7 +225,7 @@ export default function Practice() {
     ps.setLastAttempt(take); ps.bumpAttempts()
     if (usePractice.getState().attemptsThisSegment >= useSettings.getState().practice.moveOnAfter) ps.setHint(MOVE_ON)
     const upload = api.segments.postAttempt(s.id, wav, { session_id: ps.sessionId ?? undefined, mode })
-      .then((a) => { const cur = usePractice.getState(); if (cur.lastAttempt?.url === url) cur.setLastAttempt({ ...take, id: a.id }) })
+      .then((a) => { const cur = usePractice.getState(); cur.markPractised(s.id); if (cur.lastAttempt?.url === url) cur.setLastAttempt({ ...take, id: a.id }) })
       .catch((e) => setError(`Upload failed: ${message(e)}`))
     dispatch('UPLOADED')
     const ctrl = new AbortController()
@@ -349,12 +351,24 @@ export default function Practice() {
     usePractice.getState().setMode(m)
   }
 
-  // Flow: the setup form's range, defaulting to the current sentence through the last.
+  // Flow: the setup form's range, defaulting to the current sentence's passage (addendum §4), or to the current
+  // sentence through the last when the lesson has no passages.
   function flowRange() {
-    const ps = usePractice.getState(), last = (ps.lesson?.segments.length ?? 1) - 1
+    const ps = usePractice.getState(), segs = ps.lesson?.segments ?? [], last = Math.max(0, segs.length - 1)
     const clamp = (i: number) => Math.max(0, Math.min(last, i))
-    const from = clamp(flow.state.from ?? ps.idx), to = clamp(flow.state.to ?? last)
+    const passages = ps.lesson?.passages ?? []
+    const k = passageIndexOf(passages, segs, ps.idx)
+    const span = k >= 0 ? passageSpan(passages[k], segs) : null
+    const from = clamp(flow.state.from ?? span?.from ?? ps.idx), to = clamp(flow.state.to ?? span?.to ?? last)
     return { from: Math.min(from, to), to: Math.max(from, to) }
+  }
+  // The top bar's passage selector: to the passage's first sentence (Flow's range follows it). Not during a Flow run.
+  function pickPassage(k: number) {
+    const l = usePractice.getState().lesson, p = l?.passages?.[k]
+    const span = l && p ? passageSpan(p, l.segments) : null
+    if (!span || runRef.current?.kind === 'flow') return
+    flow.setForm({ from: null, to: null })
+    goTo(span.from)
   }
   function startFlow(from: number, to: number) {
     cancelActivity()
@@ -393,7 +407,7 @@ export default function Practice() {
     const kept = find(curId)
     let j = kept >= 0 ? kept : find(fallbackId)
     if (j < 0) j = Math.max(0, Math.min(l.segments.length - 1, ps.idx))
-    ps.replaceSegments(l.segments)
+    ps.replaceSegments(l.segments, l.passages)
     // A new sentence or a re-cut clip drops the last take (setIdx); otherwise only the position follows the sentence.
     if (kept < 0 || changed.includes(curId!)) ps.setIdx(j)
     else if (j !== ps.idx) usePractice.setState({ idx: j })
@@ -522,6 +536,7 @@ export default function Practice() {
   if (!st.lesson || st.lesson.id !== lessonId) return <div className="p-8 text-fgdim">Loading…</div>
   if (!seg) return <div className="p-8 text-fgdim">This lesson has no sentences yet. {back}</div>
   const segments = st.lesson.segments
+  const passages = st.lesson.passages ?? []
   const hide = st.recordingNow && settings.practice.hideTextWhileRecording
   const show = !hide && (st.mode !== 'guided' || guidedText(guided).showText)
   const fs = flow.state
@@ -534,7 +549,8 @@ export default function Practice() {
   return (
     <div className="h-full flex flex-col">
       <TopBar title={st.lesson.title} speaker={st.lesson.speaker} idx={flowRunning ? fs.current : st.idx} total={segments.length} mode={st.mode}
-        onMode={(m) => void switchMode(m)} elapsedS={elapsed} />
+        onMode={(m) => void switchMode(m)} elapsedS={elapsed}
+        passage={passages.length ? { index: passageIndexOf(passages, segments, flowRunning ? fs.current : st.idx), titles: passages.map((p) => p.title), onPick: pickPassage } : null} />
       <div className="flex-1 flex min-h-0">
         <main className="flex-1 flex flex-col min-w-0">
           {flowRunning ? (<>
@@ -561,7 +577,7 @@ export default function Practice() {
           </>)}
         </main>
         {!flowRunning && <Drawer segments={segments} idx={st.idx} open={st.drawerOpen} pendingIds={fs.pending} onJump={goTo} onToggle={st.toggleDrawer}
-          onEdit={(i) => openDialog('edit', i)} onSplit={(i) => openDialog('split', i)} onMerge={mergeNext} />}
+          onEdit={(i) => openDialog('edit', i)} onSplit={(i) => openDialog('split', i)} onMerge={mergeNext} passages={passages} practised={st.practised} />}
       </div>
       {dialog && segments[dialog.idx] && (
         <EditDialog key={`${dialog.mode}-${segments[dialog.idx].id}`} segment={segments[dialog.idx]} mode={dialog.mode} busy={dialogBusy} error={dialogError}

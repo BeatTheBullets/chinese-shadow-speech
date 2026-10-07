@@ -445,6 +445,17 @@ describe('<Practice>', () => {
       expect(usePractice.getState().recordingNow).toBe(false)
     })
 
+    it('the range defaults to the current passage', async () => {
+      h.api.lessons.get.mockResolvedValue({ ...lesson, passages: [
+        { idx: 0, title: 'P1', start_s: 0, end_s: 2, segment_ids: [11], done: false },
+        { idx: 1, title: 'P2', start_s: 2, end_s: 4, segment_ids: [12], done: false }] })
+      clipsTake(2)
+      h.rec.stop.mockReturnValue(new Float32Array(44100 * 10))
+      await startFlow('along')
+      expect(await screen.findByText(/Flow finished · 1 sentences/)).toBeInTheDocument()
+      expect(h.player.play.mock.calls.map((c) => (c as unknown[])[0])).toEqual(['/seg/11.opus'])
+    })
+
     it('a denied microphone returns to the setup with a readable error', async () => {
       h.rec.start.mockRejectedValue(new Error('Microphone permission was denied'))
       await startFlow('along')
@@ -647,6 +658,22 @@ describe('<Practice>', () => {
       expect(await screen.findByText('Sent 2 sentences to Anki')).toBeInTheDocument()
       expect(h.exportAndRecord.mock.calls.map((c) => (c[0] as Segment).id)).toEqual([11, 12])
       expect(usePractice.getState().lesson!.segments.map((x) => x.anki_note_id)).toEqual([1100, 1200])
+    })
+  })
+
+  describe('passages', () => {
+    const twoPassages: LessonDetail = { ...lesson, passages: [
+      { idx: 0, title: 'Passage 1 · 00:00–00:02', start_s: 0, end_s: 2, segment_ids: [11], done: false },
+      { idx: 1, title: 'Passage 2 · 00:02–00:04', start_s: 2, end_s: 4, segment_ids: [12], done: false }] }
+    beforeEach(() => { h.api.lessons.get.mockResolvedValue(twoPassages) })
+
+    it('the top bar shows the passage and jumps to another one', async () => {
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      expect(screen.getByText(/Passage 1 \/ 2/)).toBeInTheDocument()
+      fireEvent.change(screen.getByLabelText('Go to passage'), { target: { value: '1' } })
+      expect(await screen.findByText('再见', { selector: 'p.sentence' })).toBeInTheDocument()
+      expect(screen.getByText(/Passage 2 \/ 2/)).toBeInTheDocument()
     })
   })
 })

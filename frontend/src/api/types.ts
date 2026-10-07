@@ -10,9 +10,10 @@ export interface Segment {
 export interface Lesson {
   id: number; title: string; speaker: string; source_type: 'upload' | 'youtube' | 'anki'; source_ref: string
   duration_s: number; created_at: string; status: 'queued' | 'processing' | 'ready' | 'error'; error: string | null
-  segment_count: number; practised_count: number; mean_last_score: number | null
+  segment_count: number; practised_count: number; mean_last_score: number | null; passage_count?: number; passages_done?: number
 }
-export interface LessonDetail extends Lesson { segments: Segment[] }
+export interface Passage { idx: number; title: string; start_s: number; end_s: number; segment_ids: number[]; done: boolean }
+export interface LessonDetail extends Lesson { segments: Segment[]; passages?: Passage[] }
 export interface Attempt { id: number; segment_id: number; session_id: number | null; created_at: string; mode: string; duration_s: number; score_json: Record<string, unknown> | null }
 export interface PracticeSession { id: number; lesson_id: number; mode: string; started_at: string; ended_at: string | null; attempts_count: number }
 export interface Job { id: string; stage: string; fraction: number; status: 'queued' | 'running' | 'done' | 'error'; error: string | null; lesson_id: number | null }

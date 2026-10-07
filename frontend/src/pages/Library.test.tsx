@@ -51,6 +51,11 @@ describe('Library tile actions', () => {
     await waitFor(() => expect(h.api.lessons.list).toHaveBeenCalledTimes(2))
   })
 
+  it('a tile shows passage progress', async () => {
+    await show([lesson(1, { passage_count: 2, passages_done: 1 })])
+    expect(screen.getByText(/1 \/ 2 passages/)).toBeInTheDocument()
+  })
+
   it('a cancelled rename sends nothing', async () => {
     await show([lesson(1)])
     vi.spyOn(window, 'prompt').mockReturnValueOnce(null)

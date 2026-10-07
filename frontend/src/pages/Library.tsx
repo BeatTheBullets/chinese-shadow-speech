@@ -133,7 +133,7 @@ export default function Library() {
                     <div className="text-xs text-fgdim mt-1">
                       {l.status === 'error' ? <span className="text-bad">error: {l.error}</span>
                         : busy ? `${j?.stage ?? l.status}… ${Math.round(frac * 100)} %`
-                        : `${l.segment_count} sentences · ${l.practised_count} practised${l.mean_last_score != null ? ` · mean ${Math.round(l.mean_last_score * 100)}` : ''}`}
+                        : `${l.segment_count} sentences · ${l.practised_count} practised${l.mean_last_score != null ? ` · mean ${Math.round(l.mean_last_score * 100)}` : ''}${l.passage_count ? ` · ${l.passages_done ?? 0} / ${l.passage_count} passages` : ''}`}
                     </div>
                     <div className="h-1 bg-panel2 rounded mt-2 overflow-hidden"><div className={`h-full ${busy ? 'bg-accent' : 'bg-ok'}`} style={{ width: `${frac * 100}%` }} /></div>
                   </>)
