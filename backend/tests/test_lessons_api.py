@@ -140,3 +140,73 @@ def test_startup_marks_interrupted_ingests_as_error(data_dir, fake_transcript):
         got = {l["title"]: (l["status"], l["error"]) for l in c.get("/lessons").json()}
     msg = "interrupted — the server restarted during processing; delete and re-upload"
     assert got == {"queued": ("error", msg), "processing": ("error", msg), "ready": ("ready", None), "error": ("error", "boom")}
+
+
+def _lesson_with_scored_attempts(engine) -> tuple[int, list[int]]:
+    """Four sentences: attempts inserted out of time order, unscored ones, and a created_at tie broken by id."""
+    from datetime import datetime, timedelta, timezone
+    from shadow.store.models import Attempt, Lesson
+    t0 = datetime(2026, 10, 7, 9, 0, tzinfo=timezone.utc)
+    with Session(engine) as db:
+        lesson = Lesson(title="Scores", source_type="upload", status="ready")
+        db.add(lesson); db.flush()
+        segs = [Segment(lesson_id=lesson.id, idx=k, start_s=2.0 * k, end_s=2.0 * k + 2, text="我今天想学中文") for k in range(4)]
+        db.add_all(segs); db.flush()
+        s0, s1, s2, _ = (s.id for s in segs)
+        for sid, minutes, score in ((s0, 2, 70.0), (s0, 1, 90.0), (s0, 3, None), (s1, 5, 40.0), (s1, 5, 60.0), (s2, 4, None)):
+            db.add(Attempt(segment_id=sid, mode="echo", audio_path="x.wav", duration_s=1.0, created_at=t0 + timedelta(minutes=minutes),
+                           score_json=None if score is None else {"overall": score}))
+        db.commit()
+        return lesson.id, [s.id for s in segs]
+
+
+def test_attempt_stats_per_sentence_and_lesson(client):
+    lid, ids = _lesson_with_scored_attempts(client.app.state.engine)
+    want = [(3, 70.0, 90.0), (2, 60.0, 60.0), (1, None, None), (0, None, None)]   # (attempts, last, best)
+    stats = lambda s: (s["attempts"], s["last_score"], s["best_score"])
+    detail = client.get(f"/lessons/{lid}").json()
+    assert [stats(s) for s in detail["segments"]] == want
+    assert (detail["practised_count"], detail["mean_last_score"], detail["segment_count"]) == (3, 65.0, 4)
+    listed = next(l for l in client.get("/lessons").json() if l["id"] == lid)
+    assert (listed["practised_count"], listed["mean_last_score"], listed["segment_count"]) == (3, 65.0, 4)
+    assert listed["passage_count"] == detail["passage_count"] and listed["passages_done"] == detail["passages_done"]
+    unexported = client.get("/review/unexported").json()
+    assert [(r["segment"]["id"], stats(r["segment"])) for r in unexported] == [(ids[1], want[1]), (ids[2], want[2]), (ids[0], want[0])]
+    assert stats(client.patch(f"/segments/{ids[0]}", json={"difficulty_flag": True}).json()) == want[0]
+
+
+def _add_sentences(engine, lesson_ids: list[int], n: int) -> None:
+    from shadow.store.models import Attempt
+    with Session(engine) as db:
+        for lid in lesson_ids:
+            first = len(db.exec(select(Segment).where(Segment.lesson_id == lid)).all())
+            segs = [Segment(lesson_id=lid, idx=first + k, start_s=100.0 + 2 * k, end_s=102.0 + 2 * k, text="我今天想学中文") for k in range(n)]
+            db.add_all(segs); db.flush()
+            db.add_all(Attempt(segment_id=s.id, mode="flow", audio_path="x.wav", duration_s=1.0, score_json={"overall": 50.0}) for s in segs)
+        db.commit()
+
+
+def _statements(engine, call) -> int:
+    from sqlalchemy import event
+    n = 0
+
+    def count(*_):
+        nonlocal n
+        n += 1
+    event.listen(engine, "before_cursor_execute", count)
+    try:
+        call()
+    finally:
+        event.remove(engine, "before_cursor_execute", count)
+    return n
+
+
+def test_the_number_of_queries_does_not_grow_with_the_number_of_sentences(client):
+    engine = client.app.state.engine
+    lids = [_lesson_with_scored_attempts(engine)[0] for _ in range(3)]
+    requests = {"list": lambda: client.get("/lessons").json(), "detail": lambda: client.get(f"/lessons/{lids[0]}").json(),
+                "unexported": lambda: client.get("/review/unexported").json()}
+    before = {k: _statements(engine, r) for k, r in requests.items()}
+    _add_sentences(engine, lids, 20)
+    after = {k: _statements(engine, r) for k, r in requests.items()}
+    assert after == before

@@ -4,6 +4,7 @@ import shutil
 import threading
 import uuid
 from pathlib import Path
+from typing import Any
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
@@ -74,11 +75,28 @@ def add_youtube(body: YoutubeIn, request: Request, response: Response, db: Sessi
     return {"job_id": job_id, "lesson_id": lesson_id}
 
 
-def _segment_out(db: Session, seg: Segment) -> SegmentOut:
-    atts = db.exec(select(Attempt).where(Attempt.segment_id == seg.id).order_by(Attempt.created_at, Attempt.id)).all()
-    scores = [a.score_json["overall"] for a in atts if a.score_json and "overall" in a.score_json]
-    return SegmentOut(**seg.model_dump(), last_score=scores[-1] if scores else None,
-                      best_score=max(scores) if scores else None, attempts=len(atts))
+AttemptStats = dict[int, tuple[int, float | None, float | None]]   # segment id -> (attempts, last score, best score)
+
+
+def _attempt_stats(db: Session, *where: Any) -> AttemptStats:
+    """Attempt count, last and best overall score of every segment matching `where`, from one query (so a request
+    costs the same number of queries however many segments it returns)."""
+    q = (select(Attempt.segment_id, Attempt.score_json).join(Segment, Segment.id == Attempt.segment_id).where(*where)
+         .order_by(Attempt.segment_id, Attempt.created_at, Attempt.id))
+    counts: dict[int, int] = {}
+    scores: dict[int, list[float]] = {}
+    for sid, score_json in db.exec(q).all():
+        counts[sid] = counts.get(sid, 0) + 1
+        if score_json and "overall" in score_json:
+            scores.setdefault(sid, []).append(score_json["overall"])
+    return {sid: (n, scores[sid][-1], max(scores[sid])) if sid in scores else (n, None, None) for sid, n in counts.items()}
+
+
+def _segment_out(db: Session, seg: Segment, stats: AttemptStats | None = None) -> SegmentOut:
+    if stats is None:
+        stats = _attempt_stats(db, Attempt.segment_id == seg.id)
+    attempts, last, best = stats.get(seg.id, (0, None, None))
+    return SegmentOut(**seg.model_dump(), last_score=last, best_score=best, attempts=attempts)
 
 
 def _passages(db: Session, lesson: Lesson, segs: list[Segment], outs: list[SegmentOut]) -> list[PassageOut]:
@@ -91,9 +109,11 @@ def _passages(db: Session, lesson: Lesson, segs: list[Segment], outs: list[Segme
     return [PassageOut(**asdict(v)) for v in views]
 
 
-def _lesson_parts(db: Session, lesson: Lesson) -> tuple[list[SegmentOut], list[PassageOut]]:
+def _lesson_parts(db: Session, lesson: Lesson, stats: AttemptStats | None = None) -> tuple[list[SegmentOut], list[PassageOut]]:
     segs = db.exec(select(Segment).where(Segment.lesson_id == lesson.id).order_by(Segment.idx)).all()
-    outs = [_segment_out(db, s) for s in segs]
+    if stats is None:
+        stats = _attempt_stats(db, Segment.lesson_id == lesson.id)
+    outs = [_segment_out(db, s, stats) for s in segs]
     return outs, _passages(db, lesson, segs, outs)
 
 
@@ -143,7 +163,8 @@ def _delete_lesson(db: Session, files: FileLayout, lesson: Lesson) -> None:
 @router.get("/lessons", response_model=list[LessonOut])
 def list_lessons(db: Session = Depends(get_session)):
     lessons = db.exec(select(Lesson).order_by(Lesson.created_at.desc(), Lesson.id.desc())).all()
-    return [_lesson_out(db, lesson) for lesson in lessons]
+    stats = _attempt_stats(db)
+    return [_lesson_out(db, lesson, _lesson_parts(db, lesson, stats)) for lesson in lessons]
 
 
 @router.get("/lessons/{lesson_id}", response_model=LessonDetail)

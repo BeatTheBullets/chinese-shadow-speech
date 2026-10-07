@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlmodel import Session, select
-from shadow.api.lessons import _segment_out
+from shadow.api.lessons import _attempt_stats, _segment_out
 from shadow.schemas import SegmentOut
 from shadow.store.db import get_session
 from shadow.store.models import Attempt, Lesson, Segment
@@ -28,6 +28,7 @@ def unexported(db: Session = Depends(get_session)):
     last = func.max(Attempt.created_at)
     q = (select(Segment, Lesson, last).join(Attempt, Attempt.segment_id == Segment.id).join(Lesson, Lesson.id == Segment.lesson_id)
          .where(Segment.anki_note_id.is_(None)).group_by(Segment.id).order_by(last.desc(), Segment.id.desc()))
+    stats = _attempt_stats(db, Segment.anki_note_id.is_(None))
     return [UnexportedOut(lesson_id=lesson.id, lesson_title=lesson.title, lesson_source_type=lesson.source_type,
-                          lesson_source_ref=lesson.source_ref, last_attempt_at=last_at, segment=_segment_out(db, seg))
+                          lesson_source_ref=lesson.source_ref, last_attempt_at=last_at, segment=_segment_out(db, seg, stats))
             for seg, lesson, last_at in db.exec(q).all()]
