@@ -84,13 +84,21 @@ Language: zh
 00:00:04.010 --> 00:00:06.000 align:start position:0%
 聊一聊学中文
 的方法
+
+00:00:06.000 --> 00:00:06.010 align:start position:0%
+的方法
+ 
+
+00:00:06.010 --> 00:00:08.000 align:start position:0%
+的方法
+其实很多
 """
 
 
 def test_parse_rolling_vtt_keeps_each_line_once():
     cues = parse_subtitles(ROLLING_VTT, "auto.zh.vtt")
-    assert [c.text for c in cues] == ["我今天想跟你们", "聊一聊学中文", "的方法"]
-    assert [c.start for c in cues] == [0.0, 2.01, 4.01]
+    assert [c.text for c in cues] == ["我今天想跟你们", "聊一聊学中文", "的方法", "其实很多"]
+    assert [c.start for c in cues] == [0.0, 2.01, 4.01, 6.01]
 
 
 def test_parse_non_rolling_subtitles_keep_repeated_and_multi_line_cues():
@@ -105,3 +113,24 @@ def test_parse_vtt_starts_a_new_cue_at_each_timing_line():
     vtt = "WEBVTT\n \n00:01.000 --> 00:02.000\n你好\n \n00:03.000 --> 00:04.000\n再见\n"   # whitespace-only separators
     cues = parse_subtitles(vtt, "a.vtt")
     assert [(c.start, c.text) for c in cues] == [(1.0, "你好"), (3.0, "再见")]
+
+
+def _srt(*cues: str) -> str:
+    return "".join(f"{i + 1}\n00:00:0{i},000 --> 00:00:0{i + 1},000\n{t}\n\n" for i, t in enumerate(cues))
+
+
+def test_one_echo_does_not_make_a_file_rolling():
+    srt = _srt("对。", "对。\n好的", "好的", "好的")
+    assert [c.text for c in parse_subtitles(srt, "a.srt")] == ["对。", "对。 好的", "好的", "好的"]
+
+
+def test_rolling_needs_three_echoes_in_at_least_half_of_the_multi_line_cues():
+    rolls = _srt("一行", "一行\n二行", "二行\n三行", "三行\n四行")
+    assert [c.text for c in parse_subtitles(rolls, "a.srt")] == ["一行", "二行", "三行", "四行"]
+    mostly_not = _srt("一行", "一行\n二行", "二行\n三行", "三行\n四行", "甲\n乙", "丙\n丁", "戊\n己", "庚\n辛")
+    assert len(parse_subtitles(mostly_not, "a.srt")[1].text) == len("一行 二行")       # 3 echoes of 7: not rolling
+
+
+def test_parse_vtt_drops_cue_identifiers_when_separators_are_whitespace_only():
+    vtt = "WEBVTT\n \n1\n00:01.000 --> 00:02.000\n你好\n \n2\n00:03.000 --> 00:04.000\n再见\n"
+    assert [(c.start, c.text) for c in parse_subtitles(vtt, "a.vtt")] == [(1.0, "你好"), (3.0, "再见")]

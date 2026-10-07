@@ -49,13 +49,21 @@ def _ts(s: str) -> float:
     return int(h or 0) * 3600 + int(mi) * 60 + int(se) + int(ms) / 1000
 
 
+# A file rolls only when at least this many cues, and at least half of its multi-line cues, echo the previous cue.
+MIN_ROLLING_ECHOES = 3
+
+
 def _drop_rolling_repeats(cues: list[list[str]]) -> list[list[str]]:
     """Lines per cue with rolling-caption repeats removed. yt-dlp auto-captions repeat each line as the first line
-    of the next cue (`A\nB` → `B\nC`, often with a brief single-line `B` cue between). When a file rolls (some
-    cue of two or more lines starts with the previous cue's last line), each cue's first line is dropped when it
-    repeats the previous cue's last line. Files that do not roll are returned unchanged."""
+    of the next cue (`A\nB` → `B\nC`, often with a brief single-line `B` cue between). A file rolls when cues of
+    two or more lines that start with the previous cue's last line (echoes) number at least `MIN_ROLLING_ECHOES`
+    and make up at least half of its multi-line cues; then each cue's first line is dropped when it repeats the
+    previous cue's last line. Other files, including ones where a speaker happens to repeat a line, are returned
+    unchanged."""
     pairs = list(zip(cues, cues[1:]))
-    if not any(len(cur) > 1 and prev and cur[0] == prev[-1] for prev, cur in pairs):
+    multi_line = [(prev, cur) for prev, cur in pairs if len(cur) > 1]
+    echoes = sum(1 for prev, cur in multi_line if prev and cur[0] == prev[-1])
+    if echoes < MIN_ROLLING_ECHOES or 2 * echoes < len(multi_line):
         return cues
     return cues[:1] + [cur[1:] if prev and cur and cur[0] == prev[-1] else cur for prev, cur in pairs]
 
@@ -68,13 +76,19 @@ def parse_subtitles(content: str, filename: str) -> list[Cue]:
         timed: list[tuple[str, str, list[str]]] = []
         for block in re.split(sep, content.strip().replace("\r", "")):
             in_cue = False          # lines before a block's first timing line: header, NOTE, cue identifier
+            last_was_text = False
             for ln in block.split("\n"):
                 if "-->" in ln:     # a timing line starts a new cue, even without an empty line before it
+                    if last_was_text:           # the line just before a timing line is the cue's identifier
+                        timed[-1][2].pop()
                     a, b = ln.split("-->")
                     timed.append((a, b, []))
-                    in_cue = True
+                    in_cue, last_was_text = True, False
                 elif in_cue and (text := to_simplified(strip_html(ln))):
                     timed[-1][2].append(text)
+                    last_was_text = True
+                else:
+                    last_was_text = False
         texts = _drop_rolling_repeats([t for _, _, t in timed])
         return [Cue(_ts(a), _ts(b), " ".join(t)) for (a, b, _), t in zip(timed, texts) if t]
     return [Cue(-1, -1, to_simplified(strip_html(ln))) for ln in content.splitlines() if ln.strip()]
