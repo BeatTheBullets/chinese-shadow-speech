@@ -10,8 +10,9 @@ from shadow.ingest import audio
 from shadow.ingest.align import Span, align_in_window, sentence_bounds, spans_to_json
 from shadow.ingest.enrich import make_clips, translate_all, words_for
 from shadow.ingest.rectify import RectSentenceOut, rectify_transcript
-from shadow.ingest.text import is_punct, parse_subtitles
-from shadow.ingest.transcript import Transcript, transcript_from_cues
+from shadow.ingest.subalign import MIN_SUBTITLE_MATCH, align_text_to_asr
+from shadow.ingest.text import is_punct, parse_subtitles, strip_punct
+from shadow.ingest.transcript import Transcript
 from shadow.jobs import Progress
 from shadow.store.models import Lesson, Segment
 
@@ -175,20 +176,31 @@ def build_segments(deps: Deps, engine: Engine, lesson_id: int, source_wav: Path,
         db.commit()
 
 
-def _subtitle_transcript(subtitle: tuple[str, str]) -> tuple[Transcript | None, str | None]:
-    """(transcript, None) for usable subtitles, else (None, reason they are ignored)."""
+def _subtitle_lines(subtitle: tuple[str, str]) -> tuple[list[str], str | None]:
+    """(text per cue or per plain-text line, None) for usable subtitles, else ([], reason they are ignored).
+    Their times are never used: timing comes from the ASR."""
     name, content = subtitle
     try:
         cues = parse_subtitles(content, name)
     except ValueError as e:
-        return None, f"could not parse {name}: {e}"
-    timed = [c for c in cues if c.start >= 0]
-    if not timed:
-        return None, f"{name} has no timed cues"
-    tr = transcript_from_cues(timed)
-    if not _has_speech(tr):
-        return None, f"{name} has no text"
-    return tr, None
+        return [], f"could not parse {name}: {e}"
+    lines = [c.text for c in sorted(cues, key=lambda c: c.start)]
+    if not any(strip_punct(t) for t in lines):
+        return [], f"{name} has no text"
+    return lines, None
+
+
+def _subtitle_transcript(subtitle: tuple[str, str], asr: Transcript) -> tuple[Transcript | None, dict]:
+    """The subtitle text timed from the `asr` transcript (spec §3.2), or None when the subtitles are unusable or
+    do not match the audio; plus the lesson meta to record (`subtitle_match` or `subtitle_ignored`)."""
+    lines, ignored = _subtitle_lines(subtitle)
+    if not ignored:
+        tr, ratio = align_text_to_asr(lines, asr)
+        if ratio >= MIN_SUBTITLE_MATCH:
+            return tr, {"subtitle_match": round(ratio, 2)}
+        ignored = f"subtitles don't match the audio ({ratio * 100:.0f} % of characters matched)"
+    log.warning("ignoring subtitles (%s); using the ASR transcript instead", ignored)
+    return None, {"subtitle_ignored": ignored}
 
 
 def ingest_upload(deps: Deps, engine: Engine, lesson_id: int, media_path: Path,
@@ -207,20 +219,20 @@ def ingest_upload(deps: Deps, engine: Engine, lesson_id: int, media_path: Path,
         progress("normalise", 1.0)
 
         progress("transcribe", 0.0)
-        tr = None
-        if subtitle is not None:
-            tr, ignored = _subtitle_transcript(subtitle)
-            if ignored:
-                log.warning("ignoring subtitles (%s); transcribing with ASR instead", ignored)
-                _merge_meta(engine, lesson_id, subtitle_ignored=ignored)
-        if tr is None:
-            tr = deps.asr.transcribe(source_wav)
+        tr = deps.asr.transcribe(source_wav)        # always: even with subtitles, timing comes from the ASR
         if not _has_speech(tr):
             raise NoSpeechError("no speech found in the recording")
+        from_subtitles = False
+        if subtitle is not None:
+            sub_tr, meta = _subtitle_transcript(subtitle, tr)
+            _merge_meta(engine, lesson_id, **meta)
+            if sub_tr is not None:
+                tr, from_subtitles = sub_tr, True
         progress("transcribe", 1.0)
 
         progress("rectify", 0.0)
-        sentences = rectify_transcript(tr, deps.llm, enabled=deps.settings.llm.rectify)
+        # subtitle text is a human transcript: the LLM may only choose boundaries and punctuation
+        sentences = rectify_transcript(tr, deps.llm, enabled=deps.settings.llm.rectify, locked=from_subtitles)
         progress("rectify", 1.0)
 
         build_segments(deps, engine, lesson_id, source_wav, tr, sentences, progress)
