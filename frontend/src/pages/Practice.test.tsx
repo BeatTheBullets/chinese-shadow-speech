@@ -508,6 +508,17 @@ describe('<Practice>', () => {
       expect(h.player.play.mock.calls.map((c) => (c as unknown[])[0])).toEqual(['/seg/11.opus'])
     })
 
+    it('the last sentence of a run that ends before the lesson does previews no next line', async () => {
+      h.api.lessons.get.mockResolvedValue({ ...lesson, passages: [
+        { idx: 0, title: 'P1', start_s: 0, end_s: 2, segment_ids: [11], done: false },
+        { idx: 1, title: 'P2', start_s: 2, end_s: 4, segment_ids: [12], done: false }] })
+      clipsTake(2, () => true)
+      await startFlow('along')
+      await waitFor(() => expect(h.player.play).toHaveBeenCalledTimes(1))
+      expect(screen.getByTestId('cue-line')).toHaveTextContent('Speak along')
+      expect(screen.queryByTestId('next-line')).toBeNull()
+    })
+
     it('starting a run clears a stale hint', async () => {
       clipsTake(2, () => true)
       renderPractice()

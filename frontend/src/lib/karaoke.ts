@@ -70,6 +70,13 @@ export function nextLineStart(cur: SegTiming, next: SegTiming, rate: number): { 
   return { at: (cur.end_s - cur.start_s + lead) / rate, gap: (cur.end_s - curSpeechEnd + lead) / rate }
 }
 
+// Flow along: when the line `cur` speaks within its own clip (real seconds from its start) and the silence before it
+// after `prev`, so the count-in begun on the previous clip carries on through this clip's lead silence.
+export function lineLead(prev: SegTiming, cur: SegTiming, rate: number): { at: number; gap: number } {
+  const { at, gap } = nextLineStart(prev, cur, rate)
+  return { at: at - (prev.end_s - prev.start_s) / rate, gap }
+}
+
 export interface StageWipeInput {
   spans: ClipSpan[] | null | undefined; refPlaying: boolean; refHead: number | null
   turnStart: number | null // performance-clock second an Echo take began, else null
@@ -96,9 +103,11 @@ export interface FlowWipeInput {
   turn: { startedAt: number; duration: number } | null              // after: the speaking window (performance clock)
   now: number; rate: number
   next: { at: number; gap: number } | null                          // along: nextLineStart() of the next line
+  lead?: { at: number; gap: number } | null                         // along: lineLead() of this line, after the one before it in the run
 }
 // Flow: the colour wipe while a clip plays, count-in dots before the learner's turn (after: the clip's last 1.5 s;
-// along: before each new line), and in after's turn the ghost wipe and the share of the turn left (turn bar).
+// along: before each new line, from the end of the clip before it on through its own lead silence), and in after's
+// turn the ghost wipe and the share of the turn left (turn bar).
 export function flowWipe(i: FlowWipeInput): { wipe: Wipe | null; dots: number; turnLeft: number | null } {
   if (i.turn) {
     const elapsed = Math.max(0, i.now - i.turn.startedAt)
@@ -108,9 +117,12 @@ export function flowWipe(i: FlowWipeInput): { wipe: Wipe | null; dots: number; t
     }
   }
   if (i.clipTime == null) return { wipe: null, dots: 0, turnLeft: null }
-  const w = i.sub === 'after' ? countInWindow(i.clipDuration / i.rate, Infinity) : i.next ? countInWindow(i.next.at, i.next.gap) : null
+  const t = i.clipTime / i.rate
+  const w = i.sub === 'after' ? countInWindow(i.clipDuration / i.rate, Infinity)
+    : i.lead && t < i.lead.at ? countInWindow(i.lead.at, i.lead.gap)
+    : i.next ? countInWindow(i.next.at, i.next.gap) : null
   return {
     wipe: i.spans?.length ? { tone: 'ref', progress: wipeProgress(i.spans, i.clipTime) } : null,
-    dots: countInDots(w, i.clipTime / i.rate), turnLeft: null,
+    dots: countInDots(w, t), turnLeft: null,
   }
 }

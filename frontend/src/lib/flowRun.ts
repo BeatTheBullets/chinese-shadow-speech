@@ -40,9 +40,12 @@ export async function playFlow(o: PlayFlowOptions): Promise<FlowPlayback> {
       if (skip.signal.aborted) { if (!o.signal.aborted) skipped++; continue }
       a.playEnd = o.clock()
       if (o.sub === 'after') {
-        o.onTurn?.(c, { duration: gapAfter(a.refDuration, o.gapFactor) })
-        await sleep(gapAfter(a.refDuration, o.gapFactor) * 1000 + AFTER_PAUSE_MS, skip.signal)
+        // The turn (and its bar) lasts the speaking window; the short pause after it belongs to the next clip.
+        const gap = gapAfter(a.refDuration, o.gapFactor)
+        o.onTurn?.(c, { duration: gap })
+        await sleep(gap * 1000, skip.signal)
         o.onTurn?.(c, null)
+        await sleep(AFTER_PAUSE_MS, skip.signal)
         // Skipped or stopped during its gap: the learner may be mid-word, so the sentence is dropped like an unfinished one.
         if (skip.signal.aborted) { delete a.playEnd; if (!o.signal.aborted) skipped++ }
       }

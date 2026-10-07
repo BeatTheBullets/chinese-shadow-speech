@@ -607,7 +607,8 @@ export default function Practice() {
         <main className="flex-1 flex flex-col min-w-0">
           {flowRunning ? (<>
             <WithMicLevel mic={mic}>{(level) => (
-              <FlowView segments={segments} current={fs.current} pending={fs.pending} sub={fs.sub} rate={st.rate} now={now}
+              <FlowView segments={segments} current={fs.current} first={fs.range?.from ?? 0} last={fs.range?.to ?? segments.length - 1}
+                pending={fs.pending} sub={fs.sub} rate={st.rate} now={now}
                 cue={cue} level={level} clipTime={fs.clipTime} turn={fs.turn}
                 showText={!(settings.practice.hideTextWhileRecording && fs.sub === 'after')} />)}
             </WithMicLevel>

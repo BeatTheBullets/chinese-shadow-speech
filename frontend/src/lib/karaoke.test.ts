@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { charFill, clipSpans, countInDots, countInWindow, flowWipe, ghostProgress, nextLineStart, stageWipe, wipeProgress, type ClipSpan } from './karaoke'
+import { charFill, clipSpans, countInDots, countInWindow, flowWipe, ghostProgress, lineLead, nextLineStart, stageWipe, wipeProgress, type ClipSpan } from './karaoke'
 import { isPunct, speechChars } from './text'
 
 const spans: ClipSpan[] = [{ start: 0.1, end: 0.3 }, { start: 0.3, end: 0.3 }, { start: 0.5, end: 0.9 }]
@@ -80,6 +80,20 @@ describe('flowWipe', () => {
   it('along: count-in before the next line only when there is a real pause', () => {
     expect(flowWipe({ ...base, sub: 'along', clipTime: 1.5, next: { at: 2.5, gap: 0.3 } }).dots).toBe(0)
     expect(flowWipe({ ...base, sub: 'along', clipTime: 1.5, next: { at: 2.5, gap: 0.8 } }).dots).toBe(2)
+  })
+  it('along: the count-in carries on into the lead silence of the new line, down to its first syllable', () => {
+    const lead = { at: 0.6, gap: 0.8 } // 0.6 s of silence at the start of the clip
+    expect(flowWipe({ ...base, sub: 'along', clipTime: 0, lead }).dots).toBe(2)
+    expect(flowWipe({ ...base, sub: 'along', clipTime: 0.3, lead }).dots).toBe(1)
+    expect(flowWipe({ ...base, sub: 'along', clipTime: 0.6, lead }).dots).toBe(0)
+    expect(flowWipe({ ...base, sub: 'along', clipTime: 0, lead: { at: 0.6, gap: 0.3 } }).dots).toBe(0) // no real pause: none
+    expect(flowWipe({ ...base, sub: 'along', clipTime: 0, lead, rate: 0.5 }).dots).toBe(2) // 1.2 s real time left
+  })
+  it('lineLead: when the line speaks within its own clip, and the silence before it', () => {
+    const prev = { start_s: 10, end_s: 12, ref_alignment_json: [{ ch: '你', start: 10.2, end: 11.5, conf: 1 }] }
+    const cur = { start_s: 12, end_s: 14, ref_alignment_json: [{ ch: '好', start: 12.6, end: 13, conf: 1 }] }
+    const a = lineLead(prev, cur, 0.5)
+    expect(a.at).toBeCloseTo(1.2); expect(a.gap).toBeCloseTo(2.2)
   })
   it('nothing playing: nothing to draw', () => {
     expect(flowWipe({ ...base, sub: 'after', clipTime: null })).toEqual({ wipe: null, dots: 0, turnLeft: null })

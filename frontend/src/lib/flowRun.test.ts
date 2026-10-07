@@ -115,6 +115,38 @@ describe('playFlow', () => {
     expect(turns).toEqual([2.2, null, 1.1, null])
   })
 
+  it('after: the speaking window closes when its time is up, before the short pause ahead of the next clip', async () => {
+    const turns: (number | null)[] = []
+    const run = playFlow({ player, clock: () => clock, clips, sub: 'after', gapFactor: 1.1, rate: () => 1, signal: new AbortController().signal,
+      onClip: () => {}, onTurn: (_c, t) => { turns.push(t && t.duration) } })
+    await vi.advanceTimersByTimeAsync(0)
+    await finishClip(2)
+    await vi.advanceTimersByTimeAsync(2199)
+    expect(turns).toEqual([2.2])
+    await vi.advanceTimersByTimeAsync(1)
+    expect(turns).toEqual([2.2, null])        // the bar has run out exactly as the window ends
+    expect(player.play).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(AFTER_PAUSE_MS)
+    expect(player.play).toHaveBeenCalledTimes(2)
+    await finishClip(1)
+    await vi.advanceTimersByTimeAsync(1500)
+    await run
+  })
+
+  it('after: skipping during the short pause still drops the sentence', async () => {
+    const run = start('after')
+    await vi.advanceTimersByTimeAsync(0)
+    await finishClip(2)
+    await vi.advanceTimersByTimeAsync(2200 + 100)
+    skips[0].abort()
+    await vi.advanceTimersByTimeAsync(0)
+    await finishClip(1)
+    await vi.advanceTimersByTimeAsync(1500)
+    const r = await run
+    expect(r.skipped).toBe(1)
+    expect(r.actual[0].playEnd).toBeUndefined()
+  })
+
   it('after: stopping during the speaking window closes it', async () => {
     const turns: (number | null)[] = []
     const stop = new AbortController()
