@@ -239,3 +239,21 @@ def test_resplit_and_merge_anki_lesson(client, tmp_path):
         rows = db.exec(select(Segment).where(Segment.lesson_id == lid)).all()
     assert all(s.char_from is None and s.char_to is None for s in rows)
     _assert_clips_consistent(client, lid, mp3=True)
+
+
+def test_reenrich_repairs_spans_from_the_transcript_with_or_without_a_char_range(client, tmp_path):
+    from shadow.ingest.reenrich import reenrich_segment
+    from tests.test_pipeline import _EarlyZeroLengthStart
+    lid = _upload(client, tmp_path)
+    sid = _segments(client, lid)[1]["id"]
+    deps, engine = client.app.state.deps, client.app.state.engine
+    deps.aligner = _EarlyZeroLengthStart()
+    reenrich_segment(deps, engine, sid, window=(2.0, 6.0))
+    assert _segments(client, lid)[1]["ref_alignment_json"][0] == {"ch": "其", "start": 3.0, "end": 3.286, "conf": 0.5}
+    with Session(engine) as db:                              # a resplit half has no transcript char range
+        row = db.get(Segment, sid)
+        row.char_from = row.char_to = None
+        db.add(row); db.commit()
+    reenrich_segment(deps, engine, sid, window=(2.0, 6.0))
+    al = _segments(client, lid)[1]["ref_alignment_json"]
+    assert al[0] == {"ch": "其", "start": 3.0, "end": 3.286, "conf": 0.5} and al[1]["conf"] == 1.0

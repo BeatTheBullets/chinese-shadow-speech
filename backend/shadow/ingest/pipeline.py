@@ -10,6 +10,7 @@ from shadow.ingest import audio
 from shadow.ingest.align import Span, align_in_window, sentence_bounds, spans_to_json
 from shadow.ingest.enrich import make_clips, translate_all, words_for
 from shadow.ingest.rectify import RectSentenceOut, rectify_transcript
+from shadow.ingest.repair import clamp_spans, coarse_times, repair_spans
 from shadow.ingest.subalign import MIN_SUBTITLE_MATCH, align_text_to_asr
 from shadow.ingest.text import is_punct, parse_subtitles, strip_punct
 from shadow.ingest.transcript import Transcript
@@ -124,7 +125,10 @@ def build_segments(deps: Deps, engine: Engine, lesson_id: int, source_wav: Path,
         else:
             win = (max(0.0, tr.chars[s.char_from].start - WINDOW_MARGIN_S),
                    min(total, tr.chars[s.char_to].end + WINDOW_MARGIN_S))
-        aligned.append(_align(deps, wav, sr, i, texts[i], *win))
+        spans = _align(deps, wav, sr, i, texts[i], *win)
+        # addendum §1.1: upload text is checked against its transcript chars; Anki segments only get the gap fill
+        coarse = None if fixed_spans is not None else coarse_times(texts[i], tr.chars[s.char_from:s.char_to + 1])
+        aligned.append(clamp_spans(repair_spans(spans, coarse), *win))
         progress("align", (i + 1) / n)
 
     if fixed_spans is not None:

@@ -339,3 +339,70 @@ def test_build_segments_translates_only_sentences_without_one(data_dir, tmp_path
                    fixed_spans=[(0.0, 1.5), (2.0, 3.5)], translations=["Hello", None])
     assert asked == [["谢谢你。"]]
     assert [s.translation for s in _segments(engine, lid)] == ["Hello", "en:谢谢你。"]
+
+
+class _EarlyZeroLengthStart:
+    """Sentence 1 (其实方法有很多, coarse 3.0–5.0 s, aligned inside 2.0–6.0 s): its first character zero-length and a
+    second early, the others on their coarse times. Other sentences as FakeAligner."""
+
+    def align(self, wav, sr, text):
+        if not text.startswith("其实"):
+            return FakeAligner().align(wav, sr, text)
+        step = 2.0 / 7
+        spans = [Span(c, 1.0 + k * step, 1.0 + (k + 1) * step, 1.0) for k, c in enumerate("其实方法有很多")]
+        spans[0] = Span("其", 0.0, 0.0, 1.0)                 # window-relative 0.0 = 2.0 s in the lesson
+        return spans
+
+
+def test_ingest_repairs_zero_length_and_early_spans_from_the_transcript(data_dir, fake_transcript, tmp_path):
+    deps, engine, lid = _setup(data_dir, fake_transcript)
+    deps.aligner = _EarlyZeroLengthStart()
+    ingest_upload(deps, engine, lid, make_tone_wav(tmp_path / "t.wav", 8.0), None, lambda s, f: None)
+    seg = _segments(engine, lid)[1]
+    assert seg.ref_alignment_json[0] == {"ch": "其", "start": 3.0, "end": 3.286, "conf": 0.5}
+    assert seg.ref_alignment_json[1]["conf"] == 1.0
+    assert (seg.start_s, seg.end_s) == (3.0, 5.0)          # the clip no longer starts a second early
+
+
+class _ZeroLengthFirstChar:
+    def align(self, wav, sr, text):
+        spans = FakeAligner().align(wav, sr, text)
+        spans[0] = Span(spans[0].ch, spans[0].start, spans[0].start, 1.0)
+        return spans
+
+
+def test_build_segments_with_fixed_spans_fills_zero_length_chars_from_the_gap(data_dir, tmp_path):
+    from shadow.ingest import audio
+    deps, engine, lid = _setup(data_dir, Transcript())
+    deps.aligner = _ZeroLengthFirstChar()
+    src = deps.files.source_wav(lid)
+    audio.normalise(make_tone_wav(tmp_path / "t.wav", 4.0), src)
+    build_segments(deps, engine, lid, src, None, [RectSentenceOut(0, 0, "谢谢你。")], lambda s, f: None,
+                   fixed_spans=[(2.0, 3.5)])
+    al = _segments(engine, lid)[0].ref_alignment_json
+    assert (al[0]["start"], al[0]["end"], al[0]["conf"]) == (2.0, 2.5, 0.5)    # the gap up to the second 谢
+    assert (al[1]["start"], al[1]["conf"]) == (2.5, 1.0)
+
+
+class _LastSpanZeroLength:
+    """A single sentence whose last character is zero-length at the very end of the window."""
+
+    def align(self, wav, sr, text):
+        spans = FakeAligner().align(wav, sr, text)
+        end = spans[-1].end
+        spans[-1] = Span(spans[-1].ch, end, end, 1.0)
+        return spans
+
+
+def test_fixed_spans_repair_is_clamped_to_the_clip(data_dir, tmp_path):
+    from shadow.ingest import audio
+    deps, engine, lid = _setup(data_dir, Transcript())
+    deps.aligner = _LastSpanZeroLength()
+    src = deps.files.source_wav(lid)
+    audio.normalise(make_tone_wav(tmp_path / "t.wav", 4.0), src)
+    build_segments(deps, engine, lid, src, None, [RectSentenceOut(0, 0, "谢谢你。")], lambda s, f: None,
+                   fixed_spans=[(2.0, 3.5)])
+    seg = _segments(engine, lid)[0]
+    al = seg.ref_alignment_json
+    assert al[-1]["end"] == seg.end_s == 3.5               # ensure_min_duration would have ended it at 3.54
+    assert all(a["end"] <= b["start"] + 1e-9 and b["end"] - b["start"] >= 0.04 - 1e-9 for a, b in zip(al, al[1:]))

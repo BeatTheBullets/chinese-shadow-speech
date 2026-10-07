@@ -100,3 +100,11 @@ def test_wrong_length_coarse_is_logged(caplog):
     with caplog.at_level("WARNING"):
         repair_spans([Span("你", 0.0, 0.5, 1.0)], [(0.0, 0.1), (0.1, 0.2)])
     assert "coarse" in caplog.text
+
+
+def test_clamp_spans_pulls_an_extended_last_span_back_inside_the_bounds():
+    from shadow.ingest.repair import clamp_spans
+    spans = [Span("a", 1.0, 1.5, 1.0), Span("b", 1.5, 2.0, 1.0), Span("c", 2.0, 2.04, 0.5)]
+    out = clamp_spans(spans, 1.0, 2.0)
+    assert [(s.start, s.end) for s in out] == [(1.0, 1.5), (1.5, 1.96), (1.96, 2.0)]
+    assert clamp_spans(spans, 1.0, 2.04) == spans and clamp_spans([], 0.0, 1.0) == []

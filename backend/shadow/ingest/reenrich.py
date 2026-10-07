@@ -9,6 +9,8 @@ from shadow.ingest import audio
 from shadow.ingest.align import sentence_bounds, spans_to_json
 from shadow.ingest.enrich import make_clips, translate_all, words_for
 from shadow.ingest.pipeline import MIN_CLIP_S, WINDOW_MARGIN_S, _align
+from shadow.ingest.repair import Times, clamp_spans, coarse_times, repair_spans
+from shadow.ingest.transcript import Transcript
 from shadow.store.models import Lesson, Segment
 
 log = logging.getLogger(__name__)
@@ -36,6 +38,20 @@ def _unlink(*paths: Path) -> None:
         p.unlink(missing_ok=True)
 
 
+def _coarse(lesson: Lesson, seg: Segment, window: tuple[float, float]) -> list[Times | None] | None:
+    """Coarse char times for the re-aligned `seg.text` (addendum §1.1): its transcript char range, or, for a segment
+    that lost it in a resplit, the transcript chars starting inside the alignment window. None without a transcript
+    (Anki lessons)."""
+    if lesson.source_type == "anki" or not lesson.transcript_json:
+        return None
+    chars = Transcript.from_json(lesson.transcript_json).chars
+    if seg.char_from is not None and seg.char_to is not None:
+        chars = chars[seg.char_from:seg.char_to + 1]
+    else:
+        chars = [c for c in chars if window[0] <= c.start <= window[1]]
+    return coarse_times(seg.text, chars)
+
+
 def reenrich_segment(deps: Deps, engine: Engine, segment_id: int, window: tuple[float, float] | None = None,
                      text: str | None = None) -> None:
     """Re-align `seg.text` (or the new `text`), rebuild words, translation and clips (spec §4: an edit re-runs
@@ -50,14 +66,16 @@ def reenrich_segment(deps: Deps, engine: Engine, segment_id: int, window: tuple[
         seg = db.get(Segment, segment_id)
         if text is not None:
             seg.text = text
-        fixed = db.get(Lesson, seg.lesson_id).source_type == "anki"
+        lesson = db.get(Lesson, seg.lesson_id)
+        fixed = lesson.source_type == "anki"
         source = deps.files.source_wav(seg.lesson_id)
         wav, sr = audio.read_wav(source)
         total = len(wav) / sr
         if window is None:
             window = (seg.start_s, seg.end_s) if fixed else \
                 (max(0.0, seg.start_s - WINDOW_MARGIN_S), min(total, seg.end_s + WINDOW_MARGIN_S))
-        spans = _align(deps, wav, sr, seg.idx, seg.text, *window)
+        spans = repair_spans(_align(deps, wav, sr, seg.idx, seg.text, *window), _coarse(lesson, seg, window))
+        spans = clamp_spans(spans, window[0], min(window[1], total))
         if spans and not fixed:
             pad = deps.settings.segmentation.pad_ms / 1000
             start, end = sentence_bounds(spans, pad, *_neighbours(db, seg, total), total)

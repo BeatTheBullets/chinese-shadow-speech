@@ -101,3 +101,19 @@ def repair_spans(spans: list[Span], coarse: list[Times | None] | None = None) ->
                 else sp
                 for sp, c in zip(spans, coarse)]
     return ensure_min_duration(fill_gaps(make_monotonic(replaced)))
+
+
+def clamp_spans(spans: list[Span], lo: float, hi: float) -> list[Span]:
+    """`spans` (monotonic) kept inside [lo, hi], the bounds of the clip they are cut from: ensure_min_duration may push
+    the last spans past the original end. Walking from the right, a span ends no later than the next one starts, and one
+    left shorter than MIN_SPAN_S starts earlier (not before `lo`), shortening the spans before it."""
+    out: list[Span] = []
+    limit = hi
+    for sp in reversed(spans):
+        end = min(sp.end, limit)
+        start = min(sp.start, end)
+        if end - start < MIN_SPAN_S:
+            start = max(lo, end - MIN_SPAN_S)
+        out.append(sp if (start, end) == (sp.start, sp.end) else Span(sp.ch, start, end, sp.conf))
+        limit = start
+    return out[::-1]
