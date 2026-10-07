@@ -8,7 +8,7 @@ interface Props {
   segment: Segment
   refPeaks: Float32Array | null; refDuration: number; refPlayhead: number | null
   youPeaks: Float32Array | null; youDuration: number; youPlayhead: number | null
-  onPlayRef: () => void; onPlayYou: () => void; onLoopSyllable: (i: number) => void
+  onPlayRef: () => void; onPlayYou: () => void; onPlaySyllable: (i: number) => void
   scoreHeader?: React.ReactNode
 }
 export default function TwoTrack(p: Props) {
@@ -26,7 +26,7 @@ export default function TwoTrack(p: Props) {
       <div className="bg-bg border border-line rounded p-2">
         <div className={cap}><span>Reference · {p.refDuration.toFixed(1)} s</span><button onClick={p.onPlayRef}>▶ Space</button></div>
         <Waveform peaks={p.refPeaks} duration={p.refDuration} pxPerSec={pxPerSec} ticks={ticks} playhead={p.refPlayhead} color="#2f4a66" />
-        <CellRow cells={cells} variant="ref" onCellClick={p.onLoopSyllable} />
+        <CellRow cells={cells} variant="ref" onCellClick={p.onPlaySyllable} />
       </div>
       <div className="bg-bg border border-line rounded p-2">
         <div className={cap}><span>You{p.youDuration && p.refDuration ? ` · ${p.youDuration.toFixed(1)} s · ${(p.youDuration / p.refDuration).toFixed(2)}×` : ''}</span>

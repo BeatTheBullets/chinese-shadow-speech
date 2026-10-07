@@ -7,7 +7,7 @@ Items 1-8 are the checks automated tests and reviewers could not run; do them fi
 - [ ] Upload a real recording: the tile shows the live stage bar, then the lesson is ready with N sentences. `curl localhost:8000/health` shows device `cuda` (the driver must support CUDA 12.6) and the loaded models after first use.
 - [ ] First real ingest: run `cd backend && uv run pytest -m models` once after `uv sync --extra dev --extra models`.
 - [ ] Echo with a real mic: the permission prompt appears, VAD auto-stops the take, and a denied mic shows a readable error.
-- [ ] Syllable cell click loops the right syllable (seek accuracy).
+- [ ] Syllable cell click plays the right syllable once; clicking again plays it again (seek accuracy).
 - [ ] Flow: run several sentences, stop midway, then `GET /segments/{id}/attempts` shows slices aligned with what was said.
 - [ ] Anki import: check one real asbplayer note's Source field format (lesson grouping depends on it; the parser accepts `name_123`-style suffixes and `(1h2m3s)` timestamps, but the real format was never verified), and that the first `[sound:]` clip is used.
 - [ ] Anki export: a real note with playable audio; edit a sentence, reload the page, export again, and confirm the new audio (not a cached old clip).

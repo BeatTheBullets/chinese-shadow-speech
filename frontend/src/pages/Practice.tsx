@@ -25,7 +25,6 @@ import { useSettings, defaultTextPrefs, type TextPrefs } from '../store/settings
 import { useFlow } from './useFlow'
 
 const MOVE_ON = 'Several tries on this one. Move on and come back later.'
-const LOOP_GAP_MS = 250
 const CHORUS_GAP_MS = 300  // between chorus passes (§6)
 const CHORUS_TAIL_MS = 300 // the chorus take runs this long past the end of the last pass
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
@@ -48,7 +47,6 @@ export default function Practice() {
   const mic = useMic()
   const vadTimer = useRef<number | null>(null)
   const seqCtrl = useRef<AbortController | null>(null)    // a playback sequence (reference then take, Flow replays)
-  const loopRef = useRef<{ cell: number; ctrl: AbortController } | null>(null) // a syllable loop in progress
   const recSeg = useRef<Segment | null>(null)             // the sentence the current recording belongs to
   const recMode = useRef<Mode>('echo')                    // the attempt mode of the current VAD recording (echo or guided)
   const runRef = useRef<{ kind: RunKind; ctrl: AbortController } | null>(null)
@@ -144,7 +142,6 @@ export default function Practice() {
   function clearVad() { if (vadTimer.current != null) { clearTimeout(vadTimer.current); vadTimer.current = null } }
   function stopPlayback() {
     seqCtrl.current?.abort(); seqCtrl.current = null
-    loopRef.current?.ctrl.abort(); loopRef.current = null
     player.stop()
   }
   const busy = () => echoRef.current === 'recording' || echoRef.current === 'uploading' || runRef.current != null
@@ -326,30 +323,13 @@ export default function Practice() {
     const take = usePractice.getState().lastAttempt
     if (take) playSolo(() => player.play(take.url, 1, setYouHead))
   }
-  // Loops one syllable of the reference until any other action; clicking the same cell again stops it.
+  // Plays one syllable of the reference once (addendum §1.2); clicking again plays it again.
   // Alignment times are source-absolute, the clip starts at seg.start_s.
-  function loopSyllable(cell: number) {
-    if (busy()) return
-    const same = loopRef.current?.cell === cell
-    stopPlayback()
-    if (same) return
+  function playSyllable(cell: number) {
     const ps = usePractice.getState(), s = currentSegment(ps), span = s?.ref_alignment_json?.[cell]
     if (!s || !span) return
-    const ctrl = new AbortController()
-    loopRef.current = { cell, ctrl }
     const url = api.segments.audioUrl(s.id, 'wav'), from = Math.max(0, span.start - s.start_s), to = Math.max(0, span.end - s.start_s)
-    void (async () => {
-      try {
-        while (!ctrl.signal.aborted) {
-          await player.playRange(url, ps.rate, from, to, setRefHead)
-          await sleep(LOOP_GAP_MS, ctrl.signal)
-        }
-      } catch (e) {
-        if (!ctrl.signal.aborted) setError(`Could not play: ${message(e)}`)
-      } finally {
-        if (loopRef.current?.ctrl === ctrl) loopRef.current = null
-      }
-    })()
+    playSolo(() => player.playRange(url, ps.rate, from, to, setRefHead))
   }
 
   function goTo(i: number) {
@@ -574,7 +554,7 @@ export default function Practice() {
                 <Sentence text={seg.text} words={seg.words_json} showHanzi={st.textPrefs.hanzi && show} showPinyin={st.textPrefs.pinyin && show} translation={seg.translation} showTranslation={st.textPrefs.translation && show} />
                 <TwoTrack segment={seg} refPeaks={refPeaks} refDuration={seg.end_s - seg.start_s} refPlayhead={refHead}
                   youPeaks={st.lastAttempt?.peaks ?? null} youDuration={st.lastAttempt?.duration ?? 0} youPlayhead={youHead}
-                  onPlayRef={() => act('play')} onPlayYou={() => act('replayYou')} onLoopSyllable={loopSyllable} />
+                  onPlayRef={() => act('play')} onPlayYou={() => act('replayYou')} onPlaySyllable={playSyllable} />
               </>)}
             </div>
             <Transport onAction={act} rate={st.rate} onRate={st.setRate} recording={echo === 'recording'} busy={echo === 'uploading'} flagged={seg.difficulty_flag} hint={st.hint} error={error} recordLabel={recordLabel} />

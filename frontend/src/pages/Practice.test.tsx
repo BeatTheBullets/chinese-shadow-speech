@@ -18,7 +18,7 @@ const h = vi.hoisted(() => ({
   playSequence: vi.fn(() => Promise.resolve()),
   player: { play: vi.fn(() => Promise.resolve()), playRange: vi.fn(() => Promise.resolve()), stop: vi.fn(), preload: vi.fn(() => Promise.resolve()), peaksFor: vi.fn(() => new Promise(() => {})) },
   ctxClose: vi.fn(() => Promise.resolve()),
-  twoTrack: null as null | { onLoopSyllable: (i: number) => void },
+  twoTrack: null as null | { onPlaySyllable: (i: number) => void },
 }))
 vi.mock('../api/client', async (importOriginal) => ({ ...(await importOriginal<typeof import('../api/client')>()), api: h.api }))
 vi.mock('../anki/export', async (importOriginal) => ({ ...(await importOriginal<typeof import('../anki/export')>()), exportAndRecord: h.exportAndRecord }))
@@ -39,7 +39,7 @@ vi.mock('../audio/player', () => ({
   peaks: () => new Float32Array(4),
 }))
 vi.mock('../components/TwoTrack', () => ({
-  default: (p: { onLoopSyllable: (i: number) => void }) => { h.twoTrack = p; return <div data-testid="two-track" /> },
+  default: (p: { onPlaySyllable: (i: number) => void }) => { h.twoTrack = p; return <div data-testid="two-track" /> },
 }))
 
 import { ApiError } from '../api/client'
@@ -225,7 +225,7 @@ describe('<Practice>', () => {
     expect(usePractice.getState().drawerOpen).toBe(true)
   })
 
-  describe('syllable loop', () => {
+  describe('syllable click', () => {
     const aligned: LessonDetail = {
       ...lesson,
       segments: [{ ...seg(11, 0, '你好'), start_s: 10, end_s: 12, ref_alignment_json: [{ ch: '你', start: 10.2, end: 10.5, conf: 1 }, { ch: '好', start: 10.5, end: 11.25, conf: 1 }] }],
@@ -233,41 +233,28 @@ describe('<Practice>', () => {
     const sleep = (ms: number) => act(() => new Promise((r) => setTimeout(r, ms)))
     beforeEach(() => { h.api.lessons.get.mockResolvedValue(aligned) })
 
-    it('repeats the clip-relative span until another action (play) stops it', async () => {
+    it('plays the clip-relative span of the clicked syllable once', async () => {
       renderPractice()
       await screen.findByText('你好', { selector: 'p.sentence' })
-      act(() => h.twoTrack!.onLoopSyllable(1))
-      await waitFor(() => expect(h.player.playRange.mock.calls.length).toBeGreaterThanOrEqual(3), { timeout: 2000 })
-      for (const c of h.player.playRange.mock.calls as unknown as [string, number, number, number][]) {
-        expect(c[0]).toBe('/seg/11.wav'); expect(c[2]).toBeCloseTo(0.5, 5); expect(c[3]).toBeCloseTo(1.25, 5)
-      }
-      press(' ')
+      act(() => h.twoTrack!.onPlaySyllable(1))
       await flush()
-      const n = h.player.playRange.mock.calls.length
+      expect(h.player.playRange).toHaveBeenCalledTimes(1)
+      const [url, rate, from, to] = h.player.playRange.mock.calls[0] as unknown as [string, number, number, number]
+      expect([url, rate]).toEqual(['/seg/11.wav', 1])
+      expect(from).toBeCloseTo(0.5, 5); expect(to).toBeCloseTo(1.25, 5)
       await sleep(600)
-      expect(h.player.playRange.mock.calls.length).toBe(n)
-      expect(h.player.play).toHaveBeenCalledWith('/seg/11.opus', 1, expect.any(Function))
+      expect(h.player.playRange).toHaveBeenCalledTimes(1) // no loop
     })
 
-    it('stops when recording starts, and clicking the same cell again toggles it off', async () => {
+    it('clicking again plays it again; a click while recording does nothing', async () => {
       renderPractice()
       await screen.findByText('你好', { selector: 'p.sentence' })
-      act(() => h.twoTrack!.onLoopSyllable(0))
-      await waitFor(() => expect(h.player.playRange.mock.calls.length).toBeGreaterThanOrEqual(2))
-      press('Enter')
-      await flush()
-      let n = h.player.playRange.mock.calls.length
-      await sleep(600)
-      expect(h.player.playRange.mock.calls.length).toBe(n)
-      press('Enter'); await flush() // finish the take
-
-      act(() => h.twoTrack!.onLoopSyllable(0))
-      await waitFor(() => expect(h.player.playRange.mock.calls.length).toBeGreaterThan(n))
-      act(() => h.twoTrack!.onLoopSyllable(0)) // same cell: off
-      await flush()
-      n = h.player.playRange.mock.calls.length
-      await sleep(600)
-      expect(h.player.playRange.mock.calls.length).toBe(n)
+      act(() => h.twoTrack!.onPlaySyllable(0)); await flush()
+      act(() => h.twoTrack!.onPlaySyllable(0)); await flush()
+      expect(h.player.playRange).toHaveBeenCalledTimes(2)
+      press('Enter'); await flush()
+      act(() => h.twoTrack!.onPlaySyllable(0)); await flush()
+      expect(h.player.playRange).toHaveBeenCalledTimes(2)
     })
   })
 
