@@ -198,7 +198,8 @@ class YtDlpDownloader:
     def download_audio(self, url: str, dest_dir: Path) -> Path:
         import yt_dlp
         dest_dir.mkdir(parents=True, exist_ok=True)
-        extra = {"format": "bestaudio", "outtmpl": {"default": str(dest_dir.resolve() / "audio.%(ext)s")}}
+        # Falls back to a muxed format when YouTube offers no audio-only one; normalising drops the video.
+        extra = {"format": "bestaudio/best", "outtmpl": {"default": str(dest_dir.resolve() / "audio.%(ext)s")}}
         log = _Warnings()
         try:
             with self._ydl(**extra) as (ydl, log):

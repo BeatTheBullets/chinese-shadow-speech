@@ -174,7 +174,7 @@ def test_download_audio_options(tmp_path, fake_ydl):
     fake_ydl.info["requested_downloads"] = [{"filepath": str(dest / "audio.m4a")}]
     assert YtDlpDownloader(str(cookies)).download_audio(watch_url(VID), dest) == dest / "audio.m4a"
     p = fake_ydl.instances[0].params
-    assert p["format"] == "bestaudio" and p["noplaylist"] is True and not p.get("writesubtitles")
+    assert p["format"] == "bestaudio/best" and p["noplaylist"] is True and not p.get("writesubtitles")
     assert p["outtmpl"]["default"] == str(dest.resolve() / "audio.%(ext)s")
     assert p["color"] == "no_color" and p["cachedir"] is False and "logger" in p
     assert p["cookiefile"] != str(cookies) and fake_ydl.instances[0].cookie_text == "# Netscape\n"   # a copy
