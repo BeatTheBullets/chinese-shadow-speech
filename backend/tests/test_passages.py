@@ -48,13 +48,28 @@ def test_a_single_segment_longer_than_the_window_is_one_passage():
     assert plan_passages([(0.0, 400.0)]) == [PassagePlan(0.0, 400.0)]
 
 
-def test_all_pauses_equal_cuts_nearest_150_s_and_covers_every_segment():
-    segs = _uniform(60)                                                              # 0 … 659 s
-    plans = plan_passages(segs)
-    assert plans[0].start_s == 0.0 and plans[-1].end_s == 659.0
-    for a, b in zip(plans, plans[1:]):
-        assert a.end_s < b.start_s and b.start_s - a.start_s <= 180.0
-    assert all(p.end_s - p.start_s >= 60.0 for p in plans)
+def test_all_pauses_equal_cuts_nearest_150_s():
+    plans = plan_passages(_uniform(60))                                              # 0 … 659 s
+    assert [(p.start_s, p.end_s) for p in plans] == [(0.0, 153.0), (154.0, 307.0), (308.0, 461.0), (462.0, 593.0), (594.0, 659.0)]
+
+
+def test_chapters_covering_only_the_start_do_not_leave_one_huge_passage():
+    chapters = [{"title": "甲", "start_time": 0.0, "end_time": 60.0}, {"title": "乙", "start_time": 60.0, "end_time": 120.0}]
+    plans = plan_passages(_uniform(55), chapters)                                    # 0 … 604 s
+    assert plans[0] == PassagePlan(0.0, 65.0, "甲")
+    assert all(p.end_s - p.start_s <= 180.0 for p in plans)
+    assert [p.title for p in plans[1:]] == [f"乙 ({i}/{len(plans) - 1})" for i in range(1, len(plans))]
+
+
+def test_a_chapter_declared_long_but_with_short_speech_has_no_suffix():
+    chapters = [{"title": "甲", "start_time": 0.0, "end_time": 600.0}, {"title": "乙", "start_time": 600.0, "end_time": 700.0}]
+    segs = [(float(k * 11), k * 11.0 + 10) for k in range(10)] + [(600.0 + k * 11, 610.0 + k * 11) for k in range(30)]
+    assert [p.title for p in plan_passages(segs, chapters)] == ["甲", "乙 (1/2)", "乙 (2/2)"]   # 甲: no "(1/1)"
+
+
+def test_no_cut_between_segments_with_the_same_start():
+    segs = [(0.0, 100.0), (130.0, 140.0), (130.0, 150.0), (200.0, 260.0), (300.0, 400.0)]
+    assert [p.start_s for p in plan_passages(segs)] == [0.0, 130.0, 300.0]
 
 
 def test_chapters_that_do_not_cover_the_audio_still_cover_every_segment():

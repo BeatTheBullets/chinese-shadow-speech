@@ -1,9 +1,9 @@
 """Passages (addendum spec §4): contiguous runs of segments of about 2–3 minutes, the unit of Flow runs and progress.
 
-Boundaries come from the video's chapters when it has them (a chapter longer than SPLIT_CHAPTER_OVER_S is split like
+Boundaries come from the video's chapters when it has them (a chapter whose speech spans ONE_PASSAGE_UNDER_S or more is split like
 a lesson); otherwise from a greedy cut: from a passage's first segment, cut before the segment starting CUT_WINDOW
 after it with the longest pause before it (ties: the cut nearest TARGET_S), never leaving a last passage shorter than
-MIN_LAST_S. A lesson shorter than ONE_PASSAGE_UNDER_S is one passage, chapters or not. Rows store only the time
+MIN_LAST_S. A lesson (first segment start to last segment end) shorter than ONE_PASSAGE_UNDER_S is one passage, chapters or not. Rows store only the time
 range; a segment belongs to the last passage starting at or before its start_s (the first when it starts before them
 all), so edits never break the mapping."""
 from __future__ import annotations
@@ -17,7 +17,6 @@ TARGET_S = 150.0
 CUT_WINDOW = (120.0, 180.0)
 MIN_LAST_S = 60.0
 ONE_PASSAGE_UNDER_S = 240.0
-SPLIT_CHAPTER_OVER_S = 240.0
 
 Bounds = tuple[float, float]
 
@@ -58,13 +57,13 @@ def _greedy(segs: list[Bounds]) -> list[list[int]]:
         if a == 0 and end - t0 < ONE_PASSAGE_UNDER_S:
             cut = n
         else:
-            fits = [k for k in range(a + 1, n) if lo <= segs[k][0] - t0 <= hi and end - segs[k][0] >= MIN_LAST_S]
+            fits = [k for k in range(a + 1, n) if segs[k][0] > segs[k - 1][0] and lo <= segs[k][0] - t0 <= hi and end - segs[k][0] >= MIN_LAST_S]
             if fits:
                 cut = max(fits, key=lambda k: (round(segs[k][0] - segs[k - 1][1], 3), -abs(segs[k][0] - t0 - TARGET_S)))
             elif end - t0 <= hi + MIN_LAST_S:
                 cut = n                   # the rest is one passage; a short remainder is absorbed
             else:
-                later = [k for k in range(a + 1, n) if segs[k][0] - t0 > hi and end - segs[k][0] >= MIN_LAST_S]
+                later = [k for k in range(a + 1, n) if segs[k][0] > segs[k - 1][0] and segs[k][0] - t0 > hi and end - segs[k][0] >= MIN_LAST_S]
                 cut = later[0] if later else n
         groups.append(list(range(a, cut)))
         a = cut
@@ -89,13 +88,10 @@ def plan_passages(segs: list[Bounds], chapters: list[dict] | None = None) -> lis
         if not mine:
             continue
         title = ch.get("title") or None
-        if ch["end_time"] - ch["start_time"] > SPLIT_CHAPTER_OVER_S:
-            groups = _greedy(mine)
-            for m, g in enumerate(groups):
-                plans.append(PassagePlan(mine[g[0]][0], max(mine[k][1] for k in g),
-                                         f"{title} ({m + 1}/{len(groups)})" if title else None))
-        else:
-            plans.append(PassagePlan(mine[0][0], max(b for _, b in mine), title))
+        groups = _greedy(mine)                  # one group when the chapter's speech is under 4 min
+        for m, g in enumerate(groups):
+            plans.append(PassagePlan(mine[g[0]][0], max(mine[k][1] for k in g),
+                                     f"{title} ({m + 1}/{len(groups)})" if title and len(groups) > 1 else title))
     return plans
 
 
