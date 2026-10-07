@@ -8,8 +8,7 @@ import { findSilenceEnd, sliceSamples } from '../audio/pcm'
 import { ClipPlayer, peaks as peaksOf, playSequence } from '../audio/player'
 import { toWav16k } from '../audio/recorder'
 import { useMic } from '../audio/useMic'
-import { useMicLevel } from '../audio/useMicLevel'
-import CueLine from '../components/CueLine'
+import CueLine, { WithMicLevel } from '../components/CueLine'
 import Drawer from '../components/Drawer'
 import EditDialog from '../components/EditDialog'
 import FlowSummary from '../components/FlowSummary'
@@ -89,8 +88,8 @@ export default function Practice() {
   const [help, setHelp] = useState(() => !useSettings.getState().helpSeen)
   const helpOpen = useRef(false)
   helpOpen.current = help
-  const level = useMicLevel(mic)
-  const now = useNow(echoTurn != null)
+  // A frame clock only while something moves without media time: an Echo take's count-in and ghost wipe, Flow after's turn.
+  const now = useNow(echoTurn != null || (flow.state.phase === 'running' && flow.state.turn != null))
 
   useEffect(() => { const t = setInterval(() => setElapsed((Date.now() - started) / 1000), 1000); return () => clearInterval(t) }, [started])
   // The help opens by itself once, on the first visit to a practice page (addendum §6.4).
@@ -560,6 +559,7 @@ export default function Practice() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (dialogOpen.current || helpOpen.current) return // a dialog or the help keeps its own keys (even with focus outside it, e.g. on the body)
+      if (e.defaultPrevented) return                       // already taken, e.g. the key that closed the help
       const a = actionForKey(e)
       if (!a) return
       e.preventDefault()
@@ -595,7 +595,7 @@ export default function Practice() {
   const refPlaying = echo === 'playing' || echo === 'playback' || runKind === 'chorus' || runKind === 'guided'
   const { wipe, dots } = stageWipe({ spans, refPlaying, refHead, turnStart: st.mode === 'echo' ? echoTurn : null, now, rate: st.rate })
   const cue = cueFor(st.mode, {
-    phase: cuePhase({ mode: st.mode, echo, runKind, guided, hasTake: st.lastAttempt != null, flowPhase: fs.phase, flowSub: fs.sub, flowTurn: false }),
+    phase: cuePhase({ mode: st.mode, echo, runKind, guided, hasTake: st.lastAttempt != null, flowPhase: fs.phase, flowSub: fs.sub, flowTurn: fs.turn != null }),
     guided, error: !!error,
   })
   return (
@@ -606,12 +606,15 @@ export default function Practice() {
       <div className="flex-1 flex min-h-0">
         <main className="flex-1 flex flex-col min-w-0">
           {flowRunning ? (<>
-            <FlowView segments={segments} current={fs.current} pending={fs.pending} micPeak={fs.micPeak} sub={fs.sub}
-              showText={!(settings.practice.hideTextWhileRecording && fs.sub === 'after')} />
+            <WithMicLevel mic={mic}>{(level) => (
+              <FlowView segments={segments} current={fs.current} pending={fs.pending} sub={fs.sub} rate={st.rate} now={now}
+                cue={cue} level={level} clipTime={fs.clipTime} turn={fs.turn}
+                showText={!(settings.practice.hideTextWhileRecording && fs.sub === 'after')} />)}
+            </WithMicLevel>
             <FlowTransport rate={st.rate} onRate={st.setRate} sub={fs.sub} onStop={() => act('record')} onSkip={() => act('next')} error={error} hint={st.hint} volume={volume} />
           </>) : (<>
             <div className="flex-1 overflow-y-auto p-6 space-y-6">
-              <CueLine cue={cue} level={level} dots={dots} />
+              <WithMicLevel mic={mic}>{(level) => <CueLine cue={cue} level={level} dots={dots} />}</WithMicLevel>
               {st.mode === 'flow' && fs.phase === 'summary' ? (
                 <FlowSummary segments={segments} results={fs.results} skipped={fs.skipped} elapsedS={fs.elapsedS}
                   onPlayPair={(r) => playItems(pairOf(r))} onReplayAll={() => playItems([...fs.results].sort((x, y) => x.idx - y.idx).flatMap(pairOf))}

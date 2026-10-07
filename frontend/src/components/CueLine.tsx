@@ -1,3 +1,6 @@
+import type { ReactNode } from 'react'
+import { useMicLevel } from '../audio/useMicLevel'
+import type { Mic } from '../audio/useMic'
 import type { Cue, CueTone } from '../lib/cue'
 
 const TONE: Record<CueTone, string> = { ref: 'text-ref', you: 'text-you', neutral: 'text-fgdim', ok: 'text-ok', bad: 'text-bad' }
@@ -21,4 +24,9 @@ export function MicMeter({ level }: { level: number }) {
       <span className="block h-full bg-you" style={{ width: `${v * 100}%` }} />
     </span>
   )
+}
+
+// Polls the mic level (~20 Hz) itself, so only `children` re-render with it and not the page around them.
+export function WithMicLevel({ mic, children }: { mic: Pick<Mic, 'level'>; children: (level: number | null) => ReactNode }) {
+  return <>{children(useMicLevel(mic))}</>
 }

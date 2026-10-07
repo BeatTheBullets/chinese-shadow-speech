@@ -24,4 +24,14 @@ describe('charRects', () => {
     Range.prototype.getClientRects = () => [] as unknown as DOMRectList
     expect(charRects(document.getElementById('p')!, document.getElementById('box')!)).toEqual([null, null])
   })
+
+  it('takes the widest of the client rectangles of a character, not an empty first one', () => {
+    document.body.innerHTML = '<div id="box"><p id="p">你</p></div>'
+    const box = document.getElementById('box')!
+    box.getBoundingClientRect = () => ({ left: 0, top: 0 }) as DOMRect
+    Range.prototype.getClientRects = () => [
+      { left: 300, top: 0, width: 0, height: 48 }, { left: 0, top: 60, width: 40, height: 48 },
+    ] as unknown as DOMRectList
+    expect(charRects(document.getElementById('p')!, box)).toEqual([{ left: 0, top: 60, width: 40, height: 48 }])
+  })
 })

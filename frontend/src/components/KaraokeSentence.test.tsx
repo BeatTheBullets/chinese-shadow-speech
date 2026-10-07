@@ -54,4 +54,17 @@ describe('<KaraokeSentence>', () => {
       Reflect.deleteProperty(document, 'fonts')
     }
   })
+
+  it('a sentence wrapped over two lines gets a wipe segment on each line', () => {
+    // 你好 on the first line, 再见 wrapped onto the second
+    Range.prototype.getClientRects = function (this: Range) {
+      const i = this.startOffset
+      return [{ left: (i % 2) * 40, top: i < 2 ? 0 : 50, width: 40, height: 40 }] as unknown as DOMRectList
+    }
+    const { container } = render(<KaraokeSentence text="你好再见" words={null} showHanzi showPinyin wipe={{ tone: 'ref', progress: 3.5 }} />)
+    const boxes = [...container.querySelector('[data-testid="wipe"]')!.children] as HTMLElement[]
+    expect(boxes.map((b) => [b.style.top, b.style.left, b.style.width])).toEqual([
+      ['0px', '0px', '40px'], ['0px', '40px', '40px'], ['50px', '0px', '40px'], ['50px', '40px', '20px'],
+    ])
+  })
 })

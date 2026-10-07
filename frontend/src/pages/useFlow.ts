@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../api/client'
 import { sleep } from '../audio/abortable'
-import { rms, sliceSamples } from '../audio/pcm'
+import { sliceSamples } from '../audio/pcm'
 import type { ClipPlayer } from '../audio/player'
 import { toWav16k } from '../audio/recorder'
 import type { Mic } from '../audio/useMic'
@@ -18,7 +18,9 @@ export interface FlowState {
   phase: 'setup' | 'running' | 'summary'
   sub: FlowSub; from: number | null; to: number | null // the setup form; null = current sentence / last sentence
   range: { from: number; to: number } | null           // of the last run, for "run again"
-  current: number; micPeak: number
+  current: number
+  clipTime: number | null                                   // clip-relative time of the sentence playing (karaoke)
+  turn: { startedAt: number; duration: number } | null      // after: the open speaking window, on the performance.now()/1000 clock
   results: FlowResult[]; pending: Set<number>; skipped: number; elapsedS: number
 }
 export interface FlowDeps {
@@ -29,7 +31,7 @@ export interface FlowDeps {
   endRun: (run: AbortController) => void
   setError: (msg: string) => void
 }
-const initial: FlowState = { phase: 'setup', sub: 'after', from: null, to: null, range: null, current: 0, micPeak: 0, results: [], pending: new Set(), skipped: 0, elapsedS: 0 }
+const initial: FlowState = { phase: 'setup', sub: 'after', from: null, to: null, range: null, current: 0, clipTime: null, turn: null, results: [], pending: new Set(), skipped: 0, elapsedS: 0 }
 
 // Flow mode (§6, §7.3): one continuous recording over a range of sentences, sliced per sentence from the playback
 // stamps and submitted as `flow` attempts, each to its own sentence. stop() ends the run gracefully (finished
@@ -53,7 +55,7 @@ export function useFlow(deps: FlowDeps) {
   function clear() {
     token.current++
     urls.current.forEach((u) => URL.revokeObjectURL(u)); urls.current = []
-    setState((f) => ({ ...f, phase: 'setup', results: [], pending: new Set(), skipped: 0 }))
+    setState((f) => ({ ...f, phase: 'setup', clipTime: null, turn: null, results: [], pending: new Set(), skipped: 0 }))
   }
 
   async function start(from: number, to: number, sub: FlowSub) {
@@ -62,14 +64,14 @@ export function useFlow(deps: FlowDeps) {
     clear()
     const my = token.current
     const gapFactor = useSettings.getState().practice.flowGapFactor
-    setState((f) => ({ ...f, phase: 'running', sub, range: { from, to }, current: from, micPeak: 0 }))
+    setState((f) => ({ ...f, phase: 'running', sub, range: { from, to }, current: from, clipTime: null, turn: null }))
     const startedAt = Date.now()
     const capture = record(my, segments.map((s, k) => ({ segmentId: s.id, idx: from + k, url: api.segments.audioUrl(s.id), duration: s.end_s - s.start_s })), sub, gapFactor)
     recording.current = capture
     const take = await capture
     if (recording.current === capture) recording.current = null
     if (token.current !== my) return
-    if (!take) { setState((f) => ({ ...f, phase: 'setup', micPeak: 0 })); return }
+    if (!take) { setState((f) => ({ ...f, phase: 'setup', clipTime: null, turn: null })); return }
     const { got, played } = take
     const sr = got.rec.sampleRate
     const ranges = sliceRangesFromActual(played.actual, sub, gapFactor)
@@ -78,7 +80,7 @@ export function useFlow(deps: FlowDeps) {
       .map((t) => ({ ...t, wav: toWav16k(t.samples, sr) }))
     const results: FlowResult[] = takes.map((t) => ({ segmentId: t.rg.segmentId, idx: t.rg.idx, attemptId: null, url: URL.createObjectURL(t.wav), duration: t.samples.length / sr }))
     urls.current = results.map((x) => x.url)
-    setState((f) => ({ ...f, phase: 'summary', micPeak: 0, results, pending: new Set(results.map((x) => x.segmentId)), skipped: played.skipped + ranges.length - takes.length, elapsedS: (Date.now() - startedAt) / 1000 }))
+    setState((f) => ({ ...f, phase: 'summary', clipTime: null, turn: null, results, pending: new Set(results.map((x) => x.segmentId)), skipped: played.skipped + ranges.length - takes.length, elapsedS: (Date.now() - startedAt) / 1000 }))
     // Each slice uploads to the sentence it was cut for. Uploads carry on even if the summary is closed meanwhile.
     const { lessonId, setError } = d.current
     const mine = (f: () => void) => { if (token.current === my) f() }
@@ -112,16 +114,15 @@ export function useFlow(deps: FlowDeps) {
     run.signal.addEventListener('abort', onAbandon, { once: true })
     stopCtrl.current = stopper
     usePractice.getState().setRecording(true); setError('')
-    let meter: number | undefined
     try {
       let rec
       try { rec = await mic.open() } catch (e) { setError(`Microphone unavailable: ${message(e)}`); return null }
       if (!rec || stopper.signal.aborted) return null // abandoned, or stopped while still at the permission prompt
-      const r = rec
-      meter = window.setInterval(() => mine(() => setState((f) => ({ ...f, micPeak: rms(r.tail(2048)) }))), 100)
       const played = await playFlow({
         player, clock: mic.now, clips, sub, gapFactor, signal: stopper.signal, rate: () => usePractice.getState().rate,
-        onClip: (c, skip) => { skipCtrl.current = skip; mine(() => setState((f) => ({ ...f, current: c.idx }))) },
+        onClip: (c, skip) => { skipCtrl.current = skip; mine(() => setState((f) => ({ ...f, current: c.idx, clipTime: 0, turn: null }))) },
+        onTime: (t) => mine(() => setState((f) => ({ ...f, clipTime: t }))),
+        onTurn: (_c, t) => mine(() => setState((f) => ({ ...f, turn: t && { startedAt: performance.now() / 1000, duration: t.duration } }))),
       })
       if (played.error && !run.signal.aborted) setError(`Playback failed: ${message(played.error)}`)
       await sleep(TAIL_MS, run.signal)
@@ -129,7 +130,6 @@ export function useFlow(deps: FlowDeps) {
       const got = mic.finish()
       return got && { got, played }
     } finally {
-      clearInterval(meter)
       run.signal.removeEventListener('abort', onAbandon)
       if (stopCtrl.current === stopper) stopCtrl.current = null
       skipCtrl.current = null

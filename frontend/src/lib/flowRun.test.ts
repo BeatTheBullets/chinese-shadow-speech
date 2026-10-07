@@ -99,4 +99,43 @@ describe('playFlow', () => {
     expect(r.error).toBeInstanceOf(Error)
     expect(r.actual.map((a) => a.playEnd)).toEqual([10, undefined])
   })
+
+  it('after: opens the speaking window when a clip ends and closes it before the next clip', async () => {
+    const turns: (number | null)[] = []
+    const run = playFlow({ player, clock: () => clock, clips, sub: 'after', gapFactor: 1.1, rate: () => 1, signal: new AbortController().signal,
+      onClip: () => {}, onTurn: (_c, t) => { turns.push(t && t.duration) } })
+    await vi.advanceTimersByTimeAsync(0)
+    await finishClip(2)
+    expect(turns).toEqual([2.2])
+    await vi.advanceTimersByTimeAsync(2600)
+    expect(turns).toEqual([2.2, null])
+    await finishClip(1)
+    await vi.advanceTimersByTimeAsync(1500)
+    await run
+    expect(turns).toEqual([2.2, null, 1.1, null])
+  })
+
+  it('after: stopping during the speaking window closes it', async () => {
+    const turns: (number | null)[] = []
+    const stop = new AbortController()
+    const run = playFlow({ player, clock: () => clock, clips, sub: 'after', gapFactor: 1.1, rate: () => 1, signal: stop.signal,
+      onClip: () => {}, onTurn: (_c, t) => { turns.push(t && t.duration) } })
+    await vi.advanceTimersByTimeAsync(0)
+    await finishClip(2)
+    await vi.advanceTimersByTimeAsync(500)
+    stop.abort()
+    await run
+    expect(turns).toEqual([2.2, null])
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('passes the clip-time callback to the player', async () => {
+    const onTime = vi.fn()
+    const run = playFlow({ player, clock: () => clock, clips: clips.slice(0, 1), sub: 'along', gapFactor: 1.1, rate: () => 1,
+      signal: new AbortController().signal, onClip: () => {}, onTime })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(player.play).toHaveBeenCalledWith('/1', 1, onTime)
+    await finishClip(2)
+    await run
+  })
 })

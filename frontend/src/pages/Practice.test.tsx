@@ -401,7 +401,7 @@ describe('<Practice>', () => {
       h.rec.stop.mockReturnValue(new Float32Array(44100 * 10))
       await startFlow('along')
       await waitFor(() => expect(h.player.play).toHaveBeenCalledTimes(2))
-      expect(screen.getByText('speak along')).toBeInTheDocument()
+      expect(screen.getByTestId('cue-line')).toHaveTextContent('Speak along')
       press('Enter')
       expect(await screen.findByText(/Flow finished · 1 sentences/)).toBeInTheDocument()
       await waitFor(() => expect(h.api.segments.postAttempt).toHaveBeenCalledTimes(1))
@@ -457,11 +457,32 @@ describe('<Practice>', () => {
       const stops = h.player.stop.mock.calls.length
       fireEvent.click(screen.getByRole('button', { name: 'Flow' }))
       await sleepMs(100)
-      expect(screen.getByText('your turn')).toBeInTheDocument()
+      expect(screen.getByTestId('cue-line')).toHaveTextContent('Listen')
       expect(h.player.stop).toHaveBeenCalledTimes(stops)
       expect(h.rec.stop).not.toHaveBeenCalled()
       expect(h.api.segments.postAttempt).not.toHaveBeenCalled()
       expect(usePractice.getState().recordingNow).toBe(true)
+    })
+
+    it('after: the cue line says your turn during the pause, with the turn bar', async () => {
+      clipsTake(2)
+      h.rec.stop.mockReturnValue(new Float32Array(44100 * 10))
+      await startFlow('after')
+      await waitFor(() => expect(screen.getByTestId('cue-line')).toHaveTextContent('Your turn — speak now'))
+      expect(screen.getByTestId('turn-bar')).toBeInTheDocument()
+      press('Enter')
+      expect(await screen.findByText(/Flow finished/)).toBeInTheDocument()
+      // the turn's frame loop ends with the run
+      const raf = vi.spyOn(globalThis, 'requestAnimationFrame')
+      try { await sleepMs(100); expect(raf).not.toHaveBeenCalled() } finally { raf.mockRestore() }
+    })
+
+    it('along: the next sentence shows dimmed below the current one', async () => {
+      clipsTake(2, () => true)
+      await startFlow('along')
+      await waitFor(() => expect(h.player.play).toHaveBeenCalledTimes(1))
+      expect(screen.getByTestId('next-line')).toHaveTextContent('再见')
+      expect(screen.getByRole('meter', { name: 'Microphone level' })).toBeInTheDocument()
     })
 
     it('unmounting mid-run closes the mic and uploads nothing', async () => {
@@ -802,6 +823,17 @@ describe('<Practice>', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
     press('l')
     expect(usePractice.getState().drawerOpen).toBe(false)
+  })
+
+  it('a key another handler has already taken (default prevented) is not a page shortcut', async () => {
+    const taken = (e: KeyboardEvent) => { if (e.key === 'l') e.preventDefault() }
+    window.addEventListener('keydown', taken)
+    try {
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      press('l')
+      expect(usePractice.getState().drawerOpen).toBe(true)
+    } finally { window.removeEventListener('keydown', taken) }
   })
 
   it('the cue line says what to do: ready, your turn with a moving mic meter, then done', async () => {

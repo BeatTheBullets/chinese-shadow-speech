@@ -1,30 +1,51 @@
 import { useEffect, useRef } from 'react'
 import type { Segment } from '../api/types'
+import type { Cue } from '../lib/cue'
 import type { FlowSub } from '../lib/flow'
-import Sentence from './Sentence'
+import { clipSpans, flowWipe, nextLineStart } from '../lib/karaoke'
+import CueLine from './CueLine'
 import { dotClass } from './Drawer'
+import KaraokeSentence, { GhostLine } from './KaraokeSentence'
 import VolumeSliders, { type VolumeControls } from './VolumeSliders'
 
-// Flow mode while running: the lesson as a transcript, the current line grown in place with a live mic strip (§7.3).
-export default function FlowView({ segments, current, pending, micPeak, sub, showText }: { segments: Segment[]; current: number; pending: Set<number>; micPeak: number; sub: FlowSub; showText: boolean }) {
+export interface FlowViewProps {
+  segments: Segment[]; current: number; pending: Set<number>; sub: FlowSub; showText: boolean
+  cue: Cue; level: number | null; rate: number; now: number
+  clipTime: number | null; turn: { startedAt: number; duration: number } | null
+}
+
+// Flow mode while running (main spec §7.3, addendum §6.5): the lesson as a transcript; the current line large with
+// the cue line, count-in, karaoke wipe (in after: ghost wipe and turn bar during the learner's turn); the next line
+// dimmed right below it.
+export default function FlowView(p: FlowViewProps) {
+  const { current } = p
   const curRef = useRef<HTMLDivElement | null>(null)
   useEffect(() => { curRef.current?.scrollIntoView?.({ block: 'center', behavior: 'smooth' }) }, [current])
+  const cur = p.segments[current], next = p.segments[current + 1]
+  const spans = cur ? clipSpans(cur.ref_alignment_json, cur.start_s) : []
+  const k = cur
+    ? flowWipe({ spans, sub: p.sub, clipTime: p.clipTime, clipDuration: cur.end_s - cur.start_s, turn: p.turn, now: p.now, rate: p.rate,
+      next: p.sub === 'along' && next ? nextLineStart(cur, next, p.rate) : null })
+    : { wipe: null, dots: 0, turnLeft: null }
   return (
     <div className="flex-1 overflow-y-auto p-6 space-y-1">
-      {segments.map((s, i) => {
-        const isCur = i === current
+      {p.segments.map((s, i) => {
+        const isCur = i === current, isNext = i === current + 1
         return (
           <div key={s.id} ref={isCur ? curRef : undefined} className={`flex gap-3 items-start px-3 py-1 rounded ${isCur ? 'bg-[#1c2a3a] py-3' : ''}`}>
             <span className="w-6 text-right text-[10px] text-fgdim pt-1">{s.idx + 1}</span>
-            <span className={`w-2 h-2 mt-2 rounded-full flex-none ${dotClass(s, pending.has(s.id))}`} />
+            <span className={`w-2 h-2 mt-2 rounded-full flex-none ${dotClass(s, p.pending.has(s.id))}`} />
             {isCur ? (
-              <div className="flex-1">
-                <Sentence text={s.text} words={s.words_json} showHanzi={showText} showPinyin={showText} />
-                <div className="flex items-center gap-2 mt-2 pl-4"><span className="w-2.5 h-2.5 rounded-full bg-bad shadow-[0_0_8px_#d9534f]" />
-                  <div className="h-2 flex-1 bg-panel2 rounded overflow-hidden"><div className="h-full bg-you" style={{ width: `${Math.min(100, micPeak * 300)}%` }} /></div>
-                  <span className="text-[10px] text-fgdim">{sub === 'after' ? 'your turn' : 'speak along'}</span></div>
+              <div className="flex-1 space-y-2">
+                <CueLine cue={p.cue} level={p.level} dots={k.dots} />
+                <KaraokeSentence wipe={k.wipe} text={s.text} words={s.words_json} showHanzi={p.showText} showPinyin={p.showText} />
+                {!p.showText && <GhostLine count={spans.length} wipe={k.wipe} />}
+                {k.turnLeft != null && (
+                  <div data-testid="turn-bar" className="h-1 bg-panel2 rounded overflow-hidden"><div className="h-full bg-you" style={{ width: `${k.turnLeft * 100}%` }} /></div>)}
               </div>
-            ) : <span className={`font-hanzi truncate ${i < current ? 'text-fgdim' : 'text-fg text-sm'}`}>{s.text}</span>}
+            ) : (
+              <span data-testid={isNext ? 'next-line' : undefined}
+                className={`font-hanzi truncate ${i < current ? 'text-fgdim' : isNext ? 'text-fgdim text-lg' : 'text-fg text-sm'}`}>{s.text}</span>)}
           </div>)
       })}
     </div>

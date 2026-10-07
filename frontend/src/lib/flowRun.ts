@@ -15,6 +15,8 @@ export interface PlayFlowOptions {
   rate: () => number             // read per clip, so a speed change applies from the next sentence
   signal: AbortSignal            // stop: finished sentences keep their stamps, the one in progress (clip or after-gap) is dropped
   onClip: (clip: FlowClip, skip: AbortController) => void // the sentence now playing; abort `skip` to drop it and move on
+  onTime?: (t: number) => void                                          // clip-relative time of the sentence playing (karaoke)
+  onTurn?: (clip: FlowClip, turn: { duration: number } | null) => void // after: the speaking window opens (its length) / closes
 }
 export interface FlowPlayback { actual: ActualPlay[]; skipped: number; error: unknown }
 
@@ -34,11 +36,13 @@ export async function playFlow(o: PlayFlowOptions): Promise<FlowPlayback> {
     const a: ActualPlay = { segmentId: c.segmentId, idx: c.idx, playStart: o.clock(), refDuration: c.duration / rate }
     actual.push(a)
     try {
-      await playClip(o.player, c.url, rate, skip.signal)
+      await playClip(o.player, c.url, rate, skip.signal, o.onTime)
       if (skip.signal.aborted) { if (!o.signal.aborted) skipped++; continue }
       a.playEnd = o.clock()
       if (o.sub === 'after') {
+        o.onTurn?.(c, { duration: gapAfter(a.refDuration, o.gapFactor) })
         await sleep(gapAfter(a.refDuration, o.gapFactor) * 1000 + AFTER_PAUSE_MS, skip.signal)
+        o.onTurn?.(c, null)
         // Skipped or stopped during its gap: the learner may be mid-word, so the sentence is dropped like an unfinished one.
         if (skip.signal.aborted) { delete a.playEnd; if (!o.signal.aborted) skipped++ }
       }

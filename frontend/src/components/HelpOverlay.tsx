@@ -3,11 +3,15 @@ import { KEY_HELP, MODES, modeHelp, modeName } from '../lib/modeHelp'
 
 // The four modes and the key map (addendum §6.4). Esc or ? closes it. It listens on the window itself: the page's
 // shortcut handler ignores keys inside a dialog (and is off while the help is open), and focus starts on its button.
+// The closing key goes no further (stopped and default-prevented), whichever window listener was added first, so the
+// page never takes it as its own `?` and opens the help again; a held key's auto-repeat is ignored for the same reason.
 export default function HelpOverlay({ chorusPasses, onClose }: { chorusPasses: number; onClose: () => void }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.ctrlKey || e.metaKey || e.altKey) return
-      if (e.key === 'Escape' || e.key === '?') { e.preventDefault(); onClose() }
+      if (e.key !== 'Escape' && e.key !== '?') return
+      e.preventDefault(); e.stopImmediatePropagation()
+      if (!e.repeat) onClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
