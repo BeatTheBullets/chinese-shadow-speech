@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { rms } from './pcm'
 import { Recorder } from './recorder'
 
 export interface Mic {
@@ -12,6 +13,8 @@ export interface Mic {
   capturing(): boolean
   // The recording clock (AudioContext.currentTime), the time base of Recorder.startTime.
   now(): number
+  // RMS of the last 2048 samples while capturing (the level meter, addendum §6.3), else null.
+  level(): number | null
 }
 
 // The page's microphone: one AudioContext and Recorder, created on first use, closed on unmount.
@@ -49,6 +52,7 @@ export function useMic(): Mic {
     },
     capturing: () => capturing.current,
     now: () => ctxRef.current?.currentTime ?? 0,
+    level: () => (capturing.current && recRef.current ? rms(recRef.current.tail(2048)) : null),
   }))
   useEffect(() => () => {
     mic.abandon()

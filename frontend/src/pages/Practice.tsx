@@ -8,20 +8,26 @@ import { findSilenceEnd, sliceSamples } from '../audio/pcm'
 import { ClipPlayer, peaks as peaksOf, playSequence } from '../audio/player'
 import { toWav16k } from '../audio/recorder'
 import { useMic } from '../audio/useMic'
+import { useMicLevel } from '../audio/useMicLevel'
+import CueLine from '../components/CueLine'
 import Drawer from '../components/Drawer'
 import EditDialog from '../components/EditDialog'
 import FlowSummary from '../components/FlowSummary'
 import FlowView, { FlowSetup, FlowTransport } from '../components/FlowView'
-import Sentence from '../components/Sentence'
+import HelpOverlay from '../components/HelpOverlay'
+import KaraokeSentence, { GhostLine } from '../components/KaraokeSentence'
 import TopBar from '../components/TopBar'
 import Transport from '../components/Transport'
 import type { VolumeControls } from '../components/VolumeSliders'
 import TwoTrack from '../components/TwoTrack'
+import { cueFor, cuePhase } from '../lib/cue'
 import { echoReducer, MIN_TAKE_S, type EchoEvent, type EchoState } from '../lib/echo'
 import { weakestResults, type FlowResult } from '../lib/flow'
 import { guidedText, nextGuidedStep, type GuidedStep } from '../lib/guided'
+import { clipSpans, stageWipe } from '../lib/karaoke'
 import { actionForKey, type Action } from '../lib/keys'
 import { passageIndexOf, passageSpan } from '../lib/passages'
+import { useNow } from '../lib/useNow'
 import { clamp01, guideApplies, playbackVolume } from '../lib/volume'
 import { usePractice, currentSegment, type LastAttempt } from '../store/practice'
 import { useSettings, defaultTextPrefs, type TextPrefs } from '../store/settings'
@@ -79,8 +85,18 @@ export default function Practice() {
   const exporting = useRef(false)
   const headphonesHinted = useRef(false)          // the headphones hint shows once per visit
   const flow = useFlow({ lessonId, player, mic, beginRun: () => beginRun('flow'), endRun, setError })
+  const [echoTurn, setEchoTurn] = useState<number | null>(null) // performance-clock second an Echo take began (count-in, ghost wipe)
+  const [help, setHelp] = useState(() => !useSettings.getState().helpSeen)
+  const helpOpen = useRef(false)
+  helpOpen.current = help
+  const level = useMicLevel(mic)
+  const now = useNow(echoTurn != null)
 
   useEffect(() => { const t = setInterval(() => setElapsed((Date.now() - started) / 1000), 1000); return () => clearInterval(t) }, [started])
+  // The help opens by itself once, on the first visit to a practice page (addendum §6.4).
+  useEffect(() => { if (!useSettings.getState().helpSeen) useSettings.getState().set({ helpSeen: true }) }, [])
+  // An Echo take's count-in and ghost wipe last while it records.
+  useEffect(() => { if (echo !== 'recording') setEchoTurn(null) }, [echo])
 
   useEffect(() => {
     let cancelled = false
@@ -197,6 +213,7 @@ export default function Practice() {
     try {
       const rec = await mic.open()
       if (!rec) return
+      if (mode === 'echo') setEchoTurn(performance.now() / 1000)
       // Stop after 1.2 s of silence following speech
       const tick = () => {
         vadTimer.current = null
@@ -392,6 +409,7 @@ export default function Practice() {
   }
   function startFlow(from: number, to: number) {
     cancelActivity()
+    usePractice.getState().setHint('') // a stale move-on or Anki hint would show through the run
     if (flow.state.sub === 'along') hintHeadphones()
     void flow.start(from, to, flow.state.sub)
   }
@@ -495,6 +513,7 @@ export default function Practice() {
   function act(a: Action) {
     const ps = usePractice.getState()
     if (ps.lesson?.id !== lessonId) return // the store still holds another lesson (this one is loading)
+    if (a === 'help') { setHelp(true); return }
     const run = runRef.current
     if (run?.kind === 'flow') { // while Flow runs: Enter stops (finished sentences are kept), → skips, speed works
       if (a === 'record') void flow.stop()
@@ -540,7 +559,7 @@ export default function Practice() {
   actRef.current = act
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (dialogOpen.current) return // the dialog keeps its own keys (even with focus outside it, e.g. on the body)
+      if (dialogOpen.current || helpOpen.current) return // a dialog or the help keeps its own keys (even with focus outside it, e.g. on the body)
       const a = actionForKey(e)
       if (!a) return
       e.preventDefault()
@@ -568,13 +587,21 @@ export default function Practice() {
     : st.mode === 'flow' ? '● Start flow' : undefined
   const range = flowRange()
   const volume: VolumeControls = {
-    reference: settings.referenceVolume, guide: guideApplies(st.mode, fs.sub) ? settings.guideLevel : null,
+    // A Chorus started with C from Echo or Guided plays at the guide level too.
+    reference: settings.referenceVolume, guide: guideApplies(st.mode, fs.sub) || runKind === 'chorus' ? settings.guideLevel : null,
     onReference: (v) => settings.set({ referenceVolume: clamp01(v) }), onGuide: (v) => settings.set({ guideLevel: clamp01(v) }),
   }
+  const spans = clipSpans(seg.ref_alignment_json, seg.start_s)
+  const refPlaying = echo === 'playing' || echo === 'playback' || runKind === 'chorus' || runKind === 'guided'
+  const { wipe, dots } = stageWipe({ spans, refPlaying, refHead, turnStart: st.mode === 'echo' ? echoTurn : null, now, rate: st.rate })
+  const cue = cueFor(st.mode, {
+    phase: cuePhase({ mode: st.mode, echo, runKind, guided, hasTake: st.lastAttempt != null, flowPhase: fs.phase, flowSub: fs.sub, flowTurn: false }),
+    guided, error: !!error,
+  })
   return (
     <div className="h-full flex flex-col">
       <TopBar title={st.lesson.title} speaker={st.lesson.speaker} idx={flowRunning ? fs.current : st.idx} total={segments.length} mode={st.mode}
-        onMode={(m) => void switchMode(m)} elapsedS={elapsed}
+        onMode={(m) => void switchMode(m)} elapsedS={elapsed} chorusPasses={settings.practice.chorusPasses} onHelp={() => setHelp(true)}
         passage={passages.length ? { index: passageIndexOf(passages, segments, flowRunning ? fs.current : st.idx), titles: passages.map((p) => p.title), onPick: pickPassage } : null} />
       <div className="flex-1 flex min-h-0">
         <main className="flex-1 flex flex-col min-w-0">
@@ -584,6 +611,7 @@ export default function Practice() {
             <FlowTransport rate={st.rate} onRate={st.setRate} sub={fs.sub} onStop={() => act('record')} onSkip={() => act('next')} error={error} hint={st.hint} volume={volume} />
           </>) : (<>
             <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              <CueLine cue={cue} level={level} dots={dots} />
               {st.mode === 'flow' && fs.phase === 'summary' ? (
                 <FlowSummary segments={segments} results={fs.results} skipped={fs.skipped} elapsedS={fs.elapsedS}
                   onPlayPair={(r) => playItems(pairOf(r))} onReplayAll={() => playItems([...fs.results].sort((x, y) => x.idx - y.idx).flatMap(pairOf))}
@@ -592,7 +620,8 @@ export default function Practice() {
                   onDone={flow.clear} />
               ) : (<>
                 {st.mode === 'flow' && <FlowSetup segments={segments} from={range.from} to={range.to} sub={fs.sub} onChange={flow.setForm} onStart={() => act('record')} />}
-                <Sentence text={seg.text} words={seg.words_json} showHanzi={st.textPrefs.hanzi && show} showPinyin={st.textPrefs.pinyin && show} translation={seg.translation} showTranslation={st.textPrefs.translation && show} />
+                <KaraokeSentence wipe={wipe} text={seg.text} words={seg.words_json} showHanzi={st.textPrefs.hanzi && show} showPinyin={st.textPrefs.pinyin && show} translation={seg.translation} showTranslation={st.textPrefs.translation && show} />
+                {!(st.textPrefs.hanzi && show) && wipe && <GhostLine count={spans.length} wipe={wipe} />}
                 <TwoTrack segment={seg} refPeaks={refPeaks} refDuration={seg.end_s - seg.start_s} refPlayhead={refHead}
                   youPeaks={st.lastAttempt?.peaks ?? null} youDuration={st.lastAttempt?.duration ?? 0} youPlayhead={youHead}
                   onPlayRef={() => act('play')} onPlayYou={() => act('replayYou')} onPlaySyllable={playSyllable} />
@@ -607,6 +636,7 @@ export default function Practice() {
       {dialog && segments[dialog.idx] && (
         <EditDialog key={`${dialog.mode}-${segments[dialog.idx].id}`} segment={segments[dialog.idx]} mode={dialog.mode} busy={dialogBusy} error={dialogError}
           onSave={saveEdit} onSplit={splitAt} onClose={() => { if (!dialogBusy) setDialog(null) }} />)}
+      {help && <HelpOverlay chorusPasses={settings.practice.chorusPasses} onClose={() => setHelp(false)} />}
     </div>
   )
 }

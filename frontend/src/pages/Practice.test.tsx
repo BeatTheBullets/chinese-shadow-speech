@@ -71,6 +71,9 @@ describe('<Practice>', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     usePractice.setState({ lesson: null, idx: 0, mode: 'echo', sessionId: null, drawerOpen: true, attemptsThisSegment: 0, lastAttempt: null, recordingNow: false, hint: '' })
+    // helpSeen: the help would otherwise open on every render and switch the shortcuts off. The volumes are reset here,
+    // not at the end of a test, so no store update reaches a page that is still mounted (act() warnings).
+    useSettings.setState({ helpSeen: true, referenceVolume: 1, guideLevel: 0.5 })
     h.api.lessons.get.mockResolvedValue(lesson)
     h.api.sessions.create.mockResolvedValue({ id: 5 })
     h.api.sessions.end.mockResolvedValue({})
@@ -300,7 +303,6 @@ describe('<Practice>', () => {
       atPlay.forEach((v) => expect(v).toBeCloseTo(0.4))
       expect(screen.getByText('Use headphones — the mic would pick up the reference')).toBeInTheDocument()
       await waitFor(() => expect(h.player.setVolume).toHaveBeenLastCalledWith(0.8)) // the takes play at the reference volume
-      useSettings.setState({ referenceVolume: 1, guideLevel: 0.5 })
     })
 
     it('C plays N passes, records only the last pass to its end + 0.3 s, uploads it as chorus and plays it back', async () => {
@@ -373,7 +375,6 @@ describe('<Practice>', () => {
       expect(atPlay).toHaveLength(2)
       atPlay.forEach((v) => expect(v).toBeCloseTo(0.4))
       expect(screen.getByText('Use headphones — the mic would pick up the reference')).toBeInTheDocument()
-      useSettings.setState({ referenceVolume: 1, guideLevel: 0.5 })
     })
 
     it('along: records once, plays the range back to back, uploads one flow slice per sentence and shows the summary', async () => {
@@ -486,6 +487,19 @@ describe('<Practice>', () => {
       expect(h.player.play.mock.calls.map((c) => (c as unknown[])[0])).toEqual(['/seg/11.opus'])
     })
 
+    it('starting a run clears a stale hint', async () => {
+      clipsTake(2, () => true)
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      act(() => usePractice.getState().setHint('Sent to Anki'))
+      fireEvent.click(screen.getByRole('button', { name: 'Flow' }))
+      fireEvent.click(screen.getByRole('button', { name: 'after' }))
+      expect(screen.getByText('Sent to Anki')).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: 'Start' }))
+      await waitFor(() => expect(h.player.play).toHaveBeenCalledTimes(1))
+      expect(screen.queryByText('Sent to Anki')).toBeNull()
+    })
+
     it('a denied microphone returns to the setup with a readable error', async () => {
       h.rec.start.mockRejectedValue(new Error('Microphone permission was denied'))
       await startFlow('along')
@@ -517,6 +531,21 @@ describe('<Practice>', () => {
     await waitFor(() => expect(usePractice.getState().idx).toBe(1))
     expect(await screen.findByRole('button', { name: '● Listen once' })).toBeInTheDocument()
     expect(screen.getByText('再见', { selector: 'p.sentence' })).toBeInTheDocument()
+  })
+
+  it('Guided: the cue line names each step, and the record step says it is your turn', async () => {
+    renderPractice()
+    await screen.findByText('你好', { selector: 'p.sentence' })
+    fireEvent.click(screen.getByRole('button', { name: 'Guided' }))
+    const cue = () => screen.getByTestId('cue-line')
+    expect(cue()).toHaveTextContent('Ready — Enter to listen')
+    press('Enter')
+    await waitFor(() => expect(cue()).toHaveTextContent('Ready — Enter, then whisper along'))
+    press('Enter')
+    await waitFor(() => expect(cue()).toHaveTextContent('Ready — Enter, then say it without the text'))
+    press('Enter')
+    await waitFor(() => expect(cue()).toHaveTextContent('Your turn — say it without the text'))
+    expect(await screen.findByRole('meter', { name: 'Microphone level' })).toBeInTheDocument()
   })
 
   describe('drawer actions', () => {
@@ -708,8 +737,6 @@ describe('<Practice>', () => {
   })
 
   describe('volume', () => {
-    afterEach(() => { useSettings.setState({ referenceVolume: 1, guideLevel: 0.5 }) })
-
     it('shows the guide level only in Chorus and Flow along', async () => {
       renderPractice()
       await screen.findByText('你好', { selector: 'p.sentence' })
@@ -723,6 +750,18 @@ describe('<Practice>', () => {
       expect(screen.getByLabelText('Guide level')).toBeInTheDocument()
     })
 
+    it('shows the guide level while a Chorus started with C from Echo runs', async () => {
+      clipsTake(2, () => true)
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      expect(screen.queryByLabelText('Guide level')).toBeNull()
+      press('c')
+      await waitFor(() => expect(h.player.play).toHaveBeenCalledTimes(1))
+      expect(screen.getByLabelText('Guide level')).toBeInTheDocument()
+      press('c') // stops it
+      await waitFor(() => expect(screen.queryByLabelText('Guide level')).toBeNull())
+    })
+
     it('the reference volume is saved in settings and applied to the player', async () => {
       renderPractice()
       await screen.findByText('你好', { selector: 'p.sentence' })
@@ -730,5 +769,67 @@ describe('<Practice>', () => {
       expect(useSettings.getState().referenceVolume).toBeCloseTo(0.6)
       await waitFor(() => expect(h.player.setVolume).toHaveBeenLastCalledWith(0.6))
     })
+  })
+
+  it('opens the help on the first visit only; Esc closes it and ? opens it again', async () => {
+    useSettings.setState({ helpSeen: false })
+    renderPractice()
+    expect(await screen.findByRole('dialog', { name: 'How to practise' })).toBeInTheDocument()
+    expect(useSettings.getState().helpSeen).toBe(true)
+    press('Enter')                                   // page shortcuts are off while it is open
+    await flush()
+    expect(h.rec.start).not.toHaveBeenCalled()
+    press('Escape')
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    press('?')
+    expect(await screen.findByRole('dialog', { name: 'How to practise' })).toBeInTheDocument()
+    press('?')
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  })
+
+  it('? and Esc close the help with the focus inside it; the shortcuts work again afterwards', async () => {
+    renderPractice()
+    await screen.findByText('你好', { selector: 'p.sentence' })
+    expect(screen.queryByRole('dialog')).toBeNull() // seen before: it does not open by itself
+    fireEvent.click(screen.getByRole('button', { name: 'Help' }))
+    let got = within(await screen.findByRole('dialog', { name: 'How to practise' })).getByRole('button', { name: 'Got it (Esc)' })
+    expect(got).toHaveFocus()
+    fireEvent.keyDown(got, { key: '?' })
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    press('?')
+    got = within(await screen.findByRole('dialog', { name: 'How to practise' })).getByRole('button', { name: 'Got it (Esc)' })
+    fireEvent.keyDown(got, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    press('l')
+    expect(usePractice.getState().drawerOpen).toBe(false)
+  })
+
+  it('the cue line says what to do: ready, your turn with a moving mic meter, then done', async () => {
+    renderPractice()
+    await screen.findByText('你好', { selector: 'p.sentence' })
+    expect(screen.getByTestId('cue-line')).toHaveTextContent('Ready — Enter to start')
+    press('Enter')
+    await waitFor(() => expect(screen.getByTestId('cue-line')).toHaveTextContent('Your turn — speak now'))
+    expect(await screen.findByRole('meter', { name: 'Microphone level' })).toBeInTheDocument()
+    press('Enter'); await flush()
+    await waitFor(() => expect(screen.getByTestId('cue-line')).toHaveTextContent('Done — → for the next sentence, Enter to try again'))
+    await waitFor(() => expect(screen.queryByRole('meter', { name: 'Microphone level' })).toBeNull()) // next 50 ms poll
+  })
+
+  it('the reference playback draws the colour wipe on an aligned sentence; without alignment only the cue shows', async () => {
+    h.player.play.mockImplementation(() => new Promise(() => {})) // still playing
+    h.api.lessons.get.mockResolvedValue({ ...lesson, segments: [
+      { ...seg(11, 0, '你好'), ref_alignment_json: [{ ch: '你', start: 0.2, end: 0.5, conf: 1 }, { ch: '好', start: 0.5, end: 1, conf: 1 }] }, seg(12, 1, '再见')] })
+    renderPractice()
+    await screen.findByText('你好', { selector: 'p.sentence' })
+    expect(screen.queryByTestId('wipe')).toBeNull()
+    press(' ')
+    await waitFor(() => expect(screen.getByTestId('cue-line')).toHaveTextContent('Listen'))
+    expect(screen.getByTestId('wipe')).toHaveAttribute('aria-hidden', 'true')
+    press('ArrowRight') // 再见 has no alignment
+    expect(await screen.findByText('再见', { selector: 'p.sentence' })).toBeInTheDocument()
+    press(' ')
+    await waitFor(() => expect(screen.getByTestId('cue-line')).toHaveTextContent('Listen'))
+    expect(screen.queryByTestId('wipe')).toBeNull()
   })
 })
