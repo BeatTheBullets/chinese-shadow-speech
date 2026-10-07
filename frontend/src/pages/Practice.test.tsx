@@ -957,6 +957,76 @@ describe('<Practice>', () => {
       expect(await screen.findByText('library page')).toBeInTheDocument()
     })
 
+    it('a modified or middle click on the back link is left to the browser (a new tab), with no dialog', async () => {
+      renderWithLibrary()
+      await takeOne()
+      const back = screen.getByTitle('Back to the library')
+      // Records whether the page took the click, then stops jsdom's own navigation (not implemented, it would log).
+      const taken: boolean[] = []
+      const after = (e: Event) => { taken.push(e.defaultPrevented); e.preventDefault() }
+      window.addEventListener('click', after)
+      try {
+        for (const init of [{ ctrlKey: true }, { metaKey: true }, { shiftKey: true }, { altKey: true }, { button: 1 }]) fireEvent.click(back, init)
+        await flush()
+      } finally { window.removeEventListener('click', after) }
+      expect(taken).toEqual([false, false, false, false, false])
+      expect(screen.queryByRole('dialog')).toBeNull()
+      expect(screen.queryByText('library page')).toBeNull()
+    })
+
+    it('the back link during a Flow run stops it gracefully, uploads the finished sentences, offers them, then leaves', async () => {
+      clipsTake(2, (n) => n === 2)
+      h.rec.stop.mockReturnValue(new Float32Array(44100 * 10))
+      renderWithLibrary()
+      await screen.findByText('我今天想学中文', { selector: 'p.sentence' })
+      await waitFor(() => expect(usePractice.getState().sessionId).toBe(5))
+      fireEvent.click(screen.getByRole('button', { name: 'Flow' }))
+      fireEvent.click(screen.getByRole('button', { name: 'along' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Start' }))
+      await waitFor(() => expect(h.player.play).toHaveBeenCalledTimes(2))
+      fireEvent.click(screen.getByTitle('Back to the library'))
+      const dialog = await screen.findByRole('dialog', { name: 'Send what you practised to Anki?' })
+      expect(uploads()).toEqual([[11, 'flow']])
+      expect(within(dialog).getAllByRole('checkbox').map((c) => c.closest('label')!.textContent)).toEqual(['我今天想学中文'])
+      expect(screen.queryByText('library page')).toBeNull()
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }))
+      expect(await screen.findByText('library page')).toBeInTheDocument()
+    })
+
+    it('Close and Esc wait while a send is in flight, so a sentence is never sent twice', async () => {
+      const d = deferred<Segment>()
+      h.exportAndRecord.mockReturnValue(d.promise)
+      renderWithLibrary()
+      await takeOne()
+      fireEvent.click(screen.getByRole('button', { name: 'Finish session' }))
+      const dialog = await screen.findByRole('dialog', { name: 'Send what you practised to Anki?' })
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Send 1 to Anki' }))
+      expect(await within(dialog).findByText('sending…')).toBeInTheDocument()
+      expect(within(dialog).getByRole('button', { name: 'Close' })).toBeDisabled()
+      press('Escape'); await flush()
+      expect(screen.getByRole('dialog', { name: 'Send what you practised to Anki?' })).toBeInTheDocument()
+      expect(screen.queryByText('library page')).toBeNull()
+      await act(async () => { d.resolve({ ...long.segments[0], anki_note_id: 5 }) })
+      expect(await within(dialog).findByText('sent ✓')).toBeInTheDocument()
+      press('Escape')
+      expect(await screen.findByText('library page')).toBeInTheDocument()
+      expect(h.exportAndRecord).toHaveBeenCalledTimes(1)
+    })
+
+    it('a sentence still being sent with A is not offered again', async () => {
+      const d = deferred<Segment>()
+      h.exportAndRecord.mockReturnValue(d.promise)
+      renderWithLibrary()
+      await takeOne()
+      press('a'); await flush()
+      expect(h.exportAndRecord).toHaveBeenCalledTimes(1)
+      fireEvent.click(screen.getByRole('button', { name: 'Finish session' }))
+      expect(await screen.findByText('library page')).toBeInTheDocument()
+      expect(screen.queryByRole('dialog')).toBeNull()
+      await act(async () => { d.resolve({ ...long.segments[0], anki_note_id: 5 }) })
+      expect(h.exportAndRecord).toHaveBeenCalledTimes(1)
+    })
+
     it('with nothing to send, the back link and Finish session leave at once', async () => {
       renderWithLibrary()
       await screen.findByText('我今天想学中文', { selector: 'p.sentence' })

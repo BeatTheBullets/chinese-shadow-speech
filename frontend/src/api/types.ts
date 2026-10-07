@@ -32,3 +32,7 @@ export interface ToneStats {
   tones: { tone: number; mean: number; n: number }[]
   pairs: { prev_tone: number; tone: number; mean: number; n: number }[]
 }
+export interface UnexportedItem {
+  lesson_id: number; lesson_title: string; lesson_source_type: Lesson['source_type']; lesson_source_ref: string
+  last_attempt_at: string; segment: Segment
+}

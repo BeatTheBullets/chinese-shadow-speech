@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { exportAndRecord, reexportQuestion } from '../anki/export'
 import { api, ApiError } from '../api/client'
@@ -88,6 +88,8 @@ export default function Practice() {
   const [dialogBusy, setDialogBusy] = useState(false)
   const [dialogError, setDialogError] = useState('')
   const exporting = useRef(false)
+  const sendingIds = useRef(new Set<number>())            // sentences an A send has in flight: not offered at session end
+  const flowRun = useRef<Promise<void>>(Promise.resolve()) // the Flow run in progress, through its uploads
   const headphonesHinted = useRef(false)          // the headphones hint shows once per visit
   const flow = useFlow({ lessonId, player, mic, beginRun: () => beginRun('flow'), endRun, setError })
   const [echoTurn, setEchoTurn] = useState<number | null>(null) // performance-clock second an Echo take began (count-in, ghost wipe)
@@ -416,7 +418,7 @@ export default function Practice() {
     cancelActivity()
     usePractice.getState().setHint('') // a stale move-on or Anki hint would show through the run
     if (flow.state.sub === 'along') hintHeadphones()
-    void flow.start(from, to, flow.state.sub)
+    flowRun.current = flow.start(from, to, flow.state.sub)
   }
   // From the Flow summary to a drill of one sentence.
   async function drill(mode: Mode, i: number) {
@@ -493,6 +495,7 @@ export default function Practice() {
     if (!exportNote) { setError('Configure the export note type in Settings'); return }
     if (exporting.current || !segs.length) return
     exporting.current = true; setError('')
+    segs.forEach((s) => sendingIds.current.add(s.id))
     let sent = 0
     const failed: string[] = []
     try {
@@ -502,6 +505,7 @@ export default function Practice() {
           if (alive.current) usePractice.getState().updateSegment(updated)
         }
         catch (e) { failed.push(message(e)) }
+        finally { sendingIds.current.delete(s.id) }
       }
     } finally { exporting.current = false }
     if (!alive.current) return
@@ -514,10 +518,11 @@ export default function Practice() {
     const weakest = weakestResults(flow.state.results, new Map(segs.map((s) => [s.id, s.last_score])), 3)
     void sendToAnki(weakest.map((r) => byId.get(r.segmentId)).filter((s): s is Segment => s != null))
   }
-  // This session's practised sentences with no Anki note.
+  // This session's practised sentences with no Anki note (and none on its way there).
   function unsentItems(): ExportItem[] {
     const ps = usePractice.getState(), l = ps.lesson
-    return l ? sessionUnsent(l.segments, ps.practised).map((segment) => ({ segment, lesson: l })) : []
+    if (!l) return []
+    return sessionUnsent(l.segments, ps.practised).filter((s) => !sendingIds.current.has(s.id)).map((segment) => ({ segment, lesson: l }))
   }
   // Offers them before `after` (leaving the page, closing the Flow summary); with none, runs `after` at once.
   function offerExport(after: () => void) {
@@ -525,6 +530,18 @@ export default function Practice() {
     if (!items.length) { after(); return }
     cancelActivity()
     setExportPrompt({ items, after })
+  }
+  // The ← link. A click that opens a new tab or window is the browser's. A Flow run is stopped gracefully first (its
+  // finished sentences are uploaded), so they are offered too; with nothing to offer the link just navigates.
+  function leave(e: MouseEvent<HTMLAnchorElement>) {
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+    const inFlow = runRef.current?.kind === 'flow'
+    if (!inFlow && !unsentItems().length) return
+    e.preventDefault()
+    void (async () => {
+      if (inFlow) { await flow.stop(); await flowRun.current.catch(() => {}) }
+      if (alive.current) offerExport(() => navigate('/library'))
+    })()
   }
   function closeExport() {
     const p = exportPrompt
@@ -625,7 +642,7 @@ export default function Practice() {
     <div className="h-full flex flex-col">
       <TopBar title={st.lesson.title} speaker={st.lesson.speaker} idx={flowRunning ? fs.current : st.idx} total={segments.length} mode={st.mode}
         onMode={(m) => void switchMode(m)} elapsedS={elapsed} chorusPasses={settings.practice.chorusPasses} onHelp={() => setHelp(true)}
-        onBack={(e) => { if (unsentItems().length) { e.preventDefault(); offerExport(() => navigate('/library')) } }}
+        onBack={leave}
         passage={passages.length ? { index: passageIndexOf(passages, segments, flowRunning ? fs.current : st.idx), titles: passages.map((p) => p.title), onPick: pickPassage } : null} />
       <div className="flex-1 flex min-h-0">
         <main className="flex-1 flex flex-col min-w-0">
