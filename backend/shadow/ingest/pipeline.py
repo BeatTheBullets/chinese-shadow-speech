@@ -1,5 +1,6 @@
 from __future__ import annotations
 import logging
+import shutil
 import subprocess
 from pathlib import Path
 import numpy as np
@@ -12,8 +13,9 @@ from shadow.ingest.enrich import make_clips, translate_all, words_for
 from shadow.ingest.rectify import RectSentenceOut, rectify_transcript
 from shadow.ingest.repair import clamp_spans, coarse_times, repair_spans
 from shadow.ingest.subalign import MIN_SUBTITLE_MATCH, align_text_to_asr
-from shadow.ingest.text import is_punct, parse_subtitles, strip_punct
+from shadow.ingest.text import is_punct, parse_subtitles, strip_punct, to_simplified
 from shadow.ingest.transcript import Transcript
+from shadow.ingest.youtube import YoutubeError, choose_subtitle, watch_url
 from shadow.jobs import Progress
 from shadow.store.models import Lesson, Segment
 
@@ -209,8 +211,9 @@ def _subtitle_transcript(subtitle: tuple[str, str], asr: Transcript) -> tuple[Tr
 
 
 def ingest_upload(deps: Deps, engine: Engine, lesson_id: int, media_path: Path,
-                  subtitle: tuple[str, str] | None, progress: Progress) -> None:
-    """Spec §3.1–3.5 for an uploaded file (+ optional (filename, content) subtitles). Sets the lesson's
+                  subtitle: tuple[str, str] | None, progress: Progress, max_s: float | None = None) -> None:
+    """Spec §3.1–3.5 for an uploaded file (+ optional (filename, content) subtitles). `max_s` refuses audio that is
+    longer once normalised (YouTube, where the length may be unknown beforehand). Sets the lesson's
     status to `ready`, or to `error` with a message and re-raises so the job is marked failed."""
     try:
         _set_status(engine, lesson_id, "processing")
@@ -221,6 +224,9 @@ def ingest_upload(deps: Deps, engine: Engine, lesson_id: int, media_path: Path,
         except subprocess.CalledProcessError as e:
             raise RuntimeError(f"could not read audio from {media_path.name}") from e
         duration = audio.duration_s(source_wav)
+        if max_s is not None and duration > max_s:
+            raise YoutubeError(f"YouTube: this video is {round(duration / 60)} min long; the limit is "
+                               f"{round(max_s / 60)} min ([youtube] max_minutes in config.toml)")
         progress("normalise", 1.0)
 
         progress("transcribe", 0.0)
@@ -246,3 +252,49 @@ def ingest_upload(deps: Deps, engine: Engine, lesson_id: int, media_path: Path,
     except Exception as e:  # noqa: BLE001
         _set_status(engine, lesson_id, "error", error=str(e) or type(e).__name__)
         raise
+
+
+def ingest_youtube(deps: Deps, engine: Engine, lesson_id: int, url: str, progress: Progress) -> None:
+    """Addendum §2: the video's metadata, its Chinese subtitles (if any) and its best audio stream, then the upload
+    pipeline (subtitle text, ASR timing). The lesson takes the video's title and channel (simplified) and keeps url,
+    channel, upload_date, duration and chapters in meta_json. On failure the lesson is `error` with a readable
+    message and the exception is re-raised. The downloaded files are removed afterwards either way."""
+    download_dir = deps.files.lesson_dir(lesson_id) / "download"
+    try:
+        try:
+            _set_status(engine, lesson_id, "processing")
+            progress("download", 0.0)
+            if deps.downloader is None:
+                raise RuntimeError("YouTube downloads are not set up on this server")
+            info = deps.downloader.probe(url)
+            if info.is_live:
+                raise YoutubeError("YouTube: live streams cannot be added; add the video once the stream has ended")
+            limit = deps.settings.youtube.max_minutes
+            if info.duration and info.duration > limit * 60:
+                raise YoutubeError(f"YouTube: this video is {round(info.duration / 60)} min long; the limit is "
+                                   f"{limit} min ([youtube] max_minutes in config.toml)")
+            _set_status(engine, lesson_id, "processing", title=to_simplified(info.title) or info.video_id,
+                        speaker=to_simplified(info.channel))
+            _merge_meta(engine, lesson_id, url=watch_url(info.video_id), channel=info.channel,
+                        upload_date=info.upload_date, duration=info.duration,
+                        chapters=[{**c, "title": to_simplified(c["title"])} for c in info.chapters])
+            progress("download", 0.1)
+            subtitle = None
+            choice = choose_subtitle(info)
+            if choice is not None:
+                try:
+                    subtitle = (f"youtube.{choice.lang}.{choice.ext}", deps.downloader.fetch_subtitle(url, choice))
+                    _merge_meta(engine, lesson_id, subtitle_track=choice.lang + (" (auto)" if choice.auto else ""))
+                except Exception as e:  # noqa: BLE001  subtitles are optional: the ASR text is used instead
+                    log.warning("could not fetch the %s subtitles; using the ASR transcript", choice.lang, exc_info=True)
+                    _merge_meta(engine, lesson_id,
+                                subtitle_ignored=f"could not download the {choice.lang} subtitles: {e}")
+            progress("download", 0.2)
+            media = deps.downloader.download_audio(url, download_dir)
+            progress("download", 1.0)
+        except Exception as e:  # noqa: BLE001
+            _set_status(engine, lesson_id, "error", error=str(e) or type(e).__name__)
+            raise
+        ingest_upload(deps, engine, lesson_id, media, subtitle, progress, max_s=deps.settings.youtube.max_minutes * 60)
+    finally:
+        shutil.rmtree(download_dir, ignore_errors=True)

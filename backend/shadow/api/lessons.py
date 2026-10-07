@@ -2,14 +2,16 @@ from __future__ import annotations
 import shutil
 import uuid
 from pathlib import Path
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from sqlmodel import Session, select
-from shadow.ingest.pipeline import ingest_upload
+from shadow.ingest.pipeline import ingest_upload, ingest_youtube
 from shadow.ingest.text import to_simplified
+from shadow.ingest.youtube import parse_video_id, source_ref, watch_url
 from shadow.schemas import LessonDetail, LessonOut, SegmentOut
 from shadow.store.db import get_session
+from shadow.store.files import FileLayout
 from shadow.store.models import Attempt, Lesson, PracticeSession, Segment, SyllableScore
 
 router = APIRouter()
@@ -39,6 +41,34 @@ async def create_lesson(request: Request, file: UploadFile = File(...), subtitle
     return {"job_id": job_id, "lesson_id": lesson_id}
 
 
+class YoutubeIn(BaseModel):
+    url: str
+
+
+@router.post("/lessons/youtube", status_code=202)
+def add_youtube(body: YoutubeIn, request: Request, response: Response, db: Session = Depends(get_session)):
+    """Addendum §2: one lesson per video (`source_ref` youtube::<id>). A video that already has a lesson returns it
+    with no job, unless that lesson failed: then it is deleted and the video ingested again."""
+    deps, engine, jobs = request.app.state.deps, request.app.state.engine, request.app.state.jobs
+    if not request.app.state.settings.youtube.enabled:
+        raise HTTPException(400, "YouTube lessons are off: set [youtube] enabled = true in config.toml")
+    vid = parse_video_id(body.url)
+    if vid is None:
+        raise HTTPException(400, "not a YouTube video link (youtube.com/watch?v=…, youtu.be/…, youtube.com/shorts/…)")
+    ref = source_ref(vid)
+    existing = db.exec(select(Lesson).where(Lesson.source_type == "youtube", Lesson.source_ref == ref)).first()
+    if existing is not None and existing.status != "error":
+        response.status_code = 200
+        return {"job_id": None, "lesson_id": existing.id}
+    if existing is not None:
+        _delete_lesson(db, request.app.state.files, existing)
+    lesson = Lesson(title=vid, speaker="", source_type="youtube", source_ref=ref)
+    db.add(lesson); db.commit(); db.refresh(lesson)
+    lesson_id, url = lesson.id, watch_url(vid)
+    job_id = jobs.submit(lambda progress: ingest_youtube(deps, engine, lesson_id, url, progress), lesson_id)
+    return {"job_id": job_id, "lesson_id": lesson_id}
+
+
 def _segment_out(db: Session, seg: Segment) -> SegmentOut:
     atts = db.exec(select(Attempt).where(Attempt.segment_id == seg.id).order_by(Attempt.created_at, Attempt.id)).all()
     scores = [a.score_json["overall"] for a in atts if a.score_json and "overall" in a.score_json]
@@ -60,6 +90,31 @@ def _get_lesson(db: Session, lesson_id: int) -> Lesson:
     if lesson is None:
         raise HTTPException(404, "lesson not found")
     return lesson
+
+
+def _delete_lesson(db: Session, files: FileLayout, lesson: Lesson) -> None:
+    """Delete the lesson, its segments, their attempts and scores, its sessions and its files."""
+    lesson_id = lesson.id
+    segs = db.exec(select(Segment).where(Segment.lesson_id == lesson_id)).all()
+    attempt_files: list[Path] = []
+    if segs:
+        seg_ids = [s.id for s in segs]
+        for sc in db.exec(select(SyllableScore).where(SyllableScore.segment_id.in_(seg_ids))).all():
+            db.delete(sc)
+        for a in db.exec(select(Attempt).where(Attempt.segment_id.in_(seg_ids))).all():
+            if a.audio_path:
+                attempt_files.append(Path(a.audio_path))
+            db.delete(a)
+        db.flush()
+    for ps in db.exec(select(PracticeSession).where(PracticeSession.lesson_id == lesson_id)).all():
+        db.delete(ps)
+    db.flush()
+    for s in segs:
+        db.delete(s)
+    db.delete(lesson); db.commit()
+    for f in attempt_files:
+        f.unlink(missing_ok=True)
+    shutil.rmtree(files.lesson_dir(lesson_id), ignore_errors=True)
 
 
 @router.get("/lessons", response_model=list[LessonOut])
@@ -93,24 +148,4 @@ def patch_lesson(lesson_id: int, body: LessonPatch, db: Session = Depends(get_se
 def delete_lesson(lesson_id: int, request: Request, db: Session = Depends(get_session)):
     """Deletes the lesson, its segments, their attempts and the lesson's files. An ingest job still running
     for it ends cleanly: its status updates become no-ops and it writes no segment rows."""
-    lesson = _get_lesson(db, lesson_id)
-    segs = db.exec(select(Segment).where(Segment.lesson_id == lesson_id)).all()
-    attempt_files: list[Path] = []
-    if segs:
-        seg_ids = [s.id for s in segs]
-        for sc in db.exec(select(SyllableScore).where(SyllableScore.segment_id.in_(seg_ids))).all():
-            db.delete(sc)
-        for a in db.exec(select(Attempt).where(Attempt.segment_id.in_(seg_ids))).all():
-            if a.audio_path:
-                attempt_files.append(Path(a.audio_path))
-            db.delete(a)
-        db.flush()
-    for ps in db.exec(select(PracticeSession).where(PracticeSession.lesson_id == lesson_id)).all():
-        db.delete(ps)
-    db.flush()
-    for s in segs:
-        db.delete(s)
-    db.delete(lesson); db.commit()
-    for f in attempt_files:
-        f.unlink(missing_ok=True)
-    shutil.rmtree(request.app.state.files.lesson_dir(lesson_id), ignore_errors=True)
+    _delete_lesson(db, request.app.state.files, _get_lesson(db, lesson_id))

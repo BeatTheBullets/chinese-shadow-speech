@@ -6,6 +6,7 @@ from shadow.ingest.align import Aligner, FakeAligner, make_aligner
 from shadow.ingest.asr import ASR, FakeASR, ParaformerASR
 from shadow.ingest.llm import LLM, AnthropicLLM, FakeLLM, RectifyOutput
 from shadow.ingest.transcript import Transcript
+from shadow.ingest.youtube import Downloader, YtDlpDownloader
 from shadow.store.files import FileLayout
 
 
@@ -16,6 +17,7 @@ class Deps:
     aligner: Aligner
     files: FileLayout
     settings: Settings
+    downloader: Downloader | None = None       # YouTube (addendum §2); None in fake_deps until a test sets one
 
     def loaded_models(self) -> list[str]:
         out = []
@@ -34,7 +36,8 @@ def build_deps(settings: Settings) -> Deps:
         llm = AnthropicLLM(settings.llm.model, settings.llm.effort, files.cache_dir("llm"),
                            settings.segmentation.min_chars, settings.segmentation.max_chars)
     return Deps(asr=ParaformerASR(settings.models.asr, device), llm=llm,
-                aligner=make_aligner(settings.resolved_aligner(), device), files=files, settings=settings)
+                aligner=make_aligner(settings.resolved_aligner(), device), files=files, settings=settings,
+                downloader=YtDlpDownloader(settings.youtube.cookies_file))
 
 
 def fake_deps(settings: Settings, transcript: Transcript) -> Deps:
