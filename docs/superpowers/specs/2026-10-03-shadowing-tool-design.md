@@ -123,17 +123,22 @@ supply only the text.
   line. The subtitle's speech characters (non-punctuation) are aligned to the
   ASR's speech characters with a character-level edit alignment, of which only
   part is trusted, because the ASR may hold speech the subtitles do not cover
-  (an intro, a song, a passage between cues) where a lone misheard or dropped
-  subtitle character could otherwise line up with the same character:
-  - characters in runs of at least 3 consecutive equal characters are
-    **trusted anchors** and take the ASR character's times;
-  - between two trusted runs, if the ASR holds at most 2 more characters than
-    the subtitles it is the same speech heard differently: characters lined up
-    with an ASR character (equal or substituted, e.g. homophones) take its
-    times and the rest are interpolated between their timed neighbours; if the
-    ASR holds more, nothing there is anchored and each subtitle character is
-    pinned to the trusted anchor on its side (the previous one if it is in the
-    same cue or line, else the next one);
+  (an intro, a song, a passage between cues, a silence) where a lone misheard
+  or dropped subtitle character could otherwise line up with the same
+  character or be stretched over the gap:
+  - runs of equal characters are split at cue (or line) boundaries; characters
+    in runs of at least 3 within one cue are **trusted anchors** and take the
+    ASR character's times;
+  - a stretch between two trusted runs is *covered* when the ASR holds at most
+    2 more characters there than the subtitles and no silence longer than
+    2 s: it is the same speech heard differently, and characters lined up with
+    an ASR character (equal or substituted, e.g. homophones) take its times.
+    Nothing in an uncovered stretch is anchored;
+  - every other character is interpolated between its neighbouring anchors
+    only when it is in a covered stretch and in the same cue as both;
+    otherwise it is pinned (zero length) to the anchor in its own cue (the
+    nearer one when both are, the next one when neither is). Nothing is
+    interpolated across a cue boundary;
   - text before the first / after the last trusted anchor is pinned to it;
   - punctuation is zero-length at the previous character's end.
 
