@@ -1,5 +1,6 @@
 from __future__ import annotations
 import logging
+import math
 import shutil
 import subprocess
 from pathlib import Path
@@ -27,6 +28,12 @@ MIN_CLIP_S = 0.05       # anything shorter is a degenerate clip (ffmpeg cannot c
 
 class NoSpeechError(RuntimeError):
     pass
+
+
+def too_long_message(duration_s: float, limit_s: float) -> str:
+    """Minutes are rounded up, so the message never reads "90 min long; the limit is 90 min"."""
+    return (f"this video is {math.ceil(duration_s / 60)} min long; the limit is {round(limit_s / 60)} min "
+            "([youtube] max_minutes in config.toml)")
 
 
 def _set_status(engine: Engine, lesson_id: int, status: str, error: str | None = None, **fields) -> None:
@@ -225,8 +232,7 @@ def ingest_upload(deps: Deps, engine: Engine, lesson_id: int, media_path: Path,
             raise RuntimeError(f"could not read audio from {media_path.name}") from e
         duration = audio.duration_s(source_wav)
         if max_s is not None and duration > max_s:
-            raise YoutubeError(f"YouTube: this video is {round(duration / 60)} min long; the limit is "
-                               f"{round(max_s / 60)} min ([youtube] max_minutes in config.toml)")
+            raise RuntimeError(too_long_message(duration, max_s))
         progress("normalise", 1.0)
 
         progress("transcribe", 0.0)
@@ -271,8 +277,7 @@ def ingest_youtube(deps: Deps, engine: Engine, lesson_id: int, url: str, progres
                 raise YoutubeError("YouTube: live streams cannot be added; add the video once the stream has ended")
             limit = deps.settings.youtube.max_minutes
             if info.duration and info.duration > limit * 60:
-                raise YoutubeError(f"YouTube: this video is {round(info.duration / 60)} min long; the limit is "
-                                   f"{limit} min ([youtube] max_minutes in config.toml)")
+                raise YoutubeError(f"YouTube: {too_long_message(info.duration, limit * 60)}")
             _set_status(engine, lesson_id, "processing", title=to_simplified(info.title) or info.video_id,
                         speaker=to_simplified(info.channel))
             _merge_meta(engine, lesson_id, url=watch_url(info.video_id), channel=info.channel,

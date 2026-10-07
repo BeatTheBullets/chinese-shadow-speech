@@ -1,3 +1,4 @@
+from sqlalchemy import event
 from sqlmodel import Session
 from shadow.ingest.youtube import FakeDownloader, VideoInfo, YoutubeError, readable_error
 from shadow.store.models import Lesson
@@ -147,3 +148,51 @@ def test_ingest_youtube_reports_the_download_stage_first(data_dir, fake_transcri
     stages = []
     ingest_youtube(deps, engine, lid, URL, lambda s, f: stages.append(s))
     assert list(dict.fromkeys(stages))[:3] == ["download", "normalise", "transcribe"] and stages[-1] == "done"
+
+
+def _race(client, monkeypatch, urls):
+    """Post `urls` at the same moment; the lesson INSERT is slowed so that, unguarded, every request reads the table
+    before any of them has written."""
+    import threading
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+    from shadow.api import lessons as api
+    barrier, real_parse = threading.Barrier(len(urls)), api.parse_video_id
+
+    def parse(url):
+        barrier.wait(timeout=5)
+        return real_parse(url)
+
+    def slow_insert(conn, cursor, statement, *args):
+        if statement.lstrip().upper().startswith("INSERT INTO LESSON "):
+            time.sleep(0.3)
+    event.listen(client.app.state.engine, "before_cursor_execute", slow_insert)
+    monkeypatch.setattr(api, "parse_video_id", parse)
+    try:
+        with ThreadPoolExecutor(len(urls)) as ex:
+            return [f.result() for f in [ex.submit(client.post, "/lessons/youtube", json={"url": u}) for u in urls]]
+    finally:
+        event.remove(client.app.state.engine, "before_cursor_execute", slow_insert)
+
+
+def test_concurrent_adds_of_one_video_make_one_lesson_and_one_job(client, tmp_path, monkeypatch):
+    fake = _fake(client, tmp_path)
+    rs = _race(client, monkeypatch, [f"https://youtu.be/{VID}", URL])
+    assert sorted(r.status_code for r in rs) == [200, 202]
+    new = next(r for r in rs if r.status_code == 202).json()
+    old = next(r for r in rs if r.status_code == 200).json()
+    assert old == {"job_id": None, "lesson_id": new["lesson_id"]}
+    assert wait_job(client, new["job_id"])["status"] == "done"
+    assert fake.downloads == 1 and len(client.get("/lessons").json()) == 1
+
+
+def test_concurrent_re_adds_of_a_failed_video_make_one_new_lesson(client, tmp_path, monkeypatch):
+    fake = _fake(client, tmp_path, error=YoutubeError("YouTube: boom"))
+    first = client.post("/lessons/youtube", json={"url": URL}).json()
+    assert wait_job(client, first["job_id"])["status"] == "error"
+    fake.error = None
+    rs = _race(client, monkeypatch, [f"https://youtu.be/{VID}", URL])
+    assert sorted(r.status_code for r in rs) == [200, 202]
+    new = next(r for r in rs if r.status_code == 202).json()
+    assert wait_job(client, new["job_id"])["status"] == "done"
+    assert [l["id"] for l in client.get("/lessons").json()] == [new["lesson_id"]]

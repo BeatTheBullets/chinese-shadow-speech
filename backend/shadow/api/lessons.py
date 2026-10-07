@@ -1,5 +1,6 @@
 from __future__ import annotations
 import shutil
+import threading
 import uuid
 from pathlib import Path
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile
@@ -15,6 +16,7 @@ from shadow.store.files import FileLayout
 from shadow.store.models import Attempt, Lesson, PracticeSession, Segment, SyllableScore
 
 router = APIRouter()
+_youtube_add_lock = threading.Lock()      # single-process app: makes check, replace and create one step
 
 
 def _save_upload(file: UploadFile, dest: Path) -> None:
@@ -56,16 +58,17 @@ def add_youtube(body: YoutubeIn, request: Request, response: Response, db: Sessi
     if vid is None:
         raise HTTPException(400, "not a YouTube video link (youtube.com/watch?v=…, youtu.be/…, youtube.com/shorts/…)")
     ref = source_ref(vid)
-    existing = db.exec(select(Lesson).where(Lesson.source_type == "youtube", Lesson.source_ref == ref)).first()
-    if existing is not None and existing.status != "error":
-        response.status_code = 200
-        return {"job_id": None, "lesson_id": existing.id}
-    if existing is not None:
-        _delete_lesson(db, request.app.state.files, existing)
-    lesson = Lesson(title=vid, speaker="", source_type="youtube", source_ref=ref)
-    db.add(lesson); db.commit(); db.refresh(lesson)
-    lesson_id, url = lesson.id, watch_url(vid)
-    job_id = jobs.submit(lambda progress: ingest_youtube(deps, engine, lesson_id, url, progress), lesson_id)
+    with _youtube_add_lock:
+        existing = db.exec(select(Lesson).where(Lesson.source_type == "youtube", Lesson.source_ref == ref)).first()
+        if existing is not None and existing.status != "error":
+            response.status_code = 200
+            return {"job_id": None, "lesson_id": existing.id}
+        if existing is not None:
+            _delete_lesson(db, request.app.state.files, existing)
+        lesson = Lesson(title=vid, speaker="", source_type="youtube", source_ref=ref)
+        db.add(lesson); db.commit(); db.refresh(lesson)
+        lesson_id, url = lesson.id, watch_url(vid)
+        job_id = jobs.submit(lambda progress: ingest_youtube(deps, engine, lesson_id, url, progress), lesson_id)
     return {"job_id": job_id, "lesson_id": lesson_id}
 
 
