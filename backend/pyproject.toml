@@ -17,6 +17,7 @@ dependencies = [
   "rapidfuzz>=3.9",
   "soundfile>=0.12",
   "numpy>=1.26",
+  "yt-dlp[default]>=2026.8.19",
 ]
 
 [project.optional-dependencies]

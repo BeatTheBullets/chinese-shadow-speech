@@ -36,8 +36,9 @@ flow_gap_factor = 1.1
 move_on_after = 4
 
 [youtube]
-enabled = false
-cookies_file = ""
+enabled = true
+max_minutes = 90                    # longer videos are refused
+cookies_file = ""                   # Netscape cookies.txt for age/bot-checked videos (docs/running.md)
 
 [anki]
 default_url = "http://127.0.0.1:8765"

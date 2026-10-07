@@ -48,7 +48,8 @@ class PracticeCfg(BaseModel):
 
 
 class YoutubeCfg(BaseModel):
-    enabled: bool = False
+    enabled: bool = True
+    max_minutes: int = 90
     cookies_file: str = ""
 
 

@@ -25,3 +25,9 @@ def test_auto_aligner_is_mms_fa_on_every_device():
     for device in ("cuda", "cpu"):
         assert Settings(models=ModelsCfg(device=device)).resolved_aligner() == "mms_fa"
     assert Settings(models=ModelsCfg(device="cuda", aligner="qwen3_fa")).resolved_aligner() == "qwen3_fa"
+
+
+def test_youtube_defaults():
+    from shadow.config import Settings
+    y = Settings().youtube
+    assert (y.enabled, y.max_minutes, y.cookies_file) == (True, 90, "")
