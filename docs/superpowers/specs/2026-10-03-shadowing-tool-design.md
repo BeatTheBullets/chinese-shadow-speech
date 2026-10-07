@@ -85,7 +85,7 @@ localhost means putting it behind Tailscale or similar.
 
 | Source | How | Phase |
 |---|---|---|
-| Upload | Audio or video file, optional subtitle file (SRT/VTT/plain text) | 1 |
+| Upload | Audio or video file, optional subtitle file (SRT/VTT/plain text) supplying the text; timing always comes from ASR | 1 |
 | Anki import | Notes mined with asbplayer (or any note with sentence + audio) | 1 |
 | YouTube URL | yt-dlp with user-supplied cookies file and Deno; `--write-subs` for `zh.*`; disabled unless configured | 4 |
 | asbplayer live | Backend poses as AnkiConnect on 8766; mined lines appear as segments | 4 |
@@ -104,20 +104,39 @@ source type, original filename or URL.
 
 ### 3.2 Text
 
-Text and timing are produced independently. Text, in order of preference:
+ASR always runs, and always supplies the timing. Subtitles, when given,
+supply only the text.
 
-1. **Subtitle file** (uploaded, or YouTube `zh` subs). Cues give text and coarse
-   timing.
-2. **ASR**: FunASR Paraformer-zh, default model
-   `iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch`
-   with `fsmn-vad` and `ct-punc`. Output: punctuated text, per-character
-   timestamps, VAD segment boundaries. ASR sits behind an interface
-   (`transcribe(wav) -> Transcript`) so another engine can be plugged in.
+- **ASR**: FunASR Paraformer-zh, default model
+  `iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch`
+  with `fsmn-vad` and `ct-punc`. Output: punctuated text, per-character
+  timestamps, VAD segment boundaries. ASR sits behind an interface
+  (`transcribe(wav) -> Transcript`) so another engine can be plugged in. If it
+  finds no speech the lesson fails with "no speech found in the recording",
+  subtitles or not.
+- **Subtitle file** (uploaded, or YouTube `zh` subs): SRT/VTT cues or the
+  non-empty lines of a plain-text transcript. The cues' times are **not** used
+  for clips (subtitles from another release, with a cut intro or for another
+  episode would otherwise misplace every clip). Rolling auto-captions (yt-dlp
+  style, each line repeated as the first line of the next cue) are reduced to
+  one copy of each line. The subtitle's speech characters (non-punctuation) are
+  aligned to the ASR's speech characters with a character-level edit
+  alignment: matched or substituted characters (e.g. ASR homophone errors)
+  take the ASR character's times, subtitle characters the ASR missed are
+  interpolated between their anchored neighbours, text before the first / after
+  the last anchor is clamped to it, and punctuation is zero-length at the
+  previous character's end. If fewer than 50 % of the subtitle's speech
+  characters equal the ASR character they align with, the subtitles are taken
+  to be for other audio and ignored: the ASR transcript is used and the lesson
+  records `subtitle_ignored` ("subtitles don't match the audio (NN % of
+  characters matched)"); otherwise it records `subtitle_match` (the ratio).
+  Unparseable or empty subtitle files are ignored the same way, with their
+  reason.
 
 Everything is passed through `opencc` (t2s). The result is the lesson's
 **raw transcript**: a list of characters, each with a coarse `start`/`end`
-(from ASR timestamps, or interpolated inside the cue for subtitles), plus the
-list of coarse segment boundaries (VAD segments or cues).
+from the ASR timestamps, plus the list of coarse segment boundaries (one per
+cue or plain-text line for subtitles, VAD segments otherwise).
 
 ### 3.3 Rectify and segment (LLM)
 
@@ -143,25 +162,33 @@ Instructions to the model:
   fillers. Do not paraphrase, add or drop content.
 - Ranges are contiguous, non-overlapping and cover every character.
 
+Subtitle text is a verified human transcript, so it is rectified in a
+**locked** mode: a prompt variant tells the model the text is already correct
+and it may only choose sentence boundaries and add or adjust punctuation, never
+change, add or drop characters. Rectification still runs because unpunctuated
+subtitles need sentences of 6–25 characters and punctuation.
+
 Validation in code; on failure the chunk falls back to coarse segments split
 at 。！？； and clause punctuation ，、： (so pieces stay near the 6–25 character
 target):
 - coverage and contiguity;
-- `edit_distance(strip_punct(text), raw[from..to]) / len(raw[from..to]) < 0.25`;
+- ASR text: `edit_distance(strip_punct(text), raw[from..to]) / len(raw[from..to]) < 0.25`;
+  locked (subtitle) text: `strip_punct(text) == strip_punct(raw[from..to])` exactly;
 - 2 ≤ len(text) ≤ 60.
 
 Model: Anthropic Messages API, `ANTHROPIC_API_KEY`, default
 `claude-sonnet-5-5`, effort `low`, structured outputs
 (`output_config.format`), no `temperature` (Sonnet 5.5 rejects non-default
-sampling). Responses cached by hash of chunk characters, so reruns cost
-nothing.
+sampling). Responses cached by hash of mode (repair or locked) and chunk
+characters, so reruns cost nothing.
 
 Anki-sourced lessons skip this step: the note text is already clean.
 
 ### 3.4 Align
 
 For each sentence, force-align the corrected text to `source.wav` inside the
-window `[coarse_start - 1 s, coarse_end + 1 s]`. The aligner returns one span
+window `[coarse_start - 1 s, coarse_end + 1 s]` (coarse times come from the
+ASR, also when the text came from subtitles). The aligner returns one span
 per character (= syllable). Sentence timing: `start = first_span.start - 120
 ms`, `end = last_span.end + 120 ms`, clamped to neighbours. The per-syllable
 spans are stored as the segment's **reference alignment** and reused by the
