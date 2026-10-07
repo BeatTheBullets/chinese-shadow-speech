@@ -17,7 +17,7 @@ export const listeningModel: NewModel = {
     '.pinyin { color: #4a86c8; }',
     '.translation { color: #555; font-style: italic; margin-top: .3em; }',
     '.source { font-size: 14px; color: #7c8793; margin-top: 1.2em; }',
-    '.nightMode .card, .night_mode .card { color: #cfd6dd; background: #111418; }',
+    '.card.nightMode, .card.night_mode, .nightMode .card, .night_mode .card { color: #cfd6dd; background: #111418; }',
   ].join('\n'),
   cardTemplates: [{
     Name: 'Listening',
@@ -33,6 +33,9 @@ export const listeningModel: NewModel = {
   }],
 }
 
+// The existing note type cannot be used (as opposed to an error AnkiConnect reported).
+export class NoteTypeError extends Error {}
+
 export interface ListeningSetup { deckCreated: boolean; modelCreated: boolean; exportNote: ExportNote }
 
 // Creates the deck and the note type unless they exist (an existing one is used as it is, never changed) and returns
@@ -45,7 +48,7 @@ export async function setupListeningDeck(ankiUrl: string): Promise<ListeningSetu
   if (modelCreated) await a.createModel(listeningModel)
   const have = modelCreated ? LISTENING_FIELDS : await a.modelFieldNames(LISTENING_MODEL)
   if (!have.includes('Sentence') || !have.includes('Audio')) {
-    throw new Error(`The existing note type "${LISTENING_MODEL}" has no Sentence or Audio field. Rename it in Anki, then set up again.`)
+    throw new NoteTypeError(`The existing note type "${LISTENING_MODEL}" has no Sentence or Audio field. Rename it in Anki, then set up again.`)
   }
   const fields: ExportNote['fields'] = { sentence: 'Sentence', audio: 'Audio' }
   for (const [key, name] of [['pinyin', 'Pinyin'], ['translation', 'Translation'], ['source', 'Source'], ['link', 'Link']] as const) {

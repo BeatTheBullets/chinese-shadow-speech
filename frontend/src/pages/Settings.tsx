@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
-import { LISTENING_DECK, LISTENING_MODEL, setupListeningDeck } from '../anki/listening'
+import { LISTENING_DECK, LISTENING_MODEL, NoteTypeError, setupListeningDeck } from '../anki/listening'
 import { anki } from '../anki/client'
 import { bookmarkletCode } from '../lib/handoff'
 import { useSettings } from '../store/settings'
@@ -35,7 +35,9 @@ export default function Settings() {
       a.deckNames().then(setDecks).catch(() => {})
       a.modelNames().then(setModels).catch(() => {})
     } catch (e) {
-      setStatus(`Could not set up the deck. AnkiConnect said: ${e instanceof Error ? e.message : String(e)}`)
+      const why = e instanceof Error ? e.message : String(e)
+      setStatus(e instanceof TypeError ? `Cannot reach AnkiConnect at ${s.ankiUrl}. Is Anki open with AnkiConnect, and is the URL right above?`
+        : e instanceof NoteTypeError ? `Could not set up the deck. ${why}` : `Could not set up the deck. AnkiConnect said: ${why}`)
     }
   }
   useEffect(() => { if (draft.model) anki(s.ankiUrl).modelFieldNames(draft.model).then(setFields).catch(() => setFields([])) }, [draft.model, s.ankiUrl])

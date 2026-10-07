@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom'
 import type { Mode } from '../api/types'
-import { mmss } from '../anki/export'
+import { mmss } from '../lib/time'
 import { MODES, modeHelp, modeName } from '../lib/modeHelp'
 
 export interface PassagePick { index: number; titles: string[]; onPick: (k: number) => void }

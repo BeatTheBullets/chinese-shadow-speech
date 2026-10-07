@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { LISTENING_DECK, LISTENING_MODEL, listeningModel, setupListeningDeck } from './listening'
+import { NoteTypeError, LISTENING_DECK, LISTENING_MODEL, listeningModel, setupListeningDeck } from './listening'
 
 const reply = (result: unknown, error: string | null = null) => new Response(JSON.stringify({ result, error }))
 const bodies = (f: { mock: { calls: unknown[][] } }) => f.mock.calls.map((c) => JSON.parse((c[1] as RequestInit).body as string))
@@ -26,6 +26,14 @@ describe('setupListeningDeck', () => {
       fields: { sentence: 'Sentence', audio: 'Audio', pinyin: 'Pinyin', translation: 'Translation', source: 'Source', link: 'Link' } } })
   })
 
+  it('keeps the answer off the front, branches on Link and styles night mode on the same element', () => {
+    const t = listeningModel.cardTemplates[0]
+    for (const f of ['{{Sentence}}', '{{Pinyin}}', '{{Translation}}']) expect(t.Front).not.toContain(f)
+    expect(t.Back).toContain('{{^Link}}{{Source}}{{/Link}}')
+    expect(listeningModel.css).toContain('.card.nightMode, .card.night_mode')
+    expect(listeningModel.css).toContain('.nightMode .card')
+  })
+
   it('reuses an existing deck and note type without changing them', async () => {
     const f = vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(reply(['shadow-speech'])).mockResolvedValueOnce(reply(['Shadow Listening']))
@@ -40,7 +48,7 @@ describe('setupListeningDeck', () => {
     vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(reply(['shadow-speech'])).mockResolvedValueOnce(reply(['Shadow Listening']))
       .mockResolvedValueOnce(reply(['Front', 'Back']))
-    await expect(setupListeningDeck('http://anki')).rejects.toThrow(/no Sentence or Audio field/)
+    await expect(setupListeningDeck('http://anki')).rejects.toBeInstanceOf(NoteTypeError)
   })
 
   it('passes AnkiConnect errors through', async () => {

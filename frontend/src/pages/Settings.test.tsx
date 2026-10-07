@@ -44,4 +44,21 @@ describe('<Settings>', () => {
     expect(await screen.findByText('Could not set up the deck. AnkiConnect said: collection is not available')).toBeInTheDocument()
     expect(useSettings.getState().exportNote).toBeNull()
   })
+
+  it('explains an unreachable Anki instead of blaming AnkiConnect', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    h.setup.mockRejectedValue(new TypeError('Failed to fetch'))
+    render(<Settings />)
+    fireEvent.click(screen.getByRole('button', { name: 'Set up shadow-speech deck' }))
+    expect(await screen.findByText(`Cannot reach AnkiConnect at ${useSettings.getState().ankiUrl}. Is Anki open with AnkiConnect, and is the URL right above?`)).toBeInTheDocument()
+  })
+
+  it('shows a note type problem without the AnkiConnect prefix', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const { NoteTypeError } = await import('../anki/listening')
+    h.setup.mockRejectedValue(new NoteTypeError('The existing note type has no Sentence or Audio field.'))
+    render(<Settings />)
+    fireEvent.click(screen.getByRole('button', { name: 'Set up shadow-speech deck' }))
+    expect(await screen.findByText('Could not set up the deck. The existing note type has no Sentence or Audio field.')).toBeInTheDocument()
+  })
 })

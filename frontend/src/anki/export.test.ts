@@ -1,5 +1,6 @@
 import { afterEach, describe, it, expect, vi } from 'vitest'
-import { buildExportNote, exportAndRecord, exportToAnki, reexportQuestion, splitForExport } from './export'
+import { stripHtml } from './import'
+import { buildExportNote, youtubeLink, exportAndRecord, exportToAnki, reexportQuestion, splitForExport } from './export'
 const seg = { id: 12, lesson_id: 1, idx: 0, start_s: 0, end_s: 1, text: '你好。', translation: 'Hello.', words_json: [{ word: '你好', pinyin: 'nǐhǎo', tones: [2, 3], char_from: 0, char_to: 1, syllables: [] }], ref_alignment_json: null, difficulty_flag: false, anki_note_id: null, last_score: null, best_score: null, attempts: 0 }
 const cfg = { deckName: 'Shadow', modelName: 'Mining', fields: { sentence: 'Sentence', pinyin: 'Reading', translation: 'Meaning', audio: 'Audio' } }
 describe('buildExportNote', () => {
@@ -123,7 +124,7 @@ describe('listening card fields', () => {
 
   it('adds Source (title · mm:ss), the YouTube Link at that second, and the lesson tag', () => {
     const n = buildExportNote({ ...seg, lesson_id: 7, start_s: 83.6 }, 'QUJD', full, false, yt)
-    expect(n.fields).toMatchObject({ Sentence: '你好。', Source: '学中文 · 01:23', Link: 'https://www.youtube.com/watch?v=abcDEF12345&t=83' })
+    expect(n.fields).toMatchObject({ Sentence: '你好。', Source: '学中文 · 01:23', Link: 'https://www.youtube.com/watch?v=abcDEF12345&amp;t=83' })
     expect(n.tags).toEqual(['shadow', 'shadow::7'])
   })
   it('leaves Link out for lessons not from YouTube', () => {
@@ -138,5 +139,20 @@ describe('listening card fields', () => {
       .mockResolvedValueOnce(new Response(JSON.stringify({ ...seg, anki_note_id: 780 })))
     await exportAndRecord(seg, 'http://anki', full, { id: 1, title: 'L', source_type: 'upload', source_ref: 'a.mp4' })
     expect(JSON.parse((f.mock.calls[1][1] as RequestInit).body as string).params.note.fields.Source).toBe('L · 00:00')
+  })
+  it('escapes HTML in the fields, and import reads them back unchanged', () => {
+    const lesson = { id: 2, title: 'Vlog <3 & "学中文"', source_type: 'upload', source_ref: 'a.mp4' }
+    const n = buildExportNote({ ...seg, text: '一<二 & 三', translation: 'a < b & c' }, 'QUJD', full, false, lesson)
+    expect(n.fields.Sentence).toBe('一&lt;二 &amp; 三')
+    expect(n.fields.Translation).toBe('a &lt; b &amp; c')
+    expect(n.fields.Source).toBe('Vlog &lt;3 &amp; &quot;学中文&quot; · 00:00')
+    expect(stripHtml(n.fields.Sentence)).toBe('一<二 & 三')
+    expect(stripHtml(n.fields.Source)).toBe('Vlog <3 & "学中文" · 00:00')
+  })
+  it('escapes & in the Link', () => {
+    expect(buildExportNote(seg, 'QUJD', full, false, yt).fields.Link).toBe('https://www.youtube.com/watch?v=abcDEF12345&amp;t=0')
+  })
+  it('youtubeLink is empty for a youtube lesson whose source_ref is not youtube::<id>', () => {
+    expect(youtubeLink({ ...yt, source_ref: 'https://youtu.be/x' }, seg)).toBe('')
   })
 })

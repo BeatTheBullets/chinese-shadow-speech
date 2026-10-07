@@ -1,12 +1,12 @@
 import { api, ApiError } from '../api/client'
 import type { Segment } from '../api/types'
 import type { ExportNote } from '../store/settings'
+import { mmss } from '../lib/time'
 import { anki, type AddNote } from './client'
 
 // The lesson a sentence comes from, for the Source and Link fields.
 export interface LessonRef { id: number; title: string; source_type: string; source_ref: string }
 
-export const mmss = (s: number): string => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(Math.floor(s % 60)).padStart(2, '0')}`
 // "<lesson title> · mm:ss" (addendum §5.1).
 export const sourceText = (lesson: LessonRef, seg: Segment): string => `${lesson.title} · ${mmss(seg.start_s)}`
 // The video at the sentence's second, for YouTube lessons; '' otherwise.
@@ -15,15 +15,18 @@ export function youtubeLink(lesson: LessonRef, seg: Segment): string {
   return `https://www.youtube.com/watch?v=${lesson.source_ref.slice('youtube::'.length)}&t=${Math.floor(seg.start_s)}`
 }
 
+// Anki fields are HTML; the import side reads them with stripHtml.
+const escapeHtml = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+
 // One sentence as a new Anki note in the configured note type: text, pinyin (per word), translation, source and link
 // (when mapped and the lesson is known) and the clip.
 export function buildExportNote(seg: Segment, mp3b64: string, cfg: ExportNote, allowDuplicate = false, lesson?: LessonRef): AddNote {
-  const fields: Record<string, string> = { [cfg.fields.sentence]: seg.text }
-  if (cfg.fields.pinyin) fields[cfg.fields.pinyin] = (seg.words_json ?? []).map((w) => w.pinyin).join(' ')
-  if (cfg.fields.translation && seg.translation) fields[cfg.fields.translation] = seg.translation
-  if (lesson && cfg.fields.source) fields[cfg.fields.source] = sourceText(lesson, seg)
+  const fields: Record<string, string> = { [cfg.fields.sentence]: escapeHtml(seg.text) }
+  if (cfg.fields.pinyin) fields[cfg.fields.pinyin] = escapeHtml((seg.words_json ?? []).map((w) => w.pinyin).join(' '))
+  if (cfg.fields.translation && seg.translation) fields[cfg.fields.translation] = escapeHtml(seg.translation)
+  if (lesson && cfg.fields.source) fields[cfg.fields.source] = escapeHtml(sourceText(lesson, seg))
   const link = lesson ? youtubeLink(lesson, seg) : ''
-  if (link && cfg.fields.link) fields[cfg.fields.link] = link
+  if (link && cfg.fields.link) fields[cfg.fields.link] = link.replace(/&/g, '&amp;')
   return {
     deckName: cfg.deckName, modelName: cfg.modelName, fields, tags: ['shadow', `shadow::${seg.lesson_id}`],
     options: { allowDuplicate, duplicateScope: 'deck' },
