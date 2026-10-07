@@ -76,19 +76,22 @@ def parse_subtitles(content: str, filename: str) -> list[Cue]:
         timed: list[tuple[str, str, list[str]]] = []
         for block in re.split(sep, content.strip().replace("\r", "")):
             in_cue = False          # lines before a block's first timing line: header, NOTE, cue identifier
-            last_was_text = False
+            # The text line just added is a cue identifier if a timing line follows it: when it came after a
+            # whitespace-only line (VTT separated by such lines) or is a number (SRT index without blank lines).
+            identifier = prev_blank = False
             for ln in block.split("\n"):
                 if "-->" in ln:     # a timing line starts a new cue, even without an empty line before it
-                    if last_was_text:           # the line just before a timing line is the cue's identifier
+                    if identifier:
                         timed[-1][2].pop()
                     a, b = ln.split("-->")
                     timed.append((a, b, []))
-                    in_cue, last_was_text = True, False
+                    in_cue, identifier = True, False
                 elif in_cue and (text := to_simplified(strip_html(ln))):
                     timed[-1][2].append(text)
-                    last_was_text = True
+                    identifier = prev_blank or ln.strip().isdigit()
                 else:
-                    last_was_text = False
+                    identifier = False
+                prev_blank = not ln.strip()
         texts = _drop_rolling_repeats([t for _, _, t in timed])
         return [Cue(_ts(a), _ts(b), " ".join(t)) for (a, b, _), t in zip(timed, texts) if t]
     return [Cue(-1, -1, to_simplified(strip_html(ln))) for ln in content.splitlines() if ln.strip()]

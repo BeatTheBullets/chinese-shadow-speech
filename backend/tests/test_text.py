@@ -1,3 +1,4 @@
+import pytest
 from shadow.ingest.text import to_simplified, strip_punct, parse_subtitles, strip_html, is_punct
 
 SRT = """1
@@ -134,3 +135,18 @@ def test_rolling_needs_three_echoes_in_at_least_half_of_the_multi_line_cues():
 def test_parse_vtt_drops_cue_identifiers_when_separators_are_whitespace_only():
     vtt = "WEBVTT\n \n1\n00:01.000 --> 00:02.000\n你好\n \n2\n00:03.000 --> 00:04.000\n再见\n"
     assert [(c.start, c.text) for c in parse_subtitles(vtt, "a.vtt")] == [(1.0, "你好"), (3.0, "再见")]
+
+
+@pytest.mark.parametrize("content, name", [
+    pytest.param("WEBVTT\n\n00:01.000 --> 00:02.000\n你好\n00:03.000 --> 00:04.000\n再见\n", "a.vtt", id="vtt"),
+    pytest.param("00:00:01,000 --> 00:00:02,000\n你好\n00:00:03,000 --> 00:00:04,000\n再见\n", "a.srt", id="srt"),
+    pytest.param("1\n00:00:01,000 --> 00:00:02,000\n你好\n2\n00:00:03,000 --> 00:00:04,000\n再见\n", "a.srt",
+                 id="numbered_srt"),
+])
+def test_parse_subtitles_without_blank_lines_between_cues_keeps_all_text(content, name):
+    assert [(c.start, c.text) for c in parse_subtitles(content, name)] == [(1.0, "你好"), (3.0, "再见")]
+
+
+def test_parse_vtt_without_blank_lines_keeps_the_last_line_of_a_two_line_cue():
+    vtt = "WEBVTT\n\n00:01.000 --> 00:02.000\n你好\n世界\n00:03.000 --> 00:04.000\n再见\n"
+    assert [c.text for c in parse_subtitles(vtt, "a.vtt")] == ["你好 世界", "再见"]
