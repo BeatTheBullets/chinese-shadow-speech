@@ -37,8 +37,8 @@ def main() -> None:
     total = len(wav) / sr
     device = settings.resolved_device()
     aligners = {"qwen3_fa": make_aligner("qwen3_fa", device), "mms_fa": make_aligner("mms_fa", device)}
-    onsets: dict[str, list[float | None]] = {k: [] for k in ("asr", "qwen3_raw", "qwen3_repaired", "mms_fa")}
-    spans: dict[str, list[list[Span]]] = {k: [] for k in ("qwen3_raw", "qwen3_repaired", "mms_fa")}
+    onsets: dict[str, list[float | None]] = {k: [] for k in ("asr", "qwen3_raw", "qwen3_repaired", "mms_fa", "mms_fa_repaired")}
+    spans: dict[str, list[list[Span]]] = {k: [] for k in ("qwen3_raw", "qwen3_repaired", "mms_fa", "mms_fa_repaired")}
     truth: list[float | None] = []
     prev_end = 0.0
     for s in segs:
@@ -49,7 +49,7 @@ def main() -> None:
         if not speech:
             continue
         c0, c1 = speech[0].start, speech[-1].end
-        truth.append(energy_onset(wav, sr, max(prev_end, c0 - 0.5), c1))
+        truth.append(energy_onset(wav, sr, max(prev_end, c0 - 1.0), c1))
         prev_end = c1
         onsets["asr"].append(c0)
         win = (max(0.0, chars[0].start - MARGIN_S), min(total, chars[-1].end + MARGIN_S))   # as build_segments
@@ -60,19 +60,22 @@ def main() -> None:
             except Exception as e:  # noqa: BLE001  report and carry on
                 print(f"sentence {s.idx}: {name} failed: {e}")
                 got = []
-            for key in (("qwen3_raw", "qwen3_repaired") if name == "qwen3_fa" else ("mms_fa",)):
-                sp = clamp_spans(repair_spans(got, coarse), *win) if key == "qwen3_repaired" else got
+            repaired = clamp_spans(repair_spans(got, coarse), *win)     # what build_segments stores
+            for key in (("qwen3_raw", "qwen3_repaired") if name == "qwen3_fa" else ("mms_fa", "mms_fa_repaired")):
+                sp = repaired if key.endswith("_repaired") else got
                 spans[key].append(sp)
                 onsets[key].append(sp[0].start if sp else None)
-    print(f"lesson {lesson.id} · {len(truth)} sentences · device {device}")
+    # every row is scored over the same sentences: those where the truth and every source have an onset
+    keep = [i for i, t in enumerate(truth) if t is not None and all(p[i] is not None for p in onsets.values())]
+    print(f"lesson {lesson.id} · {len(truth)} sentences, {len(keep)} scored · device {device}")
     print(f"{'source':16} {'n':>4} {'mean ms':>8} {'median':>8} {'<=100ms':>8} {'zero-len':>8}")
     results = {}
     for key, pred in onsets.items():
-        e = onset_error(pred, truth)
+        e = onset_error([pred[i] for i in keep], [truth[i] for i in keep])
         z = zero_length_share(spans[key]) if key in spans else 0.0
         results[key] = (e, z)
         print(f"{key:16} {e.n:>4} {e.mean_ms:>8} {e.median_ms:>8} {e.within_100ms:>8} {z:>8.3f}")
-    print("verdict:", verdict(*results["qwen3_repaired"], *results["mms_fa"]))
+    print("verdict:", verdict(*results["qwen3_repaired"], *results["mms_fa_repaired"]))
 
 
 if __name__ == "__main__":
