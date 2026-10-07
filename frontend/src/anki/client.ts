@@ -1,4 +1,5 @@
 export interface NoteInfo { noteId: number; modelName: string; tags: string[]; fields: Record<string, { value: string; order: number }> }
+export interface NewModel { modelName: string; inOrderFields: string[]; css: string; isCloze: boolean; cardTemplates: { Name: string; Front: string; Back: string }[] }
 export interface AddNote {
   deckName: string; modelName: string; fields: Record<string, string>; tags: string[]
   options?: { allowDuplicate: boolean; duplicateScope: 'deck' | 'collection' }
@@ -21,4 +22,6 @@ export const anki = (url: string) => ({
   notesInfo: (notes: number[]) => ankiRequest<NoteInfo[]>(url, 'notesInfo', { notes }),
   retrieveMediaFile: (filename: string) => ankiRequest<string | false>(url, 'retrieveMediaFile', { filename }),
   addNote: (note: AddNote) => ankiRequest<number>(url, 'addNote', { note }),
+  createDeck: (deck: string) => ankiRequest<number>(url, 'createDeck', { deck }),
+  createModel: (m: NewModel) => ankiRequest<unknown>(url, 'createModel', { ...m }),
 })

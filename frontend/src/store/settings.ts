@@ -3,7 +3,7 @@ import { persist } from 'zustand/middleware'
 import type { FieldMapping } from '../anki/import'
 
 export interface ImportQuery { name: string; query: string; mapping: FieldMapping }
-export interface ExportNote { deckName: string; modelName: string; fields: { sentence: string; pinyin?: string; translation?: string; audio: string } }
+export interface ExportNote { deckName: string; modelName: string; fields: { sentence: string; pinyin?: string; translation?: string; audio: string; source?: string; link?: string } }
 export interface TextPrefs { hanzi: boolean; pinyin: boolean; translation: boolean }
 export interface PracticePrefs { hideTextWhileRecording: boolean; chorusPasses: number; flowGapFactor: number; moveOnAfter: number; defaultRate: number }
 

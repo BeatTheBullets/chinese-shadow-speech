@@ -7,7 +7,7 @@ describe('buildExportNote', () => {
     const n = buildExportNote(seg, 'QUJD', { deckName: 'Shadow', modelName: 'Mining', fields: { sentence: 'Sentence', pinyin: 'Reading', translation: 'Meaning', audio: 'Audio' } })
     expect(n.fields).toEqual({ Sentence: '你好。', Reading: 'nǐhǎo', Meaning: 'Hello.' })
     expect(n.audio![0]).toEqual({ filename: 'shadow_12.mp3', data: 'QUJD', fields: ['Audio'] })
-    expect(n.tags).toEqual(['shadow']); expect(n.options!.allowDuplicate).toBe(false)
+    expect(n.tags).toEqual(['shadow', 'shadow::1']); expect(n.options!.allowDuplicate).toBe(false)
   })
   it('leaves out unmapped pinyin and translation fields', () => {
     const n = buildExportNote({ ...seg, translation: null }, 'QUJD', { deckName: 'D', modelName: 'M', fields: { sentence: 'S', translation: 'T', audio: 'A' } })
@@ -113,5 +113,30 @@ describe('splitForExport', () => {
     const { todo, skipped } = splitForExport(rows)
     expect(todo.map((r) => r.segment.id)).toEqual([12, 14])
     expect(skipped).toBe(1)
+  })
+})
+
+describe('listening card fields', () => {
+  afterEach(() => { vi.restoreAllMocks() })
+  const full = { deckName: 'shadow-speech', modelName: 'Shadow Listening', fields: { sentence: 'Sentence', pinyin: 'Pinyin', translation: 'Translation', audio: 'Audio', source: 'Source', link: 'Link' } }
+  const yt = { id: 7, title: '学中文', source_type: 'youtube', source_ref: 'youtube::abcDEF12345' }
+
+  it('adds Source (title · mm:ss), the YouTube Link at that second, and the lesson tag', () => {
+    const n = buildExportNote({ ...seg, lesson_id: 7, start_s: 83.6 }, 'QUJD', full, false, yt)
+    expect(n.fields).toMatchObject({ Sentence: '你好。', Source: '学中文 · 01:23', Link: 'https://www.youtube.com/watch?v=abcDEF12345&t=83' })
+    expect(n.tags).toEqual(['shadow', 'shadow::7'])
+  })
+  it('leaves Link out for lessons not from YouTube', () => {
+    const n = buildExportNote(seg, 'QUJD', full, false, { id: 1, title: 'L', source_type: 'upload', source_ref: 'a.mp4' })
+    expect(n.fields.Source).toBe('L · 00:00')
+    expect(n.fields).not.toHaveProperty('Link')
+  })
+  it('exportAndRecord passes the lesson on to the note', async () => {
+    const f = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response('ABC'))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ result: 780, error: null })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ...seg, anki_note_id: 780 })))
+    await exportAndRecord(seg, 'http://anki', full, { id: 1, title: 'L', source_type: 'upload', source_ref: 'a.mp4' })
+    expect(JSON.parse((f.mock.calls[1][1] as RequestInit).body as string).params.note.fields.Source).toBe('L · 00:00')
   })
 })

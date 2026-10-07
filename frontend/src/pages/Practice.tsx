@@ -492,7 +492,7 @@ export default function Practice() {
     try {
       for (const s of segs) {
         try {
-          const updated = await exportAndRecord(s, ankiUrl, exportNote); sent++
+          const updated = await exportAndRecord(s, ankiUrl, exportNote, usePractice.getState().lesson ?? undefined); sent++
           if (alive.current) usePractice.getState().updateSegment(updated)
         }
         catch (e) { failed.push(message(e)) }

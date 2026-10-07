@@ -34,7 +34,7 @@ export default function Review() {
     let n = 0; const failures: string[] = []
     // each sent sentence is marked in Anki, so sending again skips it
     const mark = (seg: Segment) => setLessons((ls) => ls.map((l) => (l.id !== seg.lesson_id ? l : { ...l, segments: l.segments.map((x) => (x.id === seg.id ? seg : x)) })))
-    for (const r of todo) { try { mark(await exportAndRecord(r.segment, ankiUrl, exportNote)); n++ } catch (e) { failures.push(message(e)) } }
+    for (const r of todo) { try { mark(await exportAndRecord(r.segment, ankiUrl, exportNote, r.lesson)); n++ } catch (e) { failures.push(message(e)) } }
     setMsg(`${n} sent to Anki${skipped ? ` · ${skipped} skipped (already in Anki)` : ''}${failures.length ? ` · ${failures.length} failed: ${[...new Set(failures)].join('; ')}` : ''}`)
     setSending(false)
   }

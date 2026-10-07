@@ -12,4 +12,9 @@ describe('ankiRequest', () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ result: null, error: 'bad' })))
     await expect(anki('http://x').findNotes('deck:X')).rejects.toThrow('bad')
   })
+  it('creates a deck', async () => {
+    const f = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ result: 1, error: null })))
+    await anki('http://x').createDeck('shadow-speech')
+    expect(JSON.parse(f.mock.calls[0][1]!.body as string)).toEqual({ action: 'createDeck', version: 6, params: { deck: 'shadow-speech' } })
+  })
 })

@@ -695,7 +695,7 @@ describe('<Practice>', () => {
       await screen.findByText('你好', { selector: 'p.sentence' })
       press('a')
       expect(await screen.findByText('Sent to Anki')).toBeInTheDocument()
-      expect(h.exportAndRecord).toHaveBeenCalledWith(expect.objectContaining({ id: 11 }), useSettings.getState().ankiUrl, cfg)
+      expect(h.exportAndRecord).toHaveBeenCalledWith(expect.objectContaining({ id: 11 }), useSettings.getState().ankiUrl, cfg, expect.objectContaining({ id: 1, title: 'Lesson' }))
       expect(usePractice.getState().lesson!.segments[0].anki_note_id).toBe(1)
       const ask = vi.spyOn(window, 'confirm').mockReturnValue(false)
       press('a')
