@@ -5,8 +5,10 @@ a sentence's first character up to ~1 s before the speech. The coarse times of t
 subtitle text the subalign times) are consistent, so a span shorter than MIN_SPAN_S or starting more than
 MAX_START_DRIFT_S from its coarse start takes the coarse span (conf REPAIRED_CONF; aligner spans are 1.0, the uniform
 fallback 0.0). Spans are then made monotonic, and any span still shorter than MIN_SPAN_S (no coarse time: Anki
-segments, or a character an edit added) shares the gap up to the next span with its zero-length neighbours."""
+segments, or a character an edit added) shares the gap up to the next span with its zero-length neighbours. Finally no
+span is left shorter than MIN_SPAN_S (ensure_min_duration)."""
 from __future__ import annotations
+import logging
 from rapidfuzz.distance import Levenshtein
 from shadow.ingest.align import Span
 from shadow.ingest.text import is_punct
@@ -17,6 +19,8 @@ MAX_START_DRIFT_S = 0.3
 REPAIRED_CONF = 0.5
 
 Times = tuple[float, float]
+
+log = logging.getLogger(__name__)
 
 
 def coarse_times(text: str, chars: list[TimedChar]) -> list[Times | None]:
@@ -65,13 +69,35 @@ def fill_gaps(spans: list[Span]) -> list[Span]:
     return out
 
 
+def ensure_min_duration(spans: list[Span]) -> list[Span]:
+    """No span shorter than MIN_SPAN_S: walking left to right, a shorter span ends MIN_SPAN_S after its start (conf
+    REPAIRED_CONF), and each later span starting before the previous end is pushed forward to it (its end at least
+    MIN_SPAN_S later). Times stay monotonic, but the last span may now end a few MIN_SPAN_S past the original last end,
+    so callers clamp to their clip bounds."""
+    out: list[Span] = []
+    prev_end: float | None = None
+    for sp in spans:
+        start = sp.start if prev_end is None else max(sp.start, prev_end)
+        end, conf = sp.end, sp.conf
+        if end - sp.start < MIN_SPAN_S:
+            conf = REPAIRED_CONF
+        if end - start < MIN_SPAN_S:
+            end = start + MIN_SPAN_S
+        out.append(sp if (start, end, conf) == (sp.start, sp.end, sp.conf) else Span(sp.ch, start, end, conf))
+        prev_end = end
+    return out
+
+
 def repair_spans(spans: list[Span], coarse: list[Times | None] | None = None) -> list[Span]:
     """`spans` checked against the coarse times of the same characters as the module docstring describes. `coarse`
     None, or of a different length than `spans`, means no coarse times (gap fill only)."""
-    if coarse is None or len(coarse) != len(spans):
+    if coarse is not None and len(coarse) != len(spans):
+        log.warning("coarse times (%d) do not match the spans (%d); ignoring them", len(coarse), len(spans))
+        coarse = None
+    if coarse is None:
         coarse = [None] * len(spans)
     replaced = [Span(sp.ch, c[0], c[1], REPAIRED_CONF)
                 if c is not None and (sp.end - sp.start < MIN_SPAN_S or abs(sp.start - c[0]) > MAX_START_DRIFT_S)
                 else sp
                 for sp, c in zip(spans, coarse)]
-    return fill_gaps(make_monotonic(replaced))
+    return ensure_min_duration(fill_gaps(make_monotonic(replaced)))

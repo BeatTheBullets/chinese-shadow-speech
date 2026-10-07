@@ -1,5 +1,5 @@
 from shadow.ingest.align import Span
-from shadow.ingest.repair import REPAIRED_CONF, coarse_times, repair_spans
+from shadow.ingest.repair import MIN_SPAN_S, REPAIRED_CONF, coarse_times, repair_spans
 from shadow.ingest.transcript import TimedChar
 
 
@@ -49,9 +49,9 @@ def test_without_coarse_times_zero_length_spans_share_the_gap_to_the_next_span()
     assert _t(repair_spans(spans)) == [(0.1, 0.4, 1.0), (0.4, 0.7, 0.5), (0.7, 1.0, 0.5), (1.0, 1.3, 1.0)]
 
 
-def test_zero_length_last_span_without_a_next_one_stays():
+def test_zero_length_last_span_without_a_next_one_gets_the_minimum_duration():
     spans = [Span("你", 0.1, 0.4, 1.0), Span("好", 0.4, 0.4, 1.0)]
-    assert _t(repair_spans(spans)) == [(0.1, 0.4, 1.0), (0.4, 0.4, 1.0)]
+    assert _t(repair_spans(spans)) == [(0.1, 0.4, 1.0), (0.4, 0.44, REPAIRED_CONF)]
 
 
 def test_empty_spans_and_coarse_of_the_wrong_length_are_tolerated():
@@ -67,3 +67,36 @@ def test_repaired_span_squeezed_to_zero_by_the_previous_span_does_not_stay_zero_
     out = repair_spans(spans, [(0.0, 0.5), (0.3, 0.5), (0.8, 1.0)])
     assert _t(out) == [(0.0, 0.5, 1.0), (0.5, 0.8, 0.5), (0.8, 1.0, 1.0)]
     assert all(s.end > s.start for s in out)
+
+
+def _check(out):
+    assert all(s.end - s.start >= MIN_SPAN_S - 1e-9 for s in out)
+    for a, b in zip(out, out[1:]):
+        assert a.end <= b.start + 1e-9
+
+
+def test_squeezed_trailing_span_gets_the_minimum_duration():
+    spans = [Span("我", 0.0, 0.5, 1.0), Span("好", 0.0, 0.0, 1.0)]
+    out = repair_spans(spans, [(0.0, 0.5), (0.3, 0.5)])
+    assert _t(out) == [(0.0, 0.5, 1.0), (0.5, 0.54, REPAIRED_CONF)]
+    _check(out)
+
+
+def test_zero_length_run_followed_by_a_span_at_the_same_instant_pushes_it_forward():
+    spans = [Span("你", 0.5, 0.5, 1.0), Span("好", 0.5, 0.9, 1.0)]
+    out = repair_spans(spans)
+    assert _t(out) == [(0.5, 0.54, REPAIRED_CONF), (0.54, 0.9, 1.0)]
+    _check(out)
+
+
+def test_pushing_a_span_forward_cascades_to_the_next_too_short_one():
+    spans = [Span("你", 0.0, 0.0, 1.0), Span("好", 0.0, 0.05, 1.0), Span("吗", 0.05, 0.2, 1.0)]
+    out = repair_spans(spans)
+    assert _t(out) == [(0.0, 0.04, REPAIRED_CONF), (0.04, 0.08, 1.0), (0.08, 0.2, 1.0)]
+    _check(out)
+
+
+def test_wrong_length_coarse_is_logged(caplog):
+    with caplog.at_level("WARNING"):
+        repair_spans([Span("你", 0.0, 0.5, 1.0)], [(0.0, 0.1), (0.1, 0.2)])
+    assert "coarse" in caplog.text
