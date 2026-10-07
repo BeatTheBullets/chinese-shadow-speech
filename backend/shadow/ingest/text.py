@@ -67,15 +67,14 @@ def parse_subtitles(content: str, filename: str) -> list[Cue]:
         sep = r"\n\n+" if name.endswith(".vtt") else r"\n\s*\n"
         timed: list[tuple[str, str, list[str]]] = []
         for block in re.split(sep, content.strip().replace("\r", "")):
-            lines = [ln for ln in block.split("\n") if ln.strip()]
-            if not lines or lines[0].upper().startswith("WEBVTT") or lines[0].upper().startswith("NOTE"):
-                continue
-            if "-->" not in lines[0] and len(lines) > 1 and "-->" in lines[1]:
-                lines = lines[1:]
-            if "-->" not in lines[0]:
-                continue
-            a, b = lines[0].split("-->")
-            timed.append((a, b, [t for t in (to_simplified(strip_html(ln)) for ln in lines[1:]) if t]))
+            in_cue = False          # lines before a block's first timing line: header, NOTE, cue identifier
+            for ln in block.split("\n"):
+                if "-->" in ln:     # a timing line starts a new cue, even without an empty line before it
+                    a, b = ln.split("-->")
+                    timed.append((a, b, []))
+                    in_cue = True
+                elif in_cue and (text := to_simplified(strip_html(ln))):
+                    timed[-1][2].append(text)
         texts = _drop_rolling_repeats([t for _, _, t in timed])
         return [Cue(_ts(a), _ts(b), " ".join(t)) for (a, b, _), t in zip(timed, texts) if t]
     return [Cue(-1, -1, to_simplified(strip_html(ln))) for ln in content.splitlines() if ln.strip()]

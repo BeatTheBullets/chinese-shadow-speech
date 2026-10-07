@@ -99,3 +99,9 @@ def test_parse_non_rolling_subtitles_keep_repeated_and_multi_line_cues():
     assert [c.text for c in parse_subtitles(srt, "a.srt")] == ["对。", "对。", "你好 世界", "再见 朋友"]
     vtt = "WEBVTT\n\n00:01.000 --> 00:02.000\n对\n\n00:02.000 --> 00:03.000\n对\n"
     assert [c.text for c in parse_subtitles(vtt, "a.vtt")] == ["对", "对"]
+
+
+def test_parse_vtt_starts_a_new_cue_at_each_timing_line():
+    vtt = "WEBVTT\n \n00:01.000 --> 00:02.000\n你好\n \n00:03.000 --> 00:04.000\n再见\n"   # whitespace-only separators
+    cues = parse_subtitles(vtt, "a.vtt")
+    assert [(c.start, c.text) for c in cues] == [(1.0, "你好"), (3.0, "再见")]
