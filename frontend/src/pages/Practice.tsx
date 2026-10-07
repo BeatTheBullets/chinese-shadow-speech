@@ -89,7 +89,6 @@ export default function Practice() {
   const [dialogError, setDialogError] = useState('')
   const exporting = useRef(false)
   const sendingIds = useRef(new Set<number>())            // sentences an A send has in flight: not offered at session end
-  const flowRun = useRef<Promise<void>>(Promise.resolve()) // the Flow run in progress, through its uploads
   const headphonesHinted = useRef(false)          // the headphones hint shows once per visit
   const flow = useFlow({ lessonId, player, mic, beginRun: () => beginRun('flow'), endRun, setError })
   const [echoTurn, setEchoTurn] = useState<number | null>(null) // performance-clock second an Echo take began (count-in, ghost wipe)
@@ -418,7 +417,7 @@ export default function Practice() {
     cancelActivity()
     usePractice.getState().setHint('') // a stale move-on or Anki hint would show through the run
     if (flow.state.sub === 'along') hintHeadphones()
-    flowRun.current = flow.start(from, to, flow.state.sub)
+    void flow.start(from, to, flow.state.sub)
   }
   // From the Flow summary to a drill of one sentence.
   async function drill(mode: Mode, i: number) {
@@ -518,11 +517,12 @@ export default function Practice() {
     const weakest = weakestResults(flow.state.results, new Map(segs.map((s) => [s.id, s.last_score])), 3)
     void sendToAnki(weakest.map((r) => byId.get(r.segmentId)).filter((s): s is Segment => s != null))
   }
-  // This session's practised sentences with no Anki note (and none on its way there).
+  // This session's practised sentences with no Anki note (and none on its way there). A Flow run's sentences count
+  // as soon as they are sliced, before their uploads finish.
   function unsentItems(): ExportItem[] {
     const ps = usePractice.getState(), l = ps.lesson
     if (!l) return []
-    return sessionUnsent(l.segments, ps.practised).filter((s) => !sendingIds.current.has(s.id)).map((segment) => ({ segment, lesson: l }))
+    return sessionUnsent(l.segments, [...ps.practised, ...flow.sliced()]).filter((s) => !sendingIds.current.has(s.id)).map((segment) => ({ segment, lesson: l }))
   }
   // Offers them before `after` (leaving the page, closing the Flow summary); with none, runs `after` at once.
   function offerExport(after: () => void) {
@@ -532,14 +532,14 @@ export default function Practice() {
     setExportPrompt({ items, after })
   }
   // The ← link. A click that opens a new tab or window is the browser's. A Flow run is stopped gracefully first (its
-  // finished sentences are uploaded), so they are offered too; with nothing to offer the link just navigates.
+  // finished sentences are sliced and offered at once, their uploads carry on); with nothing to offer it just navigates.
   function leave(e: MouseEvent<HTMLAnchorElement>) {
     if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
     const inFlow = runRef.current?.kind === 'flow'
     if (!inFlow && !unsentItems().length) return
     e.preventDefault()
     void (async () => {
-      if (inFlow) { await flow.stop(); await flowRun.current.catch(() => {}) }
+      if (inFlow) await flow.stop()
       if (alive.current) offerExport(() => navigate('/library'))
     })()
   }

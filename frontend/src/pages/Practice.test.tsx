@@ -993,6 +993,68 @@ describe('<Practice>', () => {
       expect(await screen.findByText('library page')).toBeInTheDocument()
     })
 
+    async function startFlowRun(hold: (n: number) => boolean) {
+      clipsTake(2, hold)
+      h.rec.stop.mockReturnValue(new Float32Array(44100 * 10))
+      renderWithLibrary()
+      await screen.findByText('我今天想学中文', { selector: 'p.sentence' })
+      await waitFor(() => expect(usePractice.getState().sessionId).toBe(5))
+      fireEvent.click(screen.getByRole('button', { name: 'Flow' }))
+      fireEvent.click(screen.getByRole('button', { name: 'along' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Start' }))
+    }
+    const rowsOf = (dialog: HTMLElement) => within(dialog).getAllByRole('checkbox').map((c) => [c.closest('label')!.textContent, (c as HTMLInputElement).checked])
+
+    it("the back link during a Flow run offers the run's sentences at once, without waiting for their uploads", async () => {
+      const upload = deferred<{ id: number }>()
+      h.api.segments.postAttempt.mockReturnValue(upload.promise)
+      await startFlowRun((n) => n === 2)
+      await waitFor(() => expect(h.player.play).toHaveBeenCalledTimes(2))
+      fireEvent.click(screen.getByTitle('Back to the library'))
+      const dialog = await screen.findByRole('dialog', { name: 'Send what you practised to Anki?' })
+      expect(rowsOf(dialog)).toEqual([['我今天想学中文', true]])
+      const starts = h.rec.start.mock.calls.length
+      press('Enter'); await flush() // the dialog holds the keys: no new run
+      expect(h.rec.start).toHaveBeenCalledTimes(starts)
+      await act(async () => { upload.resolve({ id: 1 }) })
+      await flush()
+      expect(screen.getByRole('dialog', { name: 'Send what you practised to Anki?' })).toBeInTheDocument()
+      expect(rowsOf(dialog)).toEqual([['我今天想学中文', true]])
+      expect(screen.queryByText('library page')).toBeNull()
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }))
+      expect(await screen.findByText('library page')).toBeInTheDocument()
+    })
+
+    it("Done right after a run lists the run's sentences; a slow upload resolving later neither navigates nor stops a new run", async () => {
+      const upload = deferred<{ id: number }>()
+      h.api.segments.postAttempt.mockReturnValue(upload.promise)
+      await startFlowRun((n) => n >= 3) // the first run ends by itself, the second one keeps playing
+      await screen.findByText(/Flow finished · 2 sentences/)
+      fireEvent.click(screen.getByRole('button', { name: 'done' }))
+      const dialog = await screen.findByRole('dialog', { name: 'Send what you practised to Anki?' })
+      expect(rowsOf(dialog)).toEqual([['我今天想学中文', true], ['再见filler', false]])
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }))
+      fireEvent.click(await screen.findByRole('button', { name: 'Start' }))
+      await waitFor(() => expect(h.player.play).toHaveBeenCalledTimes(3))
+      const stops = h.rec.stop.mock.calls.length
+      await act(async () => { upload.resolve({ id: 1 }) })
+      await sleepMs(300)
+      expect(usePractice.getState().recordingNow).toBe(true)
+      expect(h.rec.stop).toHaveBeenCalledTimes(stops)
+      expect(screen.getByTestId('cue-line')).toHaveTextContent('Speak along')
+      expect(screen.queryByRole('dialog')).toBeNull()
+      expect(screen.queryByText('library page')).toBeNull()
+    })
+
+    it("Finish session right after a run lists the run's sentences while their uploads are still pending", async () => {
+      h.api.segments.postAttempt.mockReturnValue(new Promise(() => {}))
+      await startFlowRun(() => false)
+      await screen.findByText(/Flow finished · 2 sentences/)
+      fireEvent.click(screen.getByRole('button', { name: 'Finish session' }))
+      const dialog = await screen.findByRole('dialog', { name: 'Send what you practised to Anki?' })
+      expect(rowsOf(dialog)).toEqual([['我今天想学中文', true], ['再见filler', false]])
+    })
+
     it('Close and Esc wait while a send is in flight, so a sentence is never sent twice', async () => {
       const d = deferred<Segment>()
       h.exportAndRecord.mockReturnValue(d.promise)

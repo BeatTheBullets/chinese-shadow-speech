@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../api/client'
+import type { Segment } from '../api/types'
 import { sleep } from '../audio/abortable'
 import { sliceSamples } from '../audio/pcm'
 import type { ClipPlayer } from '../audio/player'
@@ -44,7 +45,8 @@ export function useFlow(deps: FlowDeps) {
   const skipCtrl = useRef<AbortController | null>(null)
   const token = useRef(0)                   // bumped by clear(): late updates from an older run are ignored
   const urls = useRef<string[]>([])         // blob: URLs of the shown results, freed on clear and unmount
-  const recording = useRef<Promise<unknown> | null>(null) // the recording phase of the run in progress
+  const slicing = useRef<Promise<number[]> | null>(null)  // the run in progress, until its sentences are sliced
+  const sliced = useRef(new Set<number>())                // every sentence sliced from a run during this visit
   const alive = useRef(true)
 
   useEffect(() => {
@@ -66,10 +68,16 @@ export function useFlow(deps: FlowDeps) {
     const gapFactor = useSettings.getState().practice.flowGapFactor
     setState((f) => ({ ...f, phase: 'running', sub, range: { from, to }, current: from, clipTime: null, turn: null }))
     const startedAt = Date.now()
-    const capture = record(my, segments.map((s, k) => ({ segmentId: s.id, idx: from + k, url: api.segments.audioUrl(s.id), duration: s.end_s - s.start_s })), sub, gapFactor)
-    recording.current = capture
-    const take = await capture
-    if (recording.current === capture) recording.current = null
+    let resolve!: (ids: number[]) => void
+    const run = new Promise<number[]>((r) => { resolve = r })
+    const done = (ids: number[]) => { if (slicing.current === run) slicing.current = null; resolve(ids) }
+    slicing.current = run
+    try { await sliceAndUpload(my, from, segments, sub, gapFactor, startedAt, done) }
+    finally { done([]) } // no-op once the sentences were sliced
+  }
+
+  async function sliceAndUpload(my: number, from: number, segments: Segment[], sub: FlowSub, gapFactor: number, startedAt: number, done: (ids: number[]) => void) {
+    const take = await record(my, segments.map((s, k) => ({ segmentId: s.id, idx: from + k, url: api.segments.audioUrl(s.id), duration: s.end_s - s.start_s })), sub, gapFactor)
     if (token.current !== my) return
     if (!take) { setState((f) => ({ ...f, phase: 'setup', clipTime: null, turn: null })); return }
     const { got, played } = take
@@ -80,6 +88,8 @@ export function useFlow(deps: FlowDeps) {
       .map((t) => ({ ...t, wav: toWav16k(t.samples, sr) }))
     const results: FlowResult[] = takes.map((t) => ({ segmentId: t.rg.segmentId, idx: t.rg.idx, attemptId: null, url: URL.createObjectURL(t.wav), duration: t.samples.length / sr }))
     urls.current = results.map((x) => x.url)
+    results.forEach((x) => sliced.current.add(x.segmentId))
+    done(results.map((x) => x.segmentId))
     setState((f) => ({ ...f, phase: 'summary', clipTime: null, turn: null, results, pending: new Set(results.map((x) => x.segmentId)), skipped: played.skipped + ranges.length - takes.length, elapsedS: (Date.now() - startedAt) / 1000 }))
     // Each slice uploads to the sentence it was cut for. Uploads carry on even if the summary is closed meanwhile.
     const { lessonId, setError } = d.current
@@ -142,11 +152,14 @@ export function useFlow(deps: FlowDeps) {
     state,
     setForm: (p: Partial<Pick<FlowState, 'sub' | 'from' | 'to'>>) => setState((f) => ({ ...f, ...p })),
     start,
-    // Ends the run gracefully; resolves once the finished sentences are sliced and their uploads have started.
-    stop: (): Promise<void> => {
+    // Ends the run gracefully; resolves to the ids of its finished sentences once they are sliced (their uploads
+    // have started then, but are not waited for).
+    stop: (): Promise<number[]> => {
       stopCtrl.current?.abort()
-      return recording.current ? recording.current.then(() => {}) : Promise.resolve()
+      return slicing.current ?? Promise.resolve([])
     },
+    // Every sentence a run sliced during this visit, uploaded or not yet: practised in this session.
+    sliced: (): number[] => [...sliced.current],
     skip: () => skipCtrl.current?.abort(),
     clear,
   }
