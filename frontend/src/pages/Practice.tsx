@@ -202,7 +202,7 @@ export default function Practice() {
   async function playRef() {
     const s = currentSegment(usePractice.getState())
     if (!s || busy()) return
-    stopPlayback()
+    stopPlayback(); setError('')
     const mine = ++playId.current
     dispatch('PLAY')
     try { await player.play(api.segments.audioUrl(s.id), usePractice.getState().rate, setRefHead) }
@@ -381,7 +381,7 @@ export default function Practice() {
     const ps = usePractice.getState(), n = ps.lesson?.segments.length ?? 0
     const j = Math.max(0, Math.min(n - 1, i))
     if (n === 0 || j === ps.idx) return
-    cancelActivity()
+    cancelActivity(); setError('')
     ps.setIdx(j)
   }
   // Clicking the active mode does nothing. Leaving Flow mid-run stops it gracefully first (the finished sentences

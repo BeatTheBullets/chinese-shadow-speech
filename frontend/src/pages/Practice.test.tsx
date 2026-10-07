@@ -874,6 +874,25 @@ describe('<Practice>', () => {
     await waitFor(() => expect(screen.queryByRole('meter', { name: 'Microphone level' })).toBeNull()) // next 50 ms poll
   })
 
+  it('an error clears when the reference plays and when the sentence changes', async () => {
+    h.api.segments.patch.mockRejectedValue(new Error('boom'))
+    h.player.play.mockImplementation(() => new Promise(() => {})) // still playing
+    renderPractice()
+    await screen.findByText('你好', { selector: 'p.sentence' })
+    press('f')
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not flag: boom')
+    expect(screen.getByTestId('cue-line')).toHaveTextContent('Something went wrong')
+    press(' ')
+    await waitFor(() => expect(screen.getByTestId('cue-line')).toHaveTextContent('Listen'))
+    expect(screen.queryByRole('alert')).toBeNull()
+    press('f')
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not flag: boom')
+    press('ArrowRight')
+    expect(await screen.findByText('再见', { selector: 'p.sentence' })).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.getByTestId('cue-line')).not.toHaveTextContent('Something went wrong')
+  })
+
   it('the reference playback draws the colour wipe on an aligned sentence; without alignment only the cue shows', async () => {
     h.player.play.mockImplementation(() => new Promise(() => {})) // still playing
     h.api.lessons.get.mockResolvedValue({ ...lesson, segments: [
