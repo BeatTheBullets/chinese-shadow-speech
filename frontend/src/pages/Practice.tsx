@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { exportAndRecord, reexportQuestion } from '../anki/export'
 import { api, ApiError } from '../api/client'
 import type { LessonDetail, Mode, Segment } from '../api/types'
@@ -11,10 +11,12 @@ import { useMic } from '../audio/useMic'
 import CueLine, { WithMicLevel } from '../components/CueLine'
 import Drawer from '../components/Drawer'
 import EditDialog from '../components/EditDialog'
+import type { ExportItem } from '../components/ExportList'
 import FlowSummary from '../components/FlowSummary'
 import FlowView, { FlowSetup, FlowTransport } from '../components/FlowView'
 import HelpOverlay from '../components/HelpOverlay'
 import KaraokeSentence, { GhostLine } from '../components/KaraokeSentence'
+import SessionExportDialog from '../components/SessionExportDialog'
 import TopBar from '../components/TopBar'
 import Transport from '../components/Transport'
 import type { VolumeControls } from '../components/VolumeSliders'
@@ -26,6 +28,7 @@ import { guidedText, nextGuidedStep, type GuidedStep } from '../lib/guided'
 import { clipSpans, stageWipe } from '../lib/karaoke'
 import { actionForKey, type Action } from '../lib/keys'
 import { passageIndexOf, passageSpan } from '../lib/passages'
+import { sessionUnsent } from '../lib/sessionExport'
 import { useNow } from '../lib/useNow'
 import { clamp01, guideApplies, playbackVolume } from '../lib/volume'
 import { usePractice, currentSegment, type LastAttempt } from '../store/practice'
@@ -54,6 +57,7 @@ export default function Practice() {
   const segId = seg?.id
   const player = useMemo(() => new ClipPlayer(), [])
   const mic = useMic()
+  const navigate = useNavigate()
   const vadTimer = useRef<number | null>(null)
   const seqCtrl = useRef<AbortController | null>(null)    // a playback sequence (reference then take, Flow replays)
   const recSeg = useRef<Segment | null>(null)             // the sentence the current recording belongs to
@@ -77,8 +81,10 @@ export default function Practice() {
   const [elapsed, setElapsed] = useState(0)
   // The edit/split dialog, on drawer row `idx`. While it is open the page shortcuts are off.
   const [dialog, setDialog] = useState<{ mode: 'edit' | 'split'; idx: number } | null>(null)
+  // The session-end export dialog (addendum §5.2) and what to do once it closes.
+  const [exportPrompt, setExportPrompt] = useState<{ items: ExportItem[]; after: () => void } | null>(null)
   const dialogOpen = useRef(false)
-  dialogOpen.current = dialog != null
+  dialogOpen.current = dialog != null || exportPrompt != null
   const [dialogBusy, setDialogBusy] = useState(false)
   const [dialogError, setDialogError] = useState('')
   const exporting = useRef(false)
@@ -508,6 +514,23 @@ export default function Practice() {
     const weakest = weakestResults(flow.state.results, new Map(segs.map((s) => [s.id, s.last_score])), 3)
     void sendToAnki(weakest.map((r) => byId.get(r.segmentId)).filter((s): s is Segment => s != null))
   }
+  // This session's practised sentences with no Anki note.
+  function unsentItems(): ExportItem[] {
+    const ps = usePractice.getState(), l = ps.lesson
+    return l ? sessionUnsent(l.segments, ps.practised).map((segment) => ({ segment, lesson: l })) : []
+  }
+  // Offers them before `after` (leaving the page, closing the Flow summary); with none, runs `after` at once.
+  function offerExport(after: () => void) {
+    const items = unsentItems()
+    if (!items.length) { after(); return }
+    cancelActivity()
+    setExportPrompt({ items, after })
+  }
+  function closeExport() {
+    const p = exportPrompt
+    setExportPrompt(null)
+    p?.after()
+  }
 
   function act(a: Action) {
     const ps = usePractice.getState()
@@ -602,6 +625,7 @@ export default function Practice() {
     <div className="h-full flex flex-col">
       <TopBar title={st.lesson.title} speaker={st.lesson.speaker} idx={flowRunning ? fs.current : st.idx} total={segments.length} mode={st.mode}
         onMode={(m) => void switchMode(m)} elapsedS={elapsed} chorusPasses={settings.practice.chorusPasses} onHelp={() => setHelp(true)}
+        onBack={(e) => { if (unsentItems().length) { e.preventDefault(); offerExport(() => navigate('/library')) } }}
         passage={passages.length ? { index: passageIndexOf(passages, segments, flowRunning ? fs.current : st.idx), titles: passages.map((p) => p.title), onPick: pickPassage } : null} />
       <div className="flex-1 flex min-h-0">
         <main className="flex-1 flex flex-col min-w-0">
@@ -621,7 +645,7 @@ export default function Practice() {
                   onPlayPair={(r) => playItems(pairOf(r))} onReplayAll={() => playItems([...fs.results].sort((x, y) => x.idx - y.idx).flatMap(pairOf))}
                   onRunAgain={() => { if (fs.range) startFlow(fs.range.from, fs.range.to) }} onEcho={(i) => void drill('echo', i)} onChorus={(i) => void drill('chorus', i)}
                   onFlagWeakest={flagWeakest} onExportWeakest={exportWeakest}
-                  onDone={flow.clear} />
+                  onDone={() => offerExport(flow.clear)} />
               ) : (<>
                 {st.mode === 'flow' && <FlowSetup segments={segments} from={range.from} to={range.to} sub={fs.sub} onChange={flow.setForm} onStart={() => act('record')} />}
                 <KaraokeSentence wipe={wipe} text={seg.text} words={seg.words_json} showHanzi={st.textPrefs.hanzi && show} showPinyin={st.textPrefs.pinyin && show} translation={seg.translation} showTranslation={st.textPrefs.translation && show} />
@@ -631,7 +655,8 @@ export default function Practice() {
                   onPlayRef={() => act('play')} onPlayYou={() => act('replayYou')} onPlaySyllable={playSyllable} />
               </>)}
             </div>
-            <Transport onAction={act} rate={st.rate} onRate={st.setRate} recording={echo === 'recording'} busy={echo === 'uploading'} flagged={seg.difficulty_flag} hint={st.hint} error={error} recordLabel={recordLabel} volume={volume} />
+            <Transport onAction={act} rate={st.rate} onRate={st.setRate} recording={echo === 'recording'} busy={echo === 'uploading'} flagged={seg.difficulty_flag} hint={st.hint} error={error} recordLabel={recordLabel} volume={volume}
+              onFinish={() => offerExport(() => navigate('/library'))} />
           </>)}
         </main>
         {!flowRunning && <Drawer segments={segments} idx={st.idx} open={st.drawerOpen} pendingIds={fs.pending} onJump={goTo} onToggle={st.toggleDrawer}
@@ -640,6 +665,7 @@ export default function Practice() {
       {dialog && segments[dialog.idx] && (
         <EditDialog key={`${dialog.mode}-${segments[dialog.idx].id}`} segment={segments[dialog.idx]} mode={dialog.mode} busy={dialogBusy} error={dialogError}
           onSave={saveEdit} onSplit={splitAt} onClose={() => { if (!dialogBusy) setDialog(null) }} />)}
+      {exportPrompt && <SessionExportDialog items={exportPrompt.items} onSent={(s) => usePractice.getState().updateSegment(s)} onClose={closeExport} />}
       {help && <HelpOverlay chorusPasses={settings.practice.chorusPasses} onClose={() => setHelp(false)} />}
     </div>
   )

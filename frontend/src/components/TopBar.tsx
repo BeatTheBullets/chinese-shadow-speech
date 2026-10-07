@@ -1,3 +1,4 @@
+import type { MouseEvent } from 'react'
 import { Link } from 'react-router-dom'
 import type { Mode } from '../api/types'
 import { mmss } from '../lib/time'
@@ -7,11 +8,12 @@ export interface PassagePick { index: number; titles: string[]; onPick: (k: numb
 interface Props {
   title: string; speaker: string; idx: number; total: number; mode: Mode; onMode: (m: Mode) => void; elapsedS: number
   passage?: PassagePick | null; chorusPasses: number; onHelp: () => void
+  onBack?: (e: MouseEvent<HTMLAnchorElement>) => void
 }
-export default function TopBar({ title, speaker, idx, total, mode, onMode, elapsedS, passage, chorusPasses, onHelp }: Props) {
+export default function TopBar({ title, speaker, idx, total, mode, onMode, elapsedS, passage, chorusPasses, onHelp, onBack }: Props) {
   return (
     <div className="flex items-center justify-between px-4 py-2 border-b border-line text-sm text-fgdim">
-      <span><Link to="/library" className="mr-3 hover:text-fghi" title="Back to the library">←</Link>
+      <span><Link to="/library" onClick={onBack} className="mr-3 hover:text-fghi" title="Back to the library">←</Link>
         <span className="font-hanzi text-fghi">{speaker && `${speaker} · `}{title}</span> &nbsp; {idx + 1} / {total}
         {passage && passage.titles.length > 0 && (
           <label className="ml-3">Passage {Math.max(0, passage.index) + 1} / {passage.titles.length}

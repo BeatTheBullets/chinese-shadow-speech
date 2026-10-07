@@ -540,6 +540,21 @@ describe('<Practice>', () => {
       expect(h.player.play).not.toHaveBeenCalled()
       expect(usePractice.getState().recordingNow).toBe(false)
     })
+
+    it("closing the summary offers the run's sentences before the setup comes back", async () => {
+      useSettings.setState({ exportNote: { deckName: 'D', modelName: 'M', fields: { sentence: 'S', audio: 'A' } } })
+      clipsTake(2)
+      h.rec.stop.mockReturnValue(new Float32Array(44100 * 10))
+      await startFlow('along')
+      await screen.findByText(/Flow finished · 2 sentences/)
+      await waitFor(() => expect(usePractice.getState().practised).toEqual([11, 12]))
+      fireEvent.click(screen.getByRole('button', { name: 'done' }))
+      const dialog = await screen.findByRole('dialog', { name: 'Send what you practised to Anki?' })
+      expect(within(dialog).getAllByRole('checkbox')).toHaveLength(2)
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }))
+      expect(await screen.findByRole('button', { name: 'Start' })).toBeInTheDocument()
+      cleanup(); useSettings.setState({ exportNote: null }) // unmount first: a store update reaching the mounted page warns about act()
+    })
   })
 
   it('Guided: listen → whisper (text shown, no mic) → record (text hidden), uploads as guided, then advances', async () => {
@@ -874,5 +889,80 @@ describe('<Practice>', () => {
     press(' ')
     await waitFor(() => expect(screen.getByTestId('cue-line')).toHaveTextContent('Listen'))
     expect(screen.queryByTestId('wipe')).toBeNull()
+  })
+
+  describe('session-end export', () => {
+    const cfg = { deckName: 'shadow-speech', modelName: 'Shadow Listening', fields: { sentence: 'Sentence', audio: 'Audio' } }
+    const long: LessonDetail = { ...lesson, segments: [seg(11, 0, '我今天想学中文'), seg(12, 1, '再见')] }
+    beforeEach(() => { useSettings.setState({ exportNote: cfg }); h.api.lessons.get.mockResolvedValue(long) })
+    afterEach(() => { cleanup(); useSettings.setState({ exportNote: null }) })
+    const renderWithLibrary = () => render(
+      <MemoryRouter initialEntries={['/practice/1']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <Routes><Route path="/practice/:id" element={<Practice />} /><Route path="/library" element={<div>library page</div>} /></Routes>
+      </MemoryRouter>)
+    async function takeOne() {
+      await screen.findByText('我今天想学中文', { selector: 'p.sentence' })
+      press('Enter'); await flush(); press('Enter'); await flush()
+      await waitFor(() => expect(usePractice.getState().practised).toEqual([11]))
+    }
+
+    it('Finish session offers the practised sentences, sends them, then goes to the library', async () => {
+      h.exportAndRecord.mockImplementation(async (s: Segment) => ({ ...s, anki_note_id: 5 }))
+      renderWithLibrary()
+      await takeOne()
+      fireEvent.click(screen.getByRole('button', { name: 'Finish session' }))
+      const dialog = await screen.findByRole('dialog', { name: 'Send what you practised to Anki?' })
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Send 1 to Anki' }))
+      expect(await within(dialog).findByText('sent ✓')).toBeInTheDocument()
+      expect(h.exportAndRecord).toHaveBeenCalledWith(expect.objectContaining({ id: 11 }), useSettings.getState().ankiUrl, cfg, expect.objectContaining({ id: 1 }))
+      expect(usePractice.getState().lesson!.segments[0].anki_note_id).toBe(5)
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }))
+      expect(await screen.findByText('library page')).toBeInTheDocument()
+    })
+
+    it('fillers start unticked', async () => {
+      h.api.lessons.get.mockResolvedValue(lesson)                 // 你好: two characters
+      renderWithLibrary()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      press('Enter'); await flush(); press('Enter'); await flush()
+      await waitFor(() => expect(usePractice.getState().practised).toEqual([11]))
+      fireEvent.click(screen.getByRole('button', { name: 'Finish session' }))
+      const dialog = await screen.findByRole('dialog', { name: 'Send what you practised to Anki?' })
+      expect(within(dialog).getByRole('checkbox', { name: /你好/ })).not.toBeChecked()
+    })
+
+    it('the back link asks first when something practised is not in Anki', async () => {
+      renderWithLibrary()
+      await takeOne()
+      fireEvent.click(screen.getByTitle('Back to the library'))
+      expect(await screen.findByRole('dialog', { name: 'Send what you practised to Anki?' })).toBeInTheDocument()
+      expect(screen.queryByText('library page')).toBeNull()
+      fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+      expect(await screen.findByText('library page')).toBeInTheDocument()
+    })
+
+    it('while the dialog is open the page shortcuts are off, and Esc closes it', async () => {
+      renderWithLibrary()
+      await takeOne()
+      press('Enter') // a new take, still recording: Finish session drops it
+      await waitFor(() => expect(usePractice.getState().recordingNow).toBe(true))
+      fireEvent.click(screen.getByRole('button', { name: 'Finish session' }))
+      await screen.findByRole('dialog', { name: 'Send what you practised to Anki?' })
+      expect(usePractice.getState().recordingNow).toBe(false)
+      const starts = h.rec.start.mock.calls.length
+      press('Enter'); press(' '); await flush()
+      expect(h.rec.start).toHaveBeenCalledTimes(starts)
+      expect(h.player.play).not.toHaveBeenCalled()
+      press('Escape')
+      expect(await screen.findByText('library page')).toBeInTheDocument()
+    })
+
+    it('with nothing to send, the back link and Finish session leave at once', async () => {
+      renderWithLibrary()
+      await screen.findByText('我今天想学中文', { selector: 'p.sentence' })
+      fireEvent.click(screen.getByTitle('Back to the library'))
+      expect(await screen.findByText('library page')).toBeInTheDocument()
+      expect(screen.queryByRole('dialog')).toBeNull()
+    })
   })
 })

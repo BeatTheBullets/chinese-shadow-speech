@@ -1,8 +1,8 @@
 import type { Action } from '../lib/keys'
 import VolumeSliders, { type VolumeControls } from './VolumeSliders'
-interface Props { onAction: (a: Action) => void; rate: number; onRate: (r: number) => void; recording: boolean; busy: boolean; flagged: boolean; hint: string; error: string; recordLabel?: string; volume: VolumeControls }
+interface Props { onAction: (a: Action) => void; rate: number; onRate: (r: number) => void; recording: boolean; busy: boolean; flagged: boolean; hint: string; error: string; recordLabel?: string; volume: VolumeControls; onFinish: () => void }
 // recordLabel: what Enter does in the current mode when not recording (Chorus, Guided step, Flow start, or stop for a run).
-export default function Transport({ onAction, rate, onRate, recording, busy, flagged, hint, error, recordLabel, volume }: Props) {
+export default function Transport({ onAction, rate, onRate, recording, busy, flagged, hint, error, recordLabel, volume, onFinish }: Props) {
   const b = 'px-3 py-1 rounded bg-panel2 text-sm disabled:opacity-40'
   return (
     <div className="border-t border-line p-3 text-center space-y-1">
@@ -21,6 +21,7 @@ export default function Transport({ onAction, rate, onRate, recording, busy, fla
         <button className={b} onClick={() => onAction('toggleHanzi')}>T</button><button className={b} onClick={() => onAction('togglePinyin')}>P</button><button className={b} onClick={() => onAction('toggleTranslation')}>E</button>
         <button className={b} onClick={() => onAction('exportAnki')}>A → Anki</button>
         <button className={b} onClick={() => onAction('next')} title="Next (→)">▶</button>
+        <button className={b} onClick={onFinish} title="End the session; offers to send what you practised to Anki">Finish session</button>
       </div>
       {hint && <p className="text-xs text-warn">{hint}</p>}
       {error && <p className="text-xs text-bad" role="alert">{error}</p>}
