@@ -9,3 +9,4 @@ test:
 	cd backend && uv run pytest -q
 	cd frontend && npm test -- --run
 	cd frontend && npx eslint .
+	cd frontend && npx tsc -b
