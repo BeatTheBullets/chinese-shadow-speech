@@ -148,6 +148,13 @@ def test_subtitles_just_under_the_match_threshold_are_ignored_and_reported_round
     assert tr is not None and meta == {"subtitle_match": 0.5}
 
 
+def test_subtitle_match_percentage_is_computed_from_counts():
+    from shadow.ingest.pipeline import _subtitle_transcript
+    asr = transcript_from_cues([Cue(0.0, 25.0, "一" * 29 + "三" * 71)])
+    tr, meta = _subtitle_transcript(("a.txt", "一" * 29 + "二" * 71), asr)        # 29 / 100: 29.0 * 100 / 100 < 29
+    assert tr is None and meta == {"subtitle_ignored": "subtitles don't match the audio (29 % of characters matched)"}
+
+
 def test_ingest_upload_with_rolling_auto_captions_has_no_repeated_sentences(data_dir, fake_transcript, tmp_path):
     deps, engine, lid = _setup(data_dir, fake_transcript)
     lines = ["我今天想跟你们聊一聊", "学中文的方法", "其实方法有很多", "但是最重要的是坚持"]

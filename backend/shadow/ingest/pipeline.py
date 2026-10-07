@@ -195,10 +195,11 @@ def _subtitle_transcript(subtitle: tuple[str, str], asr: Transcript) -> tuple[Tr
     do not match the audio; plus the lesson meta to record (`subtitle_match` or `subtitle_ignored`)."""
     lines, ignored = _subtitle_lines(subtitle)
     if not ignored:
-        tr, ratio = align_text_to_asr(lines, asr)
-        if ratio >= MIN_SUBTITLE_MATCH:
-            return tr, {"subtitle_match": round(ratio, 2)}
-        ignored = f"subtitles don't match the audio ({int(ratio * 100)} % of characters matched)"
+        a = align_text_to_asr(lines, asr)
+        if a.ratio >= MIN_SUBTITLE_MATCH:
+            return a.transcript, {"subtitle_match": round(a.ratio, 2)}
+        # rounded down from the counts: a rejected 49.6 % must not read as 50 %, and 29/100 is 29 %, not 28 %
+        ignored = f"subtitles don't match the audio ({a.matched * 100 // a.total} % of characters matched)"
     log.warning("ignoring subtitles (%s); using the ASR transcript instead", ignored)
     return None, {"subtitle_ignored": ignored}
 
