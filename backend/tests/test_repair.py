@@ -1,0 +1,69 @@
+from shadow.ingest.align import Span
+from shadow.ingest.repair import REPAIRED_CONF, coarse_times, repair_spans
+from shadow.ingest.transcript import TimedChar
+
+
+def _t(spans):
+    return [(round(s.start, 3), round(s.end, 3), s.conf) for s in spans]
+
+
+def test_coarse_times_match_speech_chars_and_skip_punctuation():
+    chars = [TimedChar("我", 8.63, 8.87), TimedChar("，", 8.87, 8.87), TimedChar("好", 8.9, 9.1)]
+    assert coarse_times("我，好。", chars) == [(8.63, 8.87), (8.9, 9.1)]
+
+
+def test_coarse_times_line_up_edited_text_and_leave_added_chars_none():
+    # the LLM repaired 雪 → 学 (a substitution keeps its time) and added 啊 (no ASR char)
+    chars = [TimedChar("我", 0.0, 0.2), TimedChar("雪", 0.2, 0.4), TimedChar("中", 0.4, 0.6), TimedChar("文", 0.6, 0.8)]
+    assert coarse_times("我学中文啊", chars) == [(0.0, 0.2), (0.2, 0.4), (0.4, 0.6), (0.6, 0.8), None]
+
+
+def test_zero_length_span_takes_the_coarse_span_with_conf_half():
+    spans = [Span("我", 7.63, 7.63, 1.0), Span("好", 8.9, 9.1, 1.0)]
+    assert _t(repair_spans(spans, [(8.63, 8.87), (8.9, 9.1)])) == [(8.63, 8.87, REPAIRED_CONF), (8.9, 9.1, 1.0)]
+
+
+def test_span_starting_too_early_takes_the_coarse_span():
+    # lesson 1, sentence 0: Qwen3 starts 我 a second early (7.63–8.59); the ASR has it at 8.63–8.87
+    spans = [Span("我", 7.63, 8.59, 1.0), Span("今", 8.88, 9.1, 1.0)]
+    assert _t(repair_spans(spans, [(8.63, 8.87), (8.87, 9.1)])) == [(8.63, 8.87, 0.5), (8.88, 9.1, 1.0)]
+
+
+def test_small_drift_and_missing_coarse_keep_the_aligner_span():
+    spans = [Span("我", 1.2, 1.4, 1.0), Span("好", 1.4, 1.6, 1.0)]
+    assert repair_spans(spans, [(1.0, 1.3), None]) == spans          # 0.2 s drift is within 0.3 s
+
+
+def test_repaired_spans_are_made_monotonic():
+    # the coarse span of 我 ends after the aligner's start of 好
+    spans = [Span("我", 0.0, 0.0, 1.0), Span("好", 0.3, 0.6, 1.0)]
+    out = repair_spans(spans, [(0.2, 0.4), (0.35, 0.6)])
+    assert _t(out) == [(0.2, 0.4, 0.5), (0.4, 0.6, 1.0)]
+    for a, b in zip(out, out[1:]):
+        assert a.start <= a.end <= b.start <= b.end
+
+
+def test_without_coarse_times_zero_length_spans_share_the_gap_to_the_next_span():
+    # Anki segments have no transcript: two zero-length chars before a span at 1.0 split 0.4–1.0 evenly
+    spans = [Span("你", 0.1, 0.4, 1.0), Span("好", 0.4, 0.4, 1.0), Span("吗", 0.4, 0.4, 0.0), Span("呀", 1.0, 1.3, 1.0)]
+    assert _t(repair_spans(spans)) == [(0.1, 0.4, 1.0), (0.4, 0.7, 0.5), (0.7, 1.0, 0.5), (1.0, 1.3, 1.0)]
+
+
+def test_zero_length_last_span_without_a_next_one_stays():
+    spans = [Span("你", 0.1, 0.4, 1.0), Span("好", 0.4, 0.4, 1.0)]
+    assert _t(repair_spans(spans)) == [(0.1, 0.4, 1.0), (0.4, 0.4, 1.0)]
+
+
+def test_empty_spans_and_coarse_of_the_wrong_length_are_tolerated():
+    assert repair_spans([], []) == []
+    spans = [Span("你", 0.0, 0.0, 1.0), Span("好", 0.5, 0.8, 1.0)]
+    # one coarse time for two spans: treated as no coarse times (gap fill only)
+    assert _t(repair_spans(spans, [(9.0, 9.5)])) == [(0.0, 0.5, 0.5), (0.5, 0.8, 1.0)]
+
+
+def test_repaired_span_squeezed_to_zero_by_the_previous_span_does_not_stay_zero_length():
+    # 好's coarse span ends where 我 (aligner span) ends: after the monotonic pass it would be 0.5–0.5
+    spans = [Span("我", 0.0, 0.5, 1.0), Span("好", 0.0, 0.0, 1.0), Span("吗", 0.8, 1.0, 1.0)]
+    out = repair_spans(spans, [(0.0, 0.5), (0.3, 0.5), (0.8, 1.0)])
+    assert _t(out) == [(0.0, 0.5, 1.0), (0.5, 0.8, 0.5), (0.8, 1.0, 1.0)]
+    assert all(s.end > s.start for s in out)
