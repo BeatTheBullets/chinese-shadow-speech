@@ -15,17 +15,20 @@ import FlowView, { FlowSetup, FlowTransport } from '../components/FlowView'
 import Sentence from '../components/Sentence'
 import TopBar from '../components/TopBar'
 import Transport from '../components/Transport'
+import type { VolumeControls } from '../components/VolumeSliders'
 import TwoTrack from '../components/TwoTrack'
 import { echoReducer, MIN_TAKE_S, type EchoEvent, type EchoState } from '../lib/echo'
 import { weakestResults, type FlowResult } from '../lib/flow'
 import { guidedText, nextGuidedStep, type GuidedStep } from '../lib/guided'
 import { actionForKey, type Action } from '../lib/keys'
 import { passageIndexOf, passageSpan } from '../lib/passages'
+import { clamp01, guideApplies, playbackVolume } from '../lib/volume'
 import { usePractice, currentSegment, type LastAttempt } from '../store/practice'
 import { useSettings, defaultTextPrefs, type TextPrefs } from '../store/settings'
 import { useFlow } from './useFlow'
 
 const MOVE_ON = 'Several tries on this one. Move on and come back later.'
+const HEADPHONES = 'Use headphones — the mic would pick up the reference'
 const CHORUS_GAP_MS = 300  // between chorus passes (§6)
 const CHORUS_TAIL_MS = 300 // the chorus take runs this long past the end of the last pass
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
@@ -74,6 +77,7 @@ export default function Practice() {
   const [dialogBusy, setDialogBusy] = useState(false)
   const [dialogError, setDialogError] = useState('')
   const exporting = useRef(false)
+  const headphonesHinted = useRef(false)          // the headphones hint shows once per visit
   const flow = useFlow({ lessonId, player, mic, beginRun: () => beginRun('flow'), endRun, setError })
 
   useEffect(() => { const t = setInterval(() => setElapsed((Date.now() - started) / 1000), 1000); return () => clearInterval(t) }, [started])
@@ -133,13 +137,29 @@ export default function Practice() {
   // Guided starts over on every new sentence and mode.
   useEffect(() => { setGuided('listen') }, [segId, st.mode])
 
+  // Reference volume, or its guide level while the learner speaks along (addendum §7); follows the sliders live.
+  const speakingAlong = runKind === 'chorus' || (runKind === 'flow' && flow.state.sub === 'along')
+  const playVolume = playbackVolume({ speakingAlong, referenceVolume: settings.referenceVolume, guideLevel: settings.guideLevel })
+  useEffect(() => { player.setVolume(playVolume) }, [player, playVolume])
+
   function beginRun(kind: RunKind): AbortController {
     const ctrl = new AbortController()
     runRef.current = { kind, ctrl }; setRunKind(kind)
+    applyVolume(kind === 'chorus' || (kind === 'flow' && flow.state.sub === 'along'))
     return ctrl
   }
-  function endRun(ctrl: AbortController) { if (runRef.current?.ctrl === ctrl) { runRef.current = null; setRunKind(null) } }
-  function abortRun() { const r = runRef.current; if (!r) return; runRef.current = null; setRunKind(null); r.ctrl.abort() }
+  function endRun(ctrl: AbortController) { if (runRef.current?.ctrl === ctrl) { runRef.current = null; setRunKind(null); applyVolume(false) } }
+  function abortRun() { const r = runRef.current; if (!r) return; runRef.current = null; setRunKind(null); applyVolume(false); r.ctrl.abort() }
+  // At once, before the run's first clip (the effect above follows a render later).
+  function applyVolume(along: boolean) {
+    const s = useSettings.getState()
+    player.setVolume(playbackVolume({ speakingAlong: along, referenceVolume: s.referenceVolume, guideLevel: s.guideLevel }))
+  }
+  function hintHeadphones() {
+    if (headphonesHinted.current) return
+    headphonesHinted.current = true
+    usePractice.getState().setHint(HEADPHONES)
+  }
   function clearVad() { if (vadTimer.current != null) { clearTimeout(vadTimer.current); vadTimer.current = null } }
   function stopPlayback() {
     seqCtrl.current?.abort(); seqCtrl.current = null
@@ -249,7 +269,7 @@ export default function Practice() {
   async function chorus() {
     const s = currentSegment(usePractice.getState())
     if (!s || busy()) return
-    stopPlayback(); setError('')
+    stopPlayback(); setError(''); hintHeadphones()
     const run = beginRun('chorus'), { signal } = run
     const passes = Math.max(1, Math.round(useSettings.getState().practice.chorusPasses))
     const url = api.segments.audioUrl(s.id)
@@ -372,6 +392,7 @@ export default function Practice() {
   }
   function startFlow(from: number, to: number) {
     cancelActivity()
+    if (flow.state.sub === 'along') hintHeadphones()
     void flow.start(from, to, flow.state.sub)
   }
   // From the Flow summary to a drill of one sentence.
@@ -546,6 +567,10 @@ export default function Practice() {
     : st.mode === 'guided' ? `● ${guidedText(guided).label}`
     : st.mode === 'flow' ? '● Start flow' : undefined
   const range = flowRange()
+  const volume: VolumeControls = {
+    reference: settings.referenceVolume, guide: guideApplies(st.mode, fs.sub) ? settings.guideLevel : null,
+    onReference: (v) => settings.set({ referenceVolume: clamp01(v) }), onGuide: (v) => settings.set({ guideLevel: clamp01(v) }),
+  }
   return (
     <div className="h-full flex flex-col">
       <TopBar title={st.lesson.title} speaker={st.lesson.speaker} idx={flowRunning ? fs.current : st.idx} total={segments.length} mode={st.mode}
@@ -556,7 +581,7 @@ export default function Practice() {
           {flowRunning ? (<>
             <FlowView segments={segments} current={fs.current} pending={fs.pending} micPeak={fs.micPeak} sub={fs.sub}
               showText={!(settings.practice.hideTextWhileRecording && fs.sub === 'after')} />
-            <FlowTransport rate={st.rate} onRate={st.setRate} sub={fs.sub} onStop={() => act('record')} onSkip={() => act('next')} error={error} />
+            <FlowTransport rate={st.rate} onRate={st.setRate} sub={fs.sub} onStop={() => act('record')} onSkip={() => act('next')} error={error} hint={st.hint} volume={volume} />
           </>) : (<>
             <div className="flex-1 overflow-y-auto p-6 space-y-6">
               {st.mode === 'flow' && fs.phase === 'summary' ? (
@@ -573,7 +598,7 @@ export default function Practice() {
                   onPlayRef={() => act('play')} onPlayYou={() => act('replayYou')} onPlaySyllable={playSyllable} />
               </>)}
             </div>
-            <Transport onAction={act} rate={st.rate} onRate={st.setRate} recording={echo === 'recording'} busy={echo === 'uploading'} flagged={seg.difficulty_flag} hint={st.hint} error={error} recordLabel={recordLabel} />
+            <Transport onAction={act} rate={st.rate} onRate={st.setRate} recording={echo === 'recording'} busy={echo === 'uploading'} flagged={seg.difficulty_flag} hint={st.hint} error={error} recordLabel={recordLabel} volume={volume} />
           </>)}
         </main>
         {!flowRunning && <Drawer segments={segments} idx={st.idx} open={st.drawerOpen} pendingIds={fs.pending} onJump={goTo} onToggle={st.toggleDrawer}

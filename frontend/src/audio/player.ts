@@ -18,6 +18,7 @@ export class ClipPlayer {
   private ctx: AudioContext | null = null
   private peakCache = new Map<string, Float32Array>()
   private active: PlayToken | null = null
+  private vol = 1
 
   private el(url: string): HTMLAudioElement {
     let a = this.els.get(url)
@@ -25,6 +26,11 @@ export class ClipPlayer {
     return a
   }
   async preload(url: string) { const a = this.el(url); if (a.readyState < 2) await new Promise<void>((r) => { a.oncanplaythrough = () => r(); a.onerror = () => r(); a.load() }) }
+  // Volume (0…1) of the clip playing and of every later one.
+  setVolume(v: number) {
+    this.vol = Math.max(0, Math.min(1, Number.isFinite(v) ? v : 1))
+    if (this.current) this.current.volume = this.vol
+  }
   get currentTime() { return this.current?.currentTime ?? 0 }
   stop() {
     if (this.active) {
@@ -48,7 +54,7 @@ export class ClipPlayer {
     this.stop()
     const token: PlayToken = { cancelled: false }
     this.active = token
-    const a = this.el(url); this.current = a; a.playbackRate = rate; a.currentTime = fromS
+    const a = this.el(url); this.current = a; a.playbackRate = rate; a.volume = this.vol; a.currentTime = fromS
     return new Promise((resolve, reject) => {
       let raf = 0
       const cleanup = () => { cancelAnimationFrame(raf); a.onended = null; a.onerror = null }

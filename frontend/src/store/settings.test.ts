@@ -15,4 +15,18 @@ describe('settings store', () => {
     expect(raw.state.importQueries[0].name).toBe('Mining')
     expect(raw.state.textPrefs['7'].pinyin).toBe(false)
   })
+  it('has volume and help defaults and persists them', () => {
+    const s = useSettings.getState()
+    expect([s.referenceVolume, s.guideLevel, s.helpSeen]).toEqual([1, 0.5, false])
+    s.set({ referenceVolume: 0.6, guideLevel: 0.3, helpSeen: true })
+    const raw = JSON.parse(localStorage.getItem('shadow.settings')!)
+    expect([raw.state.referenceVolume, raw.state.guideLevel, raw.state.helpSeen]).toEqual([0.6, 0.3, true])
+  })
+  it('settings persisted before the volume keys existed load with the defaults', async () => {
+    localStorage.setItem('shadow.settings', JSON.stringify({ state: { ankiUrl: 'http://x:1', textPrefs: {} }, version: 0 }))
+    await useSettings.persist.rehydrate()
+    const s = useSettings.getState()
+    expect(s.ankiUrl).toBe('http://x:1')
+    expect([s.referenceVolume, s.guideLevel, s.helpSeen]).toEqual([1, 0.5, false])
+  })
 })

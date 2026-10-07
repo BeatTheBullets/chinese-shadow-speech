@@ -420,4 +420,27 @@ describe('ClipPlayer', () => {
 
     vi.unstubAllGlobals()
   })
+
+  it('plays every clip at the set volume and changes the one playing at once', async () => {
+    player.setVolume(0.4)
+    const p = player.play('vol.mp3', 1)
+    await Promise.resolve()
+    const a = [...audioElements.keys()].find((el) => audioElements.get(el)?.url === 'vol.mp3')!
+    expect(a.volume).toBeCloseTo(0.4)
+    player.setVolume(1.5)
+    expect(a.volume).toBe(1)
+    player.stop(); await p
+  })
+
+  it('applies the volume to a cached element and to a range play', async () => {
+    const p1 = player.play('vol2.mp3', 1)
+    await Promise.resolve()
+    player.stop(); await p1
+    player.setVolume(0.3)
+    const p2 = player.playRange('vol2.mp3', 1, 0.5, 1)
+    await Promise.resolve()
+    const a = [...audioElements.keys()].find((el) => audioElements.get(el)?.url === 'vol2.mp3')!
+    expect(a.volume).toBeCloseTo(0.3)
+    player.stop(); await p2
+  })
 })

@@ -3,6 +3,7 @@ import type { Segment } from '../api/types'
 import type { FlowSub } from '../lib/flow'
 import Sentence from './Sentence'
 import { dotClass } from './Drawer'
+import VolumeSliders, { type VolumeControls } from './VolumeSliders'
 
 // Flow mode while running: the lesson as a transcript, the current line grown in place with a live mic strip (§7.3).
 export default function FlowView({ segments, current, pending, micPeak, sub, showText }: { segments: Segment[]; current: number; pending: Set<number>; micPeak: number; sub: FlowSub; showText: boolean }) {
@@ -45,8 +46,10 @@ export function FlowSetup({ segments, from, to, sub, onChange, onStart }: { segm
   )
 }
 
-// Flow mode while running: ■ stop (Enter) · skip (→) · speed. Pause is not in v1.
-export function FlowTransport({ rate, onRate, sub, onStop, onSkip, error }: { rate: number; onRate: (r: number) => void; sub: FlowSub; onStop: () => void; onSkip: () => void; error: string }) {
+// Flow mode while running: ■ stop (Enter) · skip (→) · speed · volume. Pause is not in v1.
+export function FlowTransport({ rate, onRate, sub, onStop, onSkip, error, hint, volume }: {
+  rate: number; onRate: (r: number) => void; sub: FlowSub; onStop: () => void; onSkip: () => void; error: string; hint: string; volume: VolumeControls
+}) {
   const b = 'px-3 py-1 rounded bg-panel2 text-sm'
   return (
     <div className="border-t border-line p-3 text-center space-y-1">
@@ -57,7 +60,9 @@ export function FlowTransport({ rate, onRate, sub, onStop, onSkip, error }: { ra
           onChange={(e) => onRate(Number(e.target.value))} onPointerUp={(e) => e.currentTarget.blur()} /></label>
         <button className={b} onClick={() => onRate(rate === 0.75 ? 1 : 0.75)}>0.75×</button>
         <span className="text-xs text-fgdim">{sub}</span>
+        <VolumeSliders volume={volume} />
       </div>
+      {hint && <p className="text-xs text-warn">{hint}</p>}
       {error && <p className="text-xs text-bad" role="alert">{error}</p>}
     </div>
   )

@@ -14,6 +14,9 @@ interface SettingsState {
   languageParent: string | null
   practice: PracticePrefs
   textPrefs: Record<string, TextPrefs>
+  referenceVolume: number   // 0–1: every reference playback and your own takes (addendum §7)
+  guideLevel: number        // 0–1 of the reference volume while speaking along (Chorus, Flow along)
+  helpSeen: boolean         // the practice help overlay has opened once
   set: (p: Partial<Omit<SettingsState, 'set' | 'addQuery' | 'removeQuery' | 'setTextPrefs' | 'reset'>>) => void
   addQuery: (q: ImportQuery) => void
   removeQuery: (name: string) => void
@@ -28,6 +31,7 @@ const defaults = {
   languageParent: null as string | null,
   practice: { hideTextWhileRecording: true, chorusPasses: 5, flowGapFactor: 1.1, moveOnAfter: 4, defaultRate: 1.0 },
   textPrefs: {} as Record<string, TextPrefs>,
+  referenceVolume: 1, guideLevel: 0.5, helpSeen: false,
 }
 
 export const useSettings = create<SettingsState>()(persist((set) => ({

@@ -16,7 +16,7 @@ const h = vi.hoisted(() => ({
   clock: { t: 0 }, // AudioContext.currentTime
   toWav16k: vi.fn(() => new Blob(['wav'])),
   playSequence: vi.fn(() => Promise.resolve()),
-  player: { play: vi.fn(() => Promise.resolve()), playRange: vi.fn(() => Promise.resolve()), stop: vi.fn(), preload: vi.fn(() => Promise.resolve()), peaksFor: vi.fn(() => new Promise(() => {})) },
+  player: { play: vi.fn(() => Promise.resolve()), playRange: vi.fn(() => Promise.resolve()), stop: vi.fn(), setVolume: vi.fn(), preload: vi.fn(() => Promise.resolve()), peaksFor: vi.fn(() => new Promise(() => {})) },
   ctxClose: vi.fn(() => Promise.resolve()),
   twoTrack: null as null | { onPlaySyllable: (i: number) => void },
 }))
@@ -286,6 +286,23 @@ describe('<Practice>', () => {
     beforeEach(() => { passes = useSettings.getState().practice.chorusPasses; useSettings.setState((s) => ({ practice: { ...s.practice, chorusPasses: 2 } })) })
     afterEach(() => { cleanup(); useSettings.setState((s) => ({ practice: { ...s.practice, chorusPasses: passes } })) })
 
+    it('plays the passes at the guide level of the reference volume and shows the headphones hint once', async () => {
+      useSettings.setState({ referenceVolume: 0.8, guideLevel: 0.5 })
+      const atPlay: number[] = []
+      h.player.play.mockImplementation(() => { atPlay.push(h.player.setVolume.mock.lastCall![0] as number); h.clock.t += 2; return Promise.resolve() })
+      h.rec.stop.mockReturnValue(new Float32Array(44100 * 10))
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      await waitFor(() => expect(h.player.setVolume).toHaveBeenLastCalledWith(0.8))
+      press('c')
+      await waitFor(() => expect(h.playSequence).toHaveBeenCalled())
+      expect(atPlay.length).toBeGreaterThan(0)
+      atPlay.forEach((v) => expect(v).toBeCloseTo(0.4))
+      expect(screen.getByText('Use headphones — the mic would pick up the reference')).toBeInTheDocument()
+      await waitFor(() => expect(h.player.setVolume).toHaveBeenLastCalledWith(0.8)) // the takes play at the reference volume
+      useSettings.setState({ referenceVolume: 1, guideLevel: 0.5 })
+    })
+
     it('C plays N passes, records only the last pass to its end + 0.3 s, uploads it as chorus and plays it back', async () => {
       const recordingAtPlay: boolean[] = []
       h.player.play.mockImplementation(() => { recordingAtPlay.push(usePractice.getState().recordingNow); h.clock.t += 2; return Promise.resolve() })
@@ -345,6 +362,19 @@ describe('<Practice>', () => {
       fireEvent.click(screen.getByRole('button', { name: sub }))
       fireEvent.click(screen.getByRole('button', { name: 'Start' }))
     }
+
+    it('along plays every clip at the guide level and hints at headphones', async () => {
+      useSettings.setState({ referenceVolume: 0.8, guideLevel: 0.5 })
+      const atPlay: number[] = []
+      h.player.play.mockImplementation(() => { atPlay.push(h.player.setVolume.mock.lastCall![0] as number); h.clock.t += 2; return Promise.resolve() })
+      h.rec.stop.mockReturnValue(new Float32Array(44100 * 10))
+      await startFlow('along')
+      await screen.findByText(/Flow finished/)
+      expect(atPlay).toHaveLength(2)
+      atPlay.forEach((v) => expect(v).toBeCloseTo(0.4))
+      expect(screen.getByText('Use headphones — the mic would pick up the reference')).toBeInTheDocument()
+      useSettings.setState({ referenceVolume: 1, guideLevel: 0.5 })
+    })
 
     it('along: records once, plays the range back to back, uploads one flow slice per sentence and shows the summary', async () => {
       clipsTake(2)
@@ -674,6 +704,31 @@ describe('<Practice>', () => {
       fireEvent.change(screen.getByLabelText('Go to passage'), { target: { value: '1' } })
       expect(await screen.findByText('再见', { selector: 'p.sentence' })).toBeInTheDocument()
       expect(screen.getByText(/Passage 2 \/ 2/)).toBeInTheDocument()
+    })
+  })
+
+  describe('volume', () => {
+    afterEach(() => { useSettings.setState({ referenceVolume: 1, guideLevel: 0.5 }) })
+
+    it('shows the guide level only in Chorus and Flow along', async () => {
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      expect(screen.getByLabelText('Reference volume')).toBeInTheDocument()
+      expect(screen.queryByLabelText('Guide level')).toBeNull()
+      fireEvent.click(screen.getByRole('button', { name: 'Chorus' }))
+      expect(await screen.findByLabelText('Guide level')).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: 'Flow' }))
+      await waitFor(() => expect(screen.queryByLabelText('Guide level')).toBeNull()) // Flow starts in after
+      fireEvent.click(screen.getByRole('button', { name: 'along' }))
+      expect(screen.getByLabelText('Guide level')).toBeInTheDocument()
+    })
+
+    it('the reference volume is saved in settings and applied to the player', async () => {
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      fireEvent.change(screen.getByLabelText('Reference volume'), { target: { value: '60' } })
+      expect(useSettings.getState().referenceVolume).toBeCloseTo(0.6)
+      await waitFor(() => expect(h.player.setVolume).toHaveBeenLastCalledWith(0.6))
     })
   })
 })
