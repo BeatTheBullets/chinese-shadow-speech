@@ -78,3 +78,32 @@ class SessionOut(BaseModel):
     started_at: datetime
     ended_at: datetime | None
     attempts_count: int
+
+
+class TakeOut(BaseModel):
+    segment_id: int
+    attempt_id: int
+    mode: str
+    created_at: datetime
+    duration_s: float
+
+
+class TakesOut(BaseModel):
+    takes: list[TakeOut]
+
+
+class FlowRunItem(BaseModel):
+    segment_id: int
+    idx: int
+    attempt_id: int
+
+
+class FlowRunOut(BaseModel):
+    started_at: datetime
+    ended_at: datetime
+    session_id: int | None
+    items: list[FlowRunItem]
+
+
+class FlowRunsOut(BaseModel):
+    runs: list[FlowRunOut]
