@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { exportAndRecord, reexportQuestion } from '../anki/export'
 import { api, ApiError } from '../api/client'
-import type { LessonDetail, Mode, Segment } from '../api/types'
+import type { Attempt, FlowRun, LessonDetail, Mode, Segment, Take } from '../api/types'
 import { playClip, sleep } from '../audio/abortable'
 import { findSilenceEnd, sliceSamples } from '../audio/pcm'
 import { ClipPlayer, peaks as peaksOf, playSequence } from '../audio/player'
@@ -31,7 +31,7 @@ import { passageIndexOf, passageSpan } from '../lib/passages'
 import { sessionUnsent } from '../lib/sessionExport'
 import { useNow } from '../lib/useNow'
 import { clamp01, guideApplies, playbackVolume } from '../lib/volume'
-import { usePractice, currentSegment, type LastAttempt } from '../store/practice'
+import { usePractice, currentSegment, currentTake, type LastAttempt, type StoredTake } from '../store/practice'
 import { useSettings, defaultTextPrefs, type TextPrefs } from '../store/settings'
 import { useFlow } from './useFlow'
 
@@ -42,6 +42,16 @@ const CHORUS_TAIL_MS = 300 // the chorus take runs this long past the end of the
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 // The backend's own explanation (FastAPI `detail`) rather than the raw status line.
 const readable = (e: unknown) => (e instanceof ApiError ? e.detail : message(e))
+
+// Loads the lesson's stored takes, the newest of each sentence, unless `current()` says the page moved on meanwhile.
+// Silent on failure: R then only replays the takes of this visit.
+function loadTakes(lessonId: number, current: () => boolean) {
+  api.lessons.takes(lessonId).then((takes: Take[]) => {
+    if (!current()) return
+    usePractice.getState().setStoredTakes(Object.fromEntries(takes.map((t) => [t.segment_id, stored(t.attempt_id, t.duration_s)])))
+  }).catch(() => {})
+}
+const stored = (attemptId: number, duration: number): StoredTake => ({ id: attemptId, url: api.attempts.audioUrl(attemptId), duration })
 
 // A multi-step run in progress. Aborting its controller (stop, mode switch, navigation, unmount) ends it.
 type RunKind = 'chorus' | 'flow' | 'guided'
@@ -90,7 +100,15 @@ export default function Practice() {
   const exporting = useRef(false)
   const sendingIds = useRef(new Set<number>())            // sentences an A send has in flight: not offered at session end
   const headphonesHinted = useRef(false)          // the headphones hint shows once per visit
-  const flow = useFlow({ lessonId, player, mic, beginRun: () => beginRun('flow'), endRun, setError })
+  // The lesson's stored Flow runs, for the setup's replay; loaded on entering Flow and once a run has uploaded.
+  const [flowRuns, setFlowRuns] = useState<FlowRun[]>([])
+  const runsReq = useRef(0)                               // only the latest request's answer is shown
+  const loadFlowRuns = useCallback(() => {
+    const mine = ++runsReq.current
+    api.lessons.flowRuns(lessonId).then((r) => { if (alive.current && mine === runsReq.current) setFlowRuns(r) }).catch(() => {})
+  }, [lessonId])
+  const flow = useFlow({ lessonId, player, mic, beginRun: () => beginRun('flow'), endRun, setError,
+    onUploaded: () => { if (usePractice.getState().mode === 'flow') loadFlowRuns() } })
   const [echoTurn, setEchoTurn] = useState<number | null>(null) // performance-clock second an Echo take began (count-in, ghost wipe)
   const [help, setHelp] = useState(() => !useSettings.getState().helpSeen)
   const helpOpen = useRef(false)
@@ -113,6 +131,7 @@ export default function Practice() {
       ps.setLesson(l); ps.setTextPrefs(s.textPrefs[String(lessonId)] ?? defaultTextPrefs); ps.setRate(s.practice.defaultRate)
       const seg = new URLSearchParams(window.location.search).get('seg')   // Review links here with ?seg=idx
       if (seg != null && Number.isInteger(Number(seg)) && Number(seg) >= 0 && Number(seg) < l.segments.length) ps.setIdx(Number(seg))
+      loadTakes(lessonId, () => !cancelled)
     }).catch((e) => { if (!cancelled) setLoadError(`Could not load the lesson: ${message(e)}`) })
     return () => { cancelled = true }
   }, [lessonId])
@@ -155,6 +174,20 @@ export default function Practice() {
     if (nxt) void player.preload(api.segments.audioUrl(nxt.id))
     return () => { cancelled = true }
   }, [refUrl, player])
+
+  // The You track's waveform of a stored take (this visit's takes carry their own).
+  const take = currentTake(st)
+  const storedUrl = take && !('peaks' in take) ? take.url : null
+  const [storedPeaks, setStoredPeaks] = useState<{ url: string; peaks: Float32Array } | null>(null)
+  useEffect(() => {
+    if (storedUrl == null) return
+    let cancelled = false
+    player.peaksFor(storedUrl, 400).then((p) => { if (!cancelled) setStoredPeaks({ url: storedUrl, peaks: p }) }).catch(() => {})
+    return () => { cancelled = true }
+  }, [storedUrl, player])
+  const youPeaks = !take ? null : 'peaks' in take ? take.peaks : storedPeaks?.url === take.url ? storedPeaks.peaks : null
+
+  useEffect(() => { if (st.mode === 'flow') loadFlowRuns() }, [st.mode, loadFlowRuns])
 
   // Guided starts over on every new sentence and mode.
   useEffect(() => { setGuided('listen') }, [segId, st.mode])
@@ -256,11 +289,13 @@ export default function Practice() {
     const duration = samples.length / rec.sampleRate
     if (duration < MIN_TAKE_S) { dispatch('CANCEL'); setError('Too short to keep, nothing was saved. Try again.'); return }
     const wav = toWav16k(samples, rec.sampleRate)
+    // Once uploaded, the take is the sentence's newest stored one (what R replays after moving away and back).
+    const uploaded = (a: Attempt) => { const cur = usePractice.getState(); cur.markPractised(s.id); cur.recordTake(s.id, stored(a.id, duration)) }
     // The store moved to another sentence meanwhile (e.g. the lesson reloaded): save the take, skip the playback.
     if (currentSegment(ps)?.id !== s.id) {
       dispatch('CANCEL')
       api.segments.postAttempt(s.id, wav, { session_id: ps.sessionId ?? undefined, mode })
-        .then(() => usePractice.getState().markPractised(s.id)).catch((e) => setError(`Upload failed: ${message(e)}`))
+        .then(uploaded).catch((e) => setError(`Upload failed: ${message(e)}`))
       return
     }
     const url = URL.createObjectURL(wav)
@@ -268,7 +303,7 @@ export default function Practice() {
     ps.setLastAttempt(take); ps.bumpAttempts()
     if (usePractice.getState().attemptsThisSegment >= useSettings.getState().practice.moveOnAfter) ps.setHint(MOVE_ON)
     const upload = api.segments.postAttempt(s.id, wav, { session_id: ps.sessionId ?? undefined, mode })
-      .then((a) => { const cur = usePractice.getState(); cur.markPractised(s.id); if (cur.lastAttempt?.url === url) cur.setLastAttempt({ ...take, id: a.id }) })
+      .then((a) => { uploaded(a); const cur = usePractice.getState(); if (cur.lastAttempt?.url === url) cur.setLastAttempt({ ...take, id: a.id }) })
       .catch((e) => setError(`Upload failed: ${message(e)}`))
     dispatch('UPLOADED')
     const ctrl = new AbortController()
@@ -364,8 +399,9 @@ export default function Practice() {
       .catch((e) => { if (!ctrl.signal.aborted) setError(`Playback failed: ${message(e)}`) })
       .finally(() => { if (seqCtrl.current === ctrl) seqCtrl.current = null })
   }
+  // This visit's take of the sentence, or its stored one when that is newer; with neither, nothing.
   function replayYou() {
-    const take = usePractice.getState().lastAttempt
+    const take = currentTake(usePractice.getState())
     if (take) playSolo(() => player.play(take.url, 1, setYouHead))
   }
   // Plays one syllable of the reference once (addendum §1.2); clicking again plays it again.
@@ -432,7 +468,11 @@ export default function Practice() {
       api.segments.patch(r.segmentId, { difficulty_flag: true }).then(usePractice.getState().updateSegment).catch((e) => setError(`Could not flag: ${message(e)}`))
     }
   }
-  const pairOf = (r: FlowResult) => [{ url: api.segments.audioUrl(r.segmentId), rate: usePractice.getState().rate }, { url: r.url, rate: 1 }]
+  // Original then take, for one sentence of a Flow run.
+  const pairOf = (segmentId: number, takeUrl: string) => [{ url: api.segments.audioUrl(segmentId), rate: usePractice.getState().rate }, { url: takeUrl, rate: 1 }]
+  const resultPair = (r: FlowResult) => pairOf(r.segmentId, r.url)
+  // A stored run, original → you per sentence (its items come in sentence order); stops like any playback.
+  const replayRun = (run: FlowRun) => playItems(run.items.flatMap((it) => pairOf(it.segment_id, api.attempts.audioUrl(it.attempt_id))))
 
   // Edit, split and merge rebuild sentences on the server. Everything in flight stops first; afterwards the lesson
   // reloads and stays on the current sentence if it still exists, else on `fallbackId`, else the same position.
@@ -453,6 +493,7 @@ export default function Practice() {
     let j = kept >= 0 ? kept : find(fallbackId)
     if (j < 0) j = Math.max(0, Math.min(l.segments.length - 1, ps.idx))
     ps.replaceSegments(l.segments, l.passages)
+    loadTakes(lessonId, () => alive.current && usePractice.getState().lesson?.id === lessonId)
     // A new sentence or a re-cut clip drops the last take (setIdx); otherwise only the position follows the sentence.
     if (kept < 0 || changed.includes(curId!)) ps.setIdx(j)
     else if (j !== ps.idx) usePractice.setState({ idx: j })
@@ -531,7 +572,7 @@ export default function Practice() {
     cancelActivity()
     setExportPrompt({ items, after })
   }
-  // The ← link. A click that opens a new tab or window is the browser's. A Flow run is stopped gracefully first (its
+  // The ⌂ Library link. A click that opens a new tab or window is the browser's. A Flow run is stopped gracefully first (its
   // finished sentences are sliced and offered at once, their uploads carry on); with nothing to offer it just navigates.
   function leave(e: MouseEvent<HTMLAnchorElement>) {
     if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
@@ -659,16 +700,17 @@ export default function Practice() {
               <WithMicLevel mic={mic}>{(level) => <CueLine cue={cue} level={level} dots={dots} />}</WithMicLevel>
               {st.mode === 'flow' && fs.phase === 'summary' ? (
                 <FlowSummary segments={segments} results={fs.results} skipped={fs.skipped} elapsedS={fs.elapsedS}
-                  onPlayPair={(r) => playItems(pairOf(r))} onReplayAll={() => playItems([...fs.results].sort((x, y) => x.idx - y.idx).flatMap(pairOf))}
+                  onPlayPair={(r) => playItems(resultPair(r))} onReplayAll={() => playItems([...fs.results].sort((x, y) => x.idx - y.idx).flatMap(resultPair))}
                   onRunAgain={() => { if (fs.range) startFlow(fs.range.from, fs.range.to) }} onEcho={(i) => void drill('echo', i)} onChorus={(i) => void drill('chorus', i)}
                   onFlagWeakest={flagWeakest} onExportWeakest={exportWeakest}
                   onDone={() => offerExport(flow.clear)} />
               ) : (<>
-                {st.mode === 'flow' && <FlowSetup segments={segments} from={range.from} to={range.to} sub={fs.sub} onChange={flow.setForm} onStart={() => act('record')} />}
+                {st.mode === 'flow' && <FlowSetup segments={segments} from={range.from} to={range.to} sub={fs.sub} onChange={flow.setForm} onStart={() => act('record')}
+                  runs={flowRuns} onReplay={replayRun} />}
                 <KaraokeSentence wipe={wipe} text={seg.text} words={seg.words_json} showHanzi={st.textPrefs.hanzi && show} showPinyin={st.textPrefs.pinyin && show} translation={seg.translation} showTranslation={st.textPrefs.translation && show} />
                 {!(st.textPrefs.hanzi && show) && wipe && <GhostLine count={spans.length} wipe={wipe} />}
                 <TwoTrack segment={seg} refPeaks={refPeaks} refDuration={seg.end_s - seg.start_s} refPlayhead={refHead}
-                  youPeaks={st.lastAttempt?.peaks ?? null} youDuration={st.lastAttempt?.duration ?? 0} youPlayhead={youHead}
+                  youPeaks={youPeaks} youDuration={take?.duration ?? 0} youPlayhead={youHead}
                   onPlayRef={() => act('play')} onPlayYou={() => act('replayYou')} onPlaySyllable={playSyllable} />
               </>)}
             </div>

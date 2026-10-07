@@ -13,7 +13,7 @@ interface Props {
 export default function TopBar({ title, speaker, idx, total, mode, onMode, elapsedS, passage, chorusPasses, onHelp, onBack }: Props) {
   return (
     <div className="flex items-center justify-between px-4 py-2 border-b border-line text-sm text-fgdim">
-      <span><Link to="/library" onClick={onBack} className="mr-3 hover:text-fghi" title="Back to the library">←</Link>
+      <span><Link to="/library" onClick={onBack} className="btn mr-3 hover:text-white" title="Back to the library" aria-label="Back to the library">⌂ Library</Link>
         <span className="font-hanzi text-fghi">{speaker && `${speaker} · `}{title}</span> &nbsp; {idx + 1} / {total}
         {passage && passage.titles.length > 0 && (
           <label className="ml-3">Passage {Math.max(0, passage.index) + 1} / {passage.titles.length}

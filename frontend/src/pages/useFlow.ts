@@ -31,6 +31,7 @@ export interface FlowDeps {
   beginRun: () => AbortController         // registers the run with the page: cancelling it (mode switch, navigation, unmount) abandons it
   endRun: (run: AbortController) => void
   setError: (msg: string) => void
+  onUploaded: () => void                  // a run's uploads have all finished (some may have failed)
 }
 const initial: FlowState = { phase: 'setup', sub: 'after', from: null, to: null, range: null, current: 0, clipTime: null, turn: null, results: [], pending: new Set(), skipped: 0, elapsedS: 0 }
 
@@ -99,7 +100,9 @@ export function useFlow(deps: FlowDeps) {
       let attemptId: number | null = null
       try {
         attemptId = (await api.segments.postAttempt(t.rg.segmentId, t.wav, { session_id, mode: 'flow' })).id
-        usePractice.getState().markPractised(t.rg.segmentId)
+        const ps = usePractice.getState()
+        ps.markPractised(t.rg.segmentId)
+        ps.recordTake(t.rg.segmentId, { id: attemptId, url: api.attempts.audioUrl(attemptId), duration: t.samples.length / sr })
       }
       catch (e) { mine(() => setError(`Upload failed: ${message(e)}`)) }
       mine(() => setState((f) => {
@@ -107,8 +110,9 @@ export function useFlow(deps: FlowDeps) {
         return { ...f, pending, results: f.results.map((x) => (x.segmentId === t.rg.segmentId ? { ...x, attemptId } : x)) }
       }))
     }
-    // Refresh the scores even if the summary was closed meanwhile (e.g. Flow stopped by a mode switch).
+    // Refresh the scores (and the stored runs) even if the summary was closed meanwhile (e.g. Flow stopped by a mode switch).
     if (alive.current) {
+      d.current.onUploaded()
       api.lessons.get(lessonId).then((l) => { const ps = usePractice.getState(); if (ps.lesson?.id === lessonId) ps.replaceSegments(l.segments, l.passages) }).catch(() => {})
     }
   }

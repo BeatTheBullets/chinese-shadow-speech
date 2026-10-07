@@ -1,6 +1,6 @@
 import type {
-  ActivityStats, AnkiNotePayload, Attempt, Job, Lesson, LessonDetail, LessonStats, Mode, PracticeSession,
-  Segment, SentenceStats, SyllableStats, ToneStats, UnexportedItem,
+  ActivityStats, AnkiNotePayload, Attempt, FlowRun, Job, Lesson, LessonDetail, LessonStats, Mode, PracticeSession,
+  Segment, SentenceStats, SyllableStats, Take, ToneStats, UnexportedItem,
 } from './types'
 
 // Same-origin in production (the backend serves the built SPA); the dev server talks to the backend directly.
@@ -50,6 +50,8 @@ export const api = {
     ankiImport: (query_name: string, notes: AnkiNotePayload[]) =>
       req<{ jobs: { job_id: string; lesson_id: number; title: string }[] }>('/lessons/anki', json('POST', { query_name, notes })),
     youtube: (url: string) => req<{ job_id: string | null; lesson_id: number }>('/lessons/youtube', json('POST', { url })),
+    takes: (id: number) => req<{ takes: Take[] }>(`/lessons/${id}/takes`).then((r) => r.takes),
+    flowRuns: (id: number) => req<{ runs: FlowRun[] }>(`/lessons/${id}/flow-runs`).then((r) => r.runs),
   },
   segments: {
     audioUrl: (id: number, fmt: 'opus' | 'wav' | 'mp3' = 'opus') => {

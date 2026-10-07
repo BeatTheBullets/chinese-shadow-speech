@@ -1,13 +1,14 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { LessonDetail, Segment } from '../api/types'
+import type { FlowRun, LessonDetail, Segment, Take } from '../api/types'
 import { usePractice } from '../store/practice'
 import { useSettings } from '../store/settings'
 
 const h = vi.hoisted(() => ({
   api: {
-    lessons: { get: vi.fn() },
+    lessons: { get: vi.fn(), takes: vi.fn(), flowRuns: vi.fn() },
+    attempts: { audioUrl: (id: number) => `/att/${id}.wav` },
     sessions: { create: vi.fn(), end: vi.fn() },
     segments: { audioUrl: (id: number, fmt = 'opus') => `/seg/${id}.${fmt}`, postAttempt: vi.fn(), patch: vi.fn(), resplit: vi.fn(), mergeNext: vi.fn(), clipChanged: vi.fn() },
   },
@@ -16,9 +17,9 @@ const h = vi.hoisted(() => ({
   clock: { t: 0 }, // AudioContext.currentTime
   toWav16k: vi.fn(() => new Blob(['wav'])),
   playSequence: vi.fn(() => Promise.resolve()),
-  player: { play: vi.fn(() => Promise.resolve()), playRange: vi.fn(() => Promise.resolve()), stop: vi.fn(), setVolume: vi.fn(), preload: vi.fn(() => Promise.resolve()), peaksFor: vi.fn(() => new Promise(() => {})) },
+  player: { play: vi.fn(() => Promise.resolve()), playRange: vi.fn(() => Promise.resolve()), stop: vi.fn(), setVolume: vi.fn(), preload: vi.fn(() => Promise.resolve()), peaksFor: vi.fn<(url: string) => Promise<Float32Array>>(() => new Promise(() => {})) },
   ctxClose: vi.fn(() => Promise.resolve()),
-  twoTrack: null as null | { onPlaySyllable: (i: number) => void },
+  twoTrack: null as null | { onPlaySyllable: (i: number) => void; youPeaks: Float32Array | null; youDuration: number },
 }))
 vi.mock('../api/client', async (importOriginal) => ({ ...(await importOriginal<typeof import('../api/client')>()), api: h.api }))
 vi.mock('../anki/export', async (importOriginal) => ({ ...(await importOriginal<typeof import('../anki/export')>()), exportAndRecord: h.exportAndRecord }))
@@ -39,7 +40,7 @@ vi.mock('../audio/player', () => ({
   peaks: () => new Float32Array(4),
 }))
 vi.mock('../components/TwoTrack', () => ({
-  default: (p: { onPlaySyllable: (i: number) => void }) => { h.twoTrack = p; return <div data-testid="two-track" /> },
+  default: (p: NonNullable<typeof h.twoTrack>) => { h.twoTrack = p; return <div data-testid="two-track" /> },
 }))
 
 import { ApiError } from '../api/client'
@@ -60,6 +61,8 @@ function deferred<T>() {
 }
 const flush = () => act(async () => { for (let i = 0; i < 10; i++) await Promise.resolve() })
 const press = (key: string, init: KeyboardEventInit = {}) => fireEvent.keyDown(window, { key, ...init })
+// Entering Flow loads the lesson's stored runs: let that settle inside act().
+const enterFlow = async () => { fireEvent.click(screen.getByRole('button', { name: 'Flow' })); await flush() }
 
 function renderPractice() {
   return render(<MemoryRouter initialEntries={['/practice/1']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><Routes><Route path="/practice/:id" element={<Practice />} /></Routes></MemoryRouter>)
@@ -70,11 +73,13 @@ describe('<Practice>', () => {
   const origCreate = URL.createObjectURL, origRevoke = URL.revokeObjectURL
   beforeEach(() => {
     vi.clearAllMocks()
-    usePractice.setState({ lesson: null, idx: 0, mode: 'echo', sessionId: null, drawerOpen: true, attemptsThisSegment: 0, lastAttempt: null, recordingNow: false, hint: '' })
+    usePractice.setState({ lesson: null, idx: 0, mode: 'echo', sessionId: null, drawerOpen: true, attemptsThisSegment: 0, lastAttempt: null, recordingNow: false, hint: '', storedTakes: {} })
     // helpSeen: the help would otherwise open on every render and switch the shortcuts off. The volumes are reset here,
     // not at the end of a test, so no store update reaches a page that is still mounted (act() warnings).
     useSettings.setState({ helpSeen: true, referenceVolume: 1, guideLevel: 0.5 })
     h.api.lessons.get.mockResolvedValue(lesson)
+    h.api.lessons.takes.mockResolvedValue([])
+    h.api.lessons.flowRuns.mockResolvedValue([])
     h.api.sessions.create.mockResolvedValue({ id: 5 })
     h.api.sessions.end.mockResolvedValue({})
     h.api.segments.postAttempt.mockResolvedValue({ id: 99 })
@@ -83,6 +88,8 @@ describe('<Practice>', () => {
     h.rec.startTime = 0; h.clock.t = 0
     h.player.play.mockImplementation(() => Promise.resolve())
     h.player.stop.mockImplementation(() => {})
+    h.player.peaksFor.mockImplementation(() => new Promise(() => {}))
+    h.playSequence.mockImplementation(() => Promise.resolve())
     globalThis.AudioContext = class { sampleRate = 44100; close = h.ctxClose; get currentTime() { return h.clock.t } } as unknown as typeof AudioContext
     URL.createObjectURL = vi.fn(() => 'blob:take')
     URL.revokeObjectURL = vi.fn()
@@ -228,6 +235,55 @@ describe('<Practice>', () => {
     expect(usePractice.getState().drawerOpen).toBe(true)
   })
 
+  describe('stored takes', () => {
+    const take = (segment_id: number, attempt_id: number, duration_s: number): Take => ({ segment_id, attempt_id, mode: 'flow', created_at: '2026-10-07T09:00:00Z', duration_s })
+    const played = () => h.player.play.mock.calls.map((c) => (c as unknown[])[0])
+
+    it("R replays the sentence's stored take when the lesson is opened again; the You track shows it, per sentence", async () => {
+      h.api.lessons.takes.mockResolvedValue([take(11, 77, 1.5), take(12, 78, 2.5)])
+      const p77 = new Float32Array([0.5])
+      h.player.peaksFor.mockImplementation((url: string) => (url === '/att/77.wav' ? Promise.resolve(p77) : new Promise(() => {})))
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      expect(h.api.lessons.takes).toHaveBeenCalledWith(1)
+      await waitFor(() => expect(h.twoTrack!.youPeaks).toBe(p77))
+      expect(h.twoTrack!.youDuration).toBe(1.5)
+      press('r'); await flush()
+      expect(played()).toEqual(['/att/77.wav'])
+      press('ArrowRight')
+      await screen.findByText('再见', { selector: 'p.sentence' })
+      await waitFor(() => expect(h.twoTrack!.youDuration).toBe(2.5))
+      expect(h.twoTrack!.youPeaks).toBeNull()
+      press('r'); await flush()
+      expect(played()).toEqual(['/att/77.wav', '/att/78.wav'])
+    })
+
+    it('R without any take of the sentence does nothing', async () => {
+      h.api.lessons.takes.mockResolvedValue([take(12, 78, 2.5)])
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      await waitFor(() => expect(usePractice.getState().storedTakes[12]).toBeDefined())
+      press('r'); await flush()
+      expect(h.player.play).not.toHaveBeenCalled()
+      expect(h.twoTrack!.youDuration).toBe(0)
+    })
+
+    it("a take recorded now is the one R replays, and stays the sentence's take after moving away and back", async () => {
+      h.api.lessons.takes.mockResolvedValue([take(11, 77, 1.5)])
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      await waitFor(() => expect(usePractice.getState().storedTakes[11]).toBeDefined())
+      press('Enter'); await flush(); press('Enter'); await flush()
+      press('r'); await flush()
+      expect(played()).toEqual(['blob:take'])
+      press('ArrowRight'); await screen.findByText('再见', { selector: 'p.sentence' })
+      press('ArrowLeft'); await screen.findByText('你好', { selector: 'p.sentence' })
+      expect(h.twoTrack!.youDuration).toBe(1)
+      press('r'); await flush()
+      expect(played()).toEqual(['blob:take', '/att/99.wav'])
+    })
+  })
+
   describe('syllable click', () => {
     const aligned: LessonDetail = {
       ...lesson,
@@ -360,7 +416,7 @@ describe('<Practice>', () => {
       renderPractice()
       await screen.findByText('你好', { selector: 'p.sentence' })
       await waitFor(() => expect(usePractice.getState().sessionId).toBe(5))
-      fireEvent.click(screen.getByRole('button', { name: 'Flow' }))
+      await enterFlow()
       fireEvent.click(screen.getByRole('button', { name: sub }))
       fireEvent.click(screen.getByRole('button', { name: 'Start' }))
     }
@@ -524,7 +580,7 @@ describe('<Practice>', () => {
       renderPractice()
       await screen.findByText('你好', { selector: 'p.sentence' })
       act(() => usePractice.getState().setHint('Sent to Anki'))
-      fireEvent.click(screen.getByRole('button', { name: 'Flow' }))
+      await enterFlow()
       fireEvent.click(screen.getByRole('button', { name: 'after' }))
       expect(screen.getByText('Sent to Anki')).toBeInTheDocument()
       fireEvent.click(screen.getByRole('button', { name: 'Start' }))
@@ -554,6 +610,36 @@ describe('<Practice>', () => {
       fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }))
       expect(await screen.findByRole('button', { name: 'Start' })).toBeInTheDocument()
       cleanup(); useSettings.setState({ exportNote: null }) // unmount first: a store update reaching the mounted page warns about act()
+    })
+
+    const storedRun: FlowRun = { started_at: '2026-10-07T09:00:00Z', ended_at: '2026-10-07T09:01:00Z', session_id: 3,
+      items: [{ segment_id: 11, idx: 0, attempt_id: 50 }, { segment_id: 12, idx: 1, attempt_id: 51 }] }
+
+    it("entering Flow lists the last run; replay plays each sentence's original then its take, and any key stops it", async () => {
+      h.api.lessons.flowRuns.mockResolvedValue([storedRun])
+      let signal: AbortSignal | undefined
+      h.playSequence.mockImplementation(((_p: unknown, _items: unknown, _gap: unknown, s: AbortSignal) => { signal = s; return new Promise(() => {}) }) as unknown as () => Promise<void>)
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      expect(h.api.lessons.flowRuns).not.toHaveBeenCalled()
+      await enterFlow()
+      expect(await screen.findByTestId('last-run')).toHaveTextContent('Last run')
+      expect(h.api.lessons.flowRuns).toHaveBeenCalledWith(1)
+      fireEvent.click(screen.getByRole('button', { name: '▶ replay' }))
+      const [, items] = h.playSequence.mock.calls.at(-1) as unknown as [unknown, { url: string; rate: number }[]]
+      expect(items).toEqual([{ url: '/seg/11.opus', rate: 1 }, { url: '/att/50.wav', rate: 1 }, { url: '/seg/12.opus', rate: 1 }, { url: '/att/51.wav', rate: 1 }])
+      expect(signal!.aborted).toBe(false)
+      press(' '); await flush()
+      expect(signal!.aborted).toBe(true)
+    })
+
+    it('the runs list refreshes once a run has uploaded', async () => {
+      clipsTake(2)
+      h.rec.stop.mockReturnValue(new Float32Array(44100 * 10))
+      await startFlow('along')
+      await screen.findByText(/Flow finished · 2 sentences/)
+      await waitFor(() => expect(h.api.lessons.flowRuns).toHaveBeenCalledTimes(2))
+      expect(usePractice.getState().storedTakes[12]).toMatchObject({ id: 99, url: '/att/99.wav' })
     })
   })
 
@@ -618,6 +704,7 @@ describe('<Practice>', () => {
       expect(h.api.lessons.get).toHaveBeenCalledTimes(2)
       expect(usePractice.getState().idx).toBe(0)
       expect(usePractice.getState().lesson!.segments[1].text).toBe('再见了')
+      expect(h.api.lessons.takes).toHaveBeenCalledTimes(2) // the stored takes follow the reloaded sentences
     })
 
     it('a rejected edit keeps the dialog open with the backend message', async () => {
@@ -755,7 +842,7 @@ describe('<Practice>', () => {
       h.rec.stop.mockReturnValue(new Float32Array(44100 * 10))
       renderPractice()
       await screen.findByText('你好', { selector: 'p.sentence' })
-      fireEvent.click(screen.getByRole('button', { name: 'Flow' }))
+      await enterFlow()
       fireEvent.click(screen.getByRole('button', { name: 'along' }))
       fireEvent.click(screen.getByRole('button', { name: 'Start' }))
       const send = await screen.findByRole('button', { name: 'A → Anki weakest 3' })
@@ -791,7 +878,7 @@ describe('<Practice>', () => {
       expect(screen.queryByLabelText('Guide level')).toBeNull()
       fireEvent.click(screen.getByRole('button', { name: 'Chorus' }))
       expect(await screen.findByLabelText('Guide level')).toBeInTheDocument()
-      fireEvent.click(screen.getByRole('button', { name: 'Flow' }))
+      await enterFlow()
       await waitFor(() => expect(screen.queryByLabelText('Guide level')).toBeNull()) // Flow starts in after
       fireEvent.click(screen.getByRole('button', { name: 'along' }))
       expect(screen.getByLabelText('Guide level')).toBeInTheDocument()
@@ -999,7 +1086,7 @@ describe('<Practice>', () => {
       renderWithLibrary()
       await screen.findByText('我今天想学中文', { selector: 'p.sentence' })
       await waitFor(() => expect(usePractice.getState().sessionId).toBe(5))
-      fireEvent.click(screen.getByRole('button', { name: 'Flow' }))
+      await enterFlow()
       fireEvent.click(screen.getByRole('button', { name: 'along' }))
       fireEvent.click(screen.getByRole('button', { name: 'Start' }))
       await waitFor(() => expect(h.player.play).toHaveBeenCalledTimes(2))
@@ -1018,7 +1105,7 @@ describe('<Practice>', () => {
       renderWithLibrary()
       await screen.findByText('我今天想学中文', { selector: 'p.sentence' })
       await waitFor(() => expect(usePractice.getState().sessionId).toBe(5))
-      fireEvent.click(screen.getByRole('button', { name: 'Flow' }))
+      await enterFlow()
       fireEvent.click(screen.getByRole('button', { name: 'along' }))
       fireEvent.click(screen.getByRole('button', { name: 'Start' }))
     }

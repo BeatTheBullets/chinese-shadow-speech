@@ -1,8 +1,9 @@
-import { memo, useEffect, useRef } from 'react'
-import type { Segment } from '../api/types'
+import { memo, useEffect, useRef, useState } from 'react'
+import type { FlowRun, Segment } from '../api/types'
 import type { Cue } from '../lib/cue'
 import type { FlowSub } from '../lib/flow'
 import { clipSpans, flowWipe, lineLead, nextLineStart } from '../lib/karaoke'
+import { weekdayTime } from '../lib/time'
 import CueLine from './CueLine'
 import { dotClass } from './Drawer'
 import KaraokeSentence, { GhostLine } from './KaraokeSentence'
@@ -68,17 +69,40 @@ const FlowRow = memo(function FlowRow({ s, pending, place }: { s: Segment; pendi
     </div>)
 })
 
-// Flow mode before a run: which sentences, which sub-mode.
-export function FlowSetup({ segments, from, to, sub, onChange, onStart }: { segments: Segment[]; from: number; to: number; sub: FlowSub; onChange: (p: { from?: number; to?: number; sub?: FlowSub }) => void; onStart: () => void }) {
+// Flow mode before a run: which sentences, which sub-mode; and the lesson's stored runs (newest first) to replay.
+export function FlowSetup({ segments, from, to, sub, onChange, onStart, runs, onReplay }: {
+  segments: Segment[]; from: number; to: number; sub: FlowSub; onChange: (p: { from?: number; to?: number; sub?: FlowSub }) => void; onStart: () => void
+  runs: FlowRun[]; onReplay: (run: FlowRun) => void
+}) {
   const pick = (label: string, value: number, key: 'from' | 'to') => (
     <select aria-label={label} className="bg-panel2 rounded px-1 py-0.5 text-fg" value={value} onChange={(e) => onChange({ [key]: Number(e.target.value) })}>
       {segments.map((s, i) => <option key={s.id} value={i}>{i + 1}. {s.text.length > 12 ? `${s.text.slice(0, 12)}…` : s.text}</option>)}
     </select>)
   const tab = (v: FlowSub) => <button aria-pressed={sub === v} className={`px-2 py-0.5 rounded border ${sub === v ? 'bg-[#1c2a3a] border-accent text-white' : 'border-line'}`} onClick={() => onChange({ sub: v })}>{v}</button>
   return (
-    <div className="flex items-center justify-center gap-2 text-sm text-fgdim">
-      Flow from {pick('Flow from', from, 'from')} to {pick('Flow to', to, 'to')} {tab('after')}{tab('along')}
-      <button className="btn" onClick={onStart}>Start</button>
+    <div className="space-y-2">
+      <div className="flex items-center justify-center gap-2 text-sm text-fgdim">
+        Flow from {pick('Flow from', from, 'from')} to {pick('Flow to', to, 'to')} {tab('after')}{tab('along')}
+        <button className="btn" onClick={onStart}>Start</button>
+      </div>
+      {runs.length > 0 && <PastRuns key={`${runs[0].started_at}|${runs[0].session_id}`} runs={runs} onReplay={onReplay} />}
+    </div>
+  )
+}
+
+const runLabel = (r: FlowRun) => `${weekdayTime(r.started_at)} · ${r.items.length} ${r.items.length === 1 ? 'sentence' : 'sentences'}`
+// The last stored run, or an older one picked from the list, to replay original → you. A newer run starts it over.
+function PastRuns({ runs, onReplay }: { runs: FlowRun[]; onReplay: (run: FlowRun) => void }) {
+  const [k, setK] = useState(0)
+  const run = runs[Math.min(k, runs.length - 1)]
+  return (
+    <div data-testid="last-run" className="flex items-center justify-center gap-2 text-xs text-fgdim">
+      {k === 0 ? 'Last run' : 'Earlier run'} · {runLabel(run)}
+      <button className="btn" onClick={() => onReplay(run)}>▶ replay</button>
+      {runs.length > 1 && (
+        <select aria-label="Run to replay" className="bg-panel2 rounded px-1 py-0.5 text-fg" value={k} onChange={(e) => setK(Number(e.target.value))}>
+          {runs.map((r, i) => <option key={i} value={i}>{runLabel(r)}</option>)}
+        </select>)}
     </div>
   )
 }

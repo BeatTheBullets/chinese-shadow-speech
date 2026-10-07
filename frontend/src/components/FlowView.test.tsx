@@ -1,7 +1,7 @@
-import { cleanup, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
-import type { Segment } from '../api/types'
-import FlowView from './FlowView'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { FlowRun, Segment } from '../api/types'
+import FlowView, { FlowSetup } from './FlowView'
 
 const seg = (id: number, idx: number, text: string, start: number): Segment => ({
   id, lesson_id: 1, idx, start_s: start, end_s: start + 2, text, translation: null, words_json: null,
@@ -71,5 +71,45 @@ describe('<FlowView>', () => {
     render(<FlowView {...base} segments={[seg(1, 0, '你好', 0), late]} last={0} sub="along" showText clipTime={1.5} />)
     expect(screen.queryByTestId('next-line')).toBeNull()
     expect(screen.queryByLabelText(/starting in/)).toBeNull()
+  })
+})
+
+describe('<FlowSetup>', () => {
+  afterEach(cleanup)
+  const at = (d: number, h: number, m: number) => new Date(2026, 9, d, h, m).toISOString()
+  const run = (d: number, h: number, m: number, n: number): FlowRun => ({
+    started_at: at(d, h, m), ended_at: at(d, h, m + 1), session_id: 1, items: Array.from({ length: n }, (_, k) => ({ segment_id: k + 1, idx: k, attempt_id: 100 + k })),
+  })
+  const setup = (runs: FlowRun[], onReplay = vi.fn()) => {
+    render(<FlowSetup segments={base.segments} from={0} to={2} sub="after" onChange={() => {}} onStart={() => {}} runs={runs} onReplay={onReplay} />)
+    return onReplay
+  }
+
+  it('without a stored run shows no last-run line', () => {
+    setup([])
+    expect(screen.queryByText(/Last run/)).toBeNull()
+    expect(screen.queryByRole('button', { name: /replay/ })).toBeNull()
+  })
+  it('shows the last run in local time and replays it', () => {
+    const runs = [run(7, 14, 5, 3), run(6, 9, 30, 2)]
+    const onReplay = setup(runs)
+    expect(screen.getByTestId('last-run')).toHaveTextContent('Last run · Wed 14:05 · 3 sentences')
+    fireEvent.click(screen.getByRole('button', { name: '▶ replay' }))
+    expect(onReplay).toHaveBeenCalledWith(runs[0])
+  })
+  it('an older run picked in the list is the one replayed', () => {
+    const runs = [run(7, 14, 5, 3), run(6, 9, 30, 2)]
+    const onReplay = setup(runs)
+    const pick = screen.getByRole('combobox', { name: 'Run to replay' })
+    expect([...pick.querySelectorAll('option')].map((o) => o.textContent)).toEqual(['Wed 14:05 · 3 sentences', 'Tue 09:30 · 2 sentences'])
+    fireEvent.change(pick, { target: { value: '1' } })
+    expect(screen.getByTestId('last-run')).toHaveTextContent('Earlier run · Tue 09:30 · 2 sentences')
+    fireEvent.click(screen.getByRole('button', { name: '▶ replay' }))
+    expect(onReplay).toHaveBeenCalledWith(runs[1])
+  })
+  it('a single run needs no list', () => {
+    setup([run(7, 14, 5, 1)])
+    expect(screen.getByTestId('last-run')).toHaveTextContent('Last run · Wed 14:05 · 1 sentence')
+    expect(screen.queryByRole('combobox', { name: 'Run to replay' })).toBeNull()
   })
 })

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 import TopBar from './TopBar'
@@ -15,5 +15,19 @@ describe('<TopBar>', () => {
     expect(screen.getByRole('button', { name: 'Guided' }).title).toMatch(/^Four steps per sentence:/)
     screen.getByRole('button', { name: 'Help' }).click()
     expect(onHelp).toHaveBeenCalled()
+  })
+
+  it('the way home is a visible Library button that keeps its back handler', () => {
+    const onBack = vi.fn((e: { preventDefault: () => void }) => e.preventDefault())
+    render(<MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <TopBar title="L" speaker="" idx={0} total={2} mode="echo" onMode={() => {}} elapsedS={0} chorusPasses={5} onHelp={() => {}} onBack={onBack} />
+    </MemoryRouter>)
+    const home = screen.getByRole('link', { name: 'Back to the library' })
+    expect(home).toHaveTextContent('⌂ Library')
+    expect(home).toHaveAttribute('title', 'Back to the library')
+    expect(home).toHaveAttribute('href', '/library')
+    expect(home.className).toContain('btn')
+    fireEvent.click(home)
+    expect(onBack).toHaveBeenCalledTimes(1)
   })
 })
