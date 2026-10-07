@@ -1,5 +1,5 @@
 import { StrictMode } from 'react'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Lesson } from '../api/types'
@@ -73,9 +73,10 @@ describe('Library YouTube hand-off', () => {
       <Routes><Route path="/library" element={<><Library /><Where /></>} /></Routes>
     </MemoryRouter></StrictMode>)
   const paste = async (url: string) => {
+    await screen.findByText('t1')   // the first load has settled
     const box = await screen.findByLabelText('Paste a YouTube link')
     fireEvent.change(box, { target: { value: url } })
-    fireEvent.keyDown(box, { key: 'Enter' })
+    await act(async () => { fireEvent.keyDown(box, { key: 'Enter' }) })   // let the submit settle inside act
   }
 
   it('a pasted link is added on Enter and its job is watched', async () => {
@@ -83,6 +84,7 @@ describe('Library YouTube hand-off', () => {
     await paste(' https://youtu.be/abcDEF12345 ')
     await waitFor(() => expect(h.api.lessons.youtube).toHaveBeenCalledWith('https://youtu.be/abcDEF12345'))
     await waitFor(() => expect(h.api.jobs.events).toHaveBeenCalledWith('j1', expect.any(Function), expect.any(Function)))
+    await screen.findByText('Adding the video: downloading…')
   })
 
   it('a video already in the library says so and starts no job', async () => {
@@ -91,6 +93,29 @@ describe('Library YouTube hand-off', () => {
     await paste('https://youtu.be/abcDEF12345')
     expect(await screen.findByText('That video is already in the library.')).toBeInTheDocument()
     expect(h.api.jobs.events).not.toHaveBeenCalled()
+    expect(await screen.findByText('Open it')).toBeInTheDocument()
+  })
+
+  it('the Open it link goes with its message only', async () => {
+    h.api.lessons.youtube.mockResolvedValue({ job_id: null, lesson_id: 1 })
+    h.api.lessons.remove.mockResolvedValue(undefined)
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    open('/library')
+    await paste('https://youtu.be/abcDEF12345')
+    await screen.findByText('Open it')
+    fireEvent.click(screen.getByLabelText('Delete t1'))
+    await screen.findByText('Deleted "t1".')
+    expect(screen.queryByText('Open it')).toBeNull()
+  })
+
+  it('ignores a second Enter while a paste is being submitted', async () => {
+    open('/library')
+    await screen.findByText('t1')
+    const box = await screen.findByLabelText('Paste a YouTube link')
+    fireEvent.change(box, { target: { value: 'https://youtu.be/abcDEF12345' } })
+    await act(async () => { fireEvent.keyDown(box, { key: 'Enter' }); fireEvent.keyDown(box, { key: 'Enter' }) })
+    await screen.findByText('Adding the video: downloading…')
+    expect(h.api.lessons.youtube).toHaveBeenCalledTimes(1)
   })
 
   it('?add= asks once, adds on yes and clears the parameter', async () => {
@@ -102,6 +127,7 @@ describe('Library YouTube hand-off', () => {
     expect(ask).toHaveBeenCalledTimes(1)
     expect(ask).toHaveBeenCalledWith(`Add ${url} to shadow-speech?`)
     await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent(/^\/library$/))
+    await screen.findByText('Adding the video: downloading…')
   })
 
   it('declining ?add= adds nothing but still clears the parameter', async () => {

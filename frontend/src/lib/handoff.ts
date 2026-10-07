@@ -3,7 +3,8 @@ export function bookmarkletCode(origin: string): string {
   return `javascript:location.href='${origin}/library?add='+encodeURIComponent(location.href)`
 }
 
-// The question asked when the library opens with ?add=<url> (an optional &title= is shown instead of the link).
+// The question asked when the library opens with ?add=<url>: an optional &title= is shown next to the link, never instead of it.
 export function addQuestion(url: string, title?: string | null): string {
-  return `Add ${title?.trim() || url} to shadow-speech?`
+  const t = title?.trim()
+  return t ? `Add ${t} (${url}) to shadow-speech?` : `Add ${url} to shadow-speech?`
 }

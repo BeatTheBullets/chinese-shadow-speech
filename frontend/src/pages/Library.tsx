@@ -19,16 +19,17 @@ function readable(e: unknown, hint: string): string {
 export default function Library() {
   const [lessons, setLessons] = useState<Lesson[]>([])
   const [jobs, setJobs] = useState<Record<number, Job>>({})
-  const [msg, setMsg] = useState('')
+  const [note, setNote] = useState<{ text: string; lessonId?: number }>({ text: '' })
+  const setMsg = useCallback((text: string) => setNote({ text }), [])   // a plain message carries no lesson link
   const [importing, setImporting] = useState(false)
   const { languageParent, importQueries, ankiUrl } = useSettings()
   const closers = useRef<(() => void)[]>([])
   const [link, setLink] = useState('')
-  const [existingId, setExistingId] = useState<number | null>(null)   // a pasted video that was already in the library
+  const adding = useRef(false)          // one paste is submitted at a time
   const [params] = useSearchParams()
   const navigate = useNavigate()
   const addHandled = useRef(false)      // StrictMode runs effects twice; the ?add= question comes once
-  const reload = useCallback(() => api.lessons.list().then(setLessons).catch((e) => setMsg(`Could not load library: ${readable(e, BACKEND_HINT)}`)), [])
+  const reload = useCallback(() => api.lessons.list().then(setLessons).catch((e) => setMsg(`Could not load library: ${readable(e, BACKEND_HINT)}`)), [setMsg])
   useEffect(() => { reload() }, [reload])
   const polling = needsPolling(lessons)
   useEffect(() => {
@@ -44,14 +45,16 @@ export default function Library() {
   async function addYoutube(url: string) {
     const u = url.trim()
     if (!u) return
-    setExistingId(null)
+    if (adding.current) return
+    adding.current = true
     try {
       const r = await api.lessons.youtube(u)
       setLink('')
       await reload()
       if (r.job_id) { watch(r.job_id, r.lesson_id); setMsg('Adding the video: downloading…') }
-      else { setExistingId(r.lesson_id); setMsg('That video is already in the library.') }
+      else setNote({ text: 'That video is already in the library.', lessonId: r.lesson_id })
     } catch (e) { setMsg(`Could not add the video: ${readable(e, BACKEND_HINT)}`) }
+    finally { adding.current = false }
   }
   // The bookmarklet opens /library?add=<url>: ask once, take the parameter out of the address bar, add on yes.
   useEffect(() => {
@@ -115,8 +118,8 @@ export default function Library() {
           {importQueries.map((q) => <button key={q.name} className="btn" disabled={importing} onClick={() => importQuery(q.name)}>⟳ Anki · {q.name}</button>)}
           {!importQueries.length && <Link to="/settings" className="btn">Set up Anki import</Link>}
         </div>
-        {msg && <p className="text-sm text-fgdim">{msg}
-          {existingId != null && lessons.some((l) => l.id === existingId && l.status === 'ready') && <> <Link to={`/practice/${existingId}`} className="text-accent underline">Open it</Link></>}</p>}
+        {note.text && <p className="text-sm text-fgdim">{note.text}
+          {note.lessonId != null && lessons.some((l) => l.id === note.lessonId && l.status === 'ready') && <> <Link to={`/practice/${note.lessonId}`} className="text-accent underline">Open it</Link></>}</p>}
         {groups.map((g) => (
           <section key={g.speaker}>
             <h2 className="text-xs uppercase tracking-widest text-fgdim mb-2 flex justify-between">
