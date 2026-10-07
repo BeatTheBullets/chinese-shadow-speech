@@ -49,6 +49,7 @@ export const api = {
     },
     ankiImport: (query_name: string, notes: AnkiNotePayload[]) =>
       req<{ jobs: { job_id: string; lesson_id: number; title: string }[] }>('/lessons/anki', json('POST', { query_name, notes })),
+    youtube: (url: string) => req<{ job_id: string | null; lesson_id: number }>('/lessons/youtube', json('POST', { url })),
   },
   segments: {
     audioUrl: (id: number, fmt: 'opus' | 'wav' | 'mp3' = 'opus') => {

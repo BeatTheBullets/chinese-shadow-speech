@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { api } from '../api/client'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { api, ApiError } from '../api/client'
 import type { Job, Lesson } from '../api/types'
+import { addQuestion } from '../lib/handoff'
 import { deleteConfirmText, groupBySpeaker, needsPolling, renamePatch } from '../lib/library'
 import { useSettings } from '../store/settings'
 import { runAnkiImport } from '../anki/runImport'
@@ -10,6 +11,7 @@ import Shell from '../components/Shell'
 const BACKEND_HINT = 'Is the backend running?'
 const ANKI_HINT = 'Is Anki open with AnkiConnect, and is the URL right in Settings?'
 function readable(e: unknown, hint: string): string {
+  if (e instanceof ApiError) return e.detail
   if (e instanceof TypeError) return `could not reach the server (${e.message}). ${hint}`
   return e instanceof Error ? e.message : String(e)
 }
@@ -21,6 +23,11 @@ export default function Library() {
   const [importing, setImporting] = useState(false)
   const { languageParent, importQueries, ankiUrl } = useSettings()
   const closers = useRef<(() => void)[]>([])
+  const [link, setLink] = useState('')
+  const [existingId, setExistingId] = useState<number | null>(null)   // a pasted video that was already in the library
+  const [params] = useSearchParams()
+  const navigate = useNavigate()
+  const addHandled = useRef(false)      // StrictMode runs effects twice; the ?add= question comes once
   const reload = useCallback(() => api.lessons.list().then(setLessons).catch((e) => setMsg(`Could not load library: ${readable(e, BACKEND_HINT)}`)), [])
   useEffect(() => { reload() }, [reload])
   const polling = needsPolling(lessons)
@@ -34,6 +41,27 @@ export default function Library() {
   function watch(job_id: string, lesson_id: number) {
     closers.current.push(api.jobs.events(job_id, (j) => { setJobs((m) => ({ ...m, [lesson_id]: j })); if (j.status === 'done' || j.status === 'error') reload() }, reload))
   }
+  async function addYoutube(url: string) {
+    const u = url.trim()
+    if (!u) return
+    setExistingId(null)
+    try {
+      const r = await api.lessons.youtube(u)
+      setLink('')
+      await reload()
+      if (r.job_id) { watch(r.job_id, r.lesson_id); setMsg('Adding the video: downloading…') }
+      else { setExistingId(r.lesson_id); setMsg('That video is already in the library.') }
+    } catch (e) { setMsg(`Could not add the video: ${readable(e, BACKEND_HINT)}`) }
+  }
+  // The bookmarklet opens /library?add=<url>: ask once, take the parameter out of the address bar, add on yes.
+  useEffect(() => {
+    const url = params.get('add')
+    if (url == null || addHandled.current) return
+    addHandled.current = true
+    const title = params.get('title')
+    navigate('/library', { replace: true })
+    if (window.confirm(addQuestion(url, title))) void addYoutube(url)
+  }, [params]) // eslint-disable-line react-hooks/exhaustive-deps -- only a new ?add= matters
   async function onFiles(files: FileList | null) {
     if (!files?.length) return
     const list = [...files]
@@ -81,10 +109,14 @@ export default function Library() {
           onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); onFiles(e.dataTransfer.files) }}>
           <label className="flex-1 text-fgdim text-sm cursor-pointer">Drop audio/video (+ .srt) here, or click to choose
             <input type="file" multiple className="hidden" onChange={(e) => { onFiles(e.target.files); e.target.value = '' }} /></label>
+          <input className="inp w-72" placeholder="Paste a YouTube link" aria-label="Paste a YouTube link" value={link}
+            onChange={(e) => setLink(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void addYoutube(link) } }} />
           {importQueries.map((q) => <button key={q.name} className="btn" disabled={importing} onClick={() => importQuery(q.name)}>⟳ Anki · {q.name}</button>)}
           {!importQueries.length && <Link to="/settings" className="btn">Set up Anki import</Link>}
         </div>
-        {msg && <p className="text-sm text-fgdim">{msg}</p>}
+        {msg && <p className="text-sm text-fgdim">{msg}
+          {existingId != null && lessons.some((l) => l.id === existingId && l.status === 'ready') && <> <Link to={`/practice/${existingId}`} className="text-accent underline">Open it</Link></>}</p>}
         {groups.map((g) => (
           <section key={g.speaker}>
             <h2 className="text-xs uppercase tracking-widest text-fgdim mb-2 flex justify-between">

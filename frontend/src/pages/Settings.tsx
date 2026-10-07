@@ -1,5 +1,6 @@
-import { Fragment, useEffect, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { anki } from '../anki/client'
+import { bookmarkletCode } from '../lib/handoff'
 import { useSettings } from '../store/settings'
 
 export default function Settings() {
@@ -10,6 +11,10 @@ export default function Settings() {
   const [exportFields, setExportFields] = useState<string[]>([])
   const [decks, setDecks] = useState<string[]>([])
   const [draft, setDraft] = useState({ name: '', query: '', model: '', sentence: '', audio: '', translation: '', source: '', url: '' })
+
+  const bookmarklet = useRef<HTMLAnchorElement>(null)
+  // Set outside JSX: React warns about javascript: URLs in href props.
+  useEffect(() => { bookmarklet.current?.setAttribute('href', bookmarkletCode(window.location.origin)) }, [])
 
   async function connect() {
     try {
@@ -75,6 +80,13 @@ export default function Settings() {
         })}
         <label className="flex items-center gap-2 text-sm">Language parent (speaker name)
           <input className="inp" value={s.languageParent ?? ''} onChange={(e) => s.set({ languageParent: e.target.value || null })} /></label>
+      </section>
+      <section className="space-y-2">
+        <h2 className="text-fghi">YouTube</h2>
+        <p className="text-sm text-fgdim">Drag this link to the Brave bookmarks bar. On a YouTube video, click it to send the video here.</p>
+        <a ref={bookmarklet} className="btn inline-block" onClick={(e) => e.preventDefault()}>→ shadow-speech</a>
+        <p className="text-sm text-fgdim">Videos behind an age or "not a bot" check need your YouTube cookies: export them to a
+          cookies.txt file and set <code>[youtube] cookies_file</code> in config.toml (see docs/running.md, YouTube).</p>
       </section>
     </div>
   )

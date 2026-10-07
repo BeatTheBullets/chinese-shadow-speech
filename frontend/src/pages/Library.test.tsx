@@ -1,10 +1,11 @@
+import { StrictMode } from 'react'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Lesson } from '../api/types'
 
 const h = vi.hoisted(() => ({
-  api: { lessons: { list: vi.fn(), remove: vi.fn(), patch: vi.fn() }, jobs: { events: vi.fn() } },
+  api: { lessons: { list: vi.fn(), remove: vi.fn(), patch: vi.fn(), youtube: vi.fn() }, jobs: { events: vi.fn() } },
 }))
 vi.mock('../api/client', async (importOriginal) => ({ ...(await importOriginal<typeof import('../api/client')>()), api: h.api }))
 import Library from './Library'
@@ -55,5 +56,58 @@ describe('Library tile actions', () => {
     vi.spyOn(window, 'prompt').mockReturnValueOnce(null)
     fireEvent.click(screen.getByLabelText('Rename t1'))
     expect(h.api.lessons.patch).not.toHaveBeenCalled()
+  })
+})
+
+describe('Library YouTube hand-off', () => {
+  beforeEach(() => {
+    h.api.lessons.list.mockReset().mockResolvedValue([lesson(1)])
+    h.api.lessons.youtube.mockReset().mockResolvedValue({ job_id: 'j1', lesson_id: 2 })
+    h.api.jobs.events.mockReset().mockReturnValue(() => {})
+  })
+  afterEach(() => { cleanup(); vi.restoreAllMocks() })
+  function Where() { const l = useLocation(); return <div data-testid="where">{l.pathname + l.search}</div> }
+  // StrictMode runs effects twice: the ?add= question must still come once.
+  const open = (entry: string) => render(
+    <StrictMode><MemoryRouter initialEntries={[entry]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <Routes><Route path="/library" element={<><Library /><Where /></>} /></Routes>
+    </MemoryRouter></StrictMode>)
+  const paste = async (url: string) => {
+    const box = await screen.findByLabelText('Paste a YouTube link')
+    fireEvent.change(box, { target: { value: url } })
+    fireEvent.keyDown(box, { key: 'Enter' })
+  }
+
+  it('a pasted link is added on Enter and its job is watched', async () => {
+    open('/library')
+    await paste(' https://youtu.be/abcDEF12345 ')
+    await waitFor(() => expect(h.api.lessons.youtube).toHaveBeenCalledWith('https://youtu.be/abcDEF12345'))
+    await waitFor(() => expect(h.api.jobs.events).toHaveBeenCalledWith('j1', expect.any(Function), expect.any(Function)))
+  })
+
+  it('a video already in the library says so and starts no job', async () => {
+    h.api.lessons.youtube.mockResolvedValue({ job_id: null, lesson_id: 1 })
+    open('/library')
+    await paste('https://youtu.be/abcDEF12345')
+    expect(await screen.findByText('That video is already in the library.')).toBeInTheDocument()
+    expect(h.api.jobs.events).not.toHaveBeenCalled()
+  })
+
+  it('?add= asks once, adds on yes and clears the parameter', async () => {
+    const ask = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const url = 'https://www.youtube.com/watch?v=abcDEF12345&t=3'
+    open('/library?add=' + encodeURIComponent(url))
+    await waitFor(() => expect(h.api.lessons.youtube).toHaveBeenCalledWith(url))
+    expect(h.api.lessons.youtube).toHaveBeenCalledTimes(1)
+    expect(ask).toHaveBeenCalledTimes(1)
+    expect(ask).toHaveBeenCalledWith(`Add ${url} to shadow-speech?`)
+    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent(/^\/library$/))
+  })
+
+  it('declining ?add= adds nothing but still clears the parameter', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(false)
+    open('/library?add=https%3A%2F%2Fyoutu.be%2FabcDEF12345')
+    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent(/^\/library$/))
+    expect(h.api.lessons.youtube).not.toHaveBeenCalled()
   })
 })

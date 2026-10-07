@@ -24,3 +24,22 @@ Data lives in `./data`, config in `./config.toml` (mounted read-only).
 ## Tests
     make test                       # fakes only, no models
     cd backend && uv run pytest -m models   # real-model smoke tests
+
+## YouTube
+YouTube lessons are on by default (`[youtube] enabled = true`). Paste a link into the Library's "Paste a YouTube link"
+field, or drag the "→ shadow-speech" bookmarklet from Settings to the Brave bookmarks bar and click it on a video page.
+Videos longer than `[youtube] max_minutes` (default 90) are refused. Chinese subtitles are used when the video has
+them (manual first, then auto-generated); otherwise the ASR text is used.
+
+Cookies: age-restricted videos and YouTube's "confirm you're not a bot" check need your browser's YouTube cookies.
+While signed in to YouTube, export them with a cookies.txt browser extension (Netscape format), save the file
+somewhere private (e.g. `~/shadow-cookies.txt`), set `[youtube] cookies_file = "/home/<you>/shadow-cookies.txt"` in
+config.toml and restart the backend. Cookies expire; export them again when the error comes back.
+
+Deno: recent yt-dlp versions need a JavaScript runtime for YouTube. If a download fails mentioning a JS runtime or
+Deno, install it (`curl -fsSL https://deno.land/install.sh | sh`) and make sure `deno` is on the PATH of the shell that
+runs `make dev`.
+
+Updating yt-dlp: YouTube changes often. When a lesson fails with "extraction failed, yt-dlp is probably outdated":
+
+    cd backend && uv lock --upgrade-package yt-dlp && uv sync --extra dev --extra models
