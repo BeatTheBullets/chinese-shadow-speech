@@ -53,6 +53,12 @@ recogniser. Machine-translated auto-captions are refused, and so are subtitles t
 The stage shows the sentence with pinyin and a translation. Below it, a **two-track feedback block** puts the
 reference and your take on the same time scale, with a cell per syllable. Click a cell to hear that syllable once.
 
+After a take, the cells on your track show how each tone went: **green** is ok, **orange** is close, **red** is wrong and
+shows the target and the tone heard (for example `3→2`), **grey ∅** is unvoiced, and a **dashed outline** is a syllable
+that was missing. Pitch lines are drawn over both tracks: your curve with the speaker's warped faintly behind it, and
+the reference curve on the reference track. A score appears in the header. Takes that are too quiet, clipped or the
+wrong sentence are saved but not scored, and say why.
+
 ![Echo mode: the cue line says what to do, the reference is wiping](docs/screenshots/echo-listen.png)
 
 ### It always tells you what to do
@@ -111,8 +117,9 @@ Speaking happens in the app; Anki is used for **listening** review.
 
 ### Stats
 
-Minutes and attempts per day for the last 30 days. Per-sentence, per-character and per-tone scores arrive with tone
-scoring (see the [Roadmap](#roadmap)).
+Minutes and attempts per day for the last 30 days, then the tone scores: your mean for each tone, a weekly line chart per
+tone (last 12 weeks), an **After tone × tone** 5×5 matrix (so 3-3 sandhi shows up on its own), and your weakest
+characters with trend arrows.
 
 ![Stats](docs/screenshots/stats.png)
 
@@ -121,7 +128,8 @@ scoring (see the [Roadmap](#roadmap)).
 You can set:
 - the AnkiConnect address, import queries and the export note type;
 - practice preferences: hide the text while recording, chorus passes, the Flow pause length, the "move on" hint and the default speed;
-- the YouTube bookmarklet.
+- the YouTube bookmarklet;
+- your **Voice profile**, the pitch baseline tones are normalised to, with a **Reset voice profile** button.
 
 ![Settings](docs/screenshots/settings.png)
 
@@ -234,7 +242,8 @@ fake implementation.
 | `frontend/src/audio/` | clip player, AudioWorklet recorder (16 kHz PCM WAV), VAD |
 | `docs/superpowers/specs/` | the design: [main spec](docs/superpowers/specs/2026-10-03-shadowing-tool-design.md), [YouTube/passages/guidance addendum](docs/superpowers/specs/2026-10-07-youtube-passages-guidance-design.md) |
 | `docs/superpowers/plans/` | the implementation plans each phase was built from |
-| `docs/phase1-acceptance.md` | the manual checklist for things only a real browser, mic and Anki can verify |
+| `backend/shadow/scoring/` | pitch tracking, the tone model, syllable scoring, voice profile |
+| `docs/phase1-acceptance.md`, `docs/phase2-acceptance.md` | the manual checklists for things only a real browser, mic and Anki can verify |
 
 ---
 
@@ -243,21 +252,9 @@ fake implementation.
 **Built:**
 - **Phase 0–1:** the pipeline, the four practice modes, the Anki bridge and Yomitan rendering.
 - **Phase 1.5:** YouTube lessons, passages, the guidance and karaoke cues, volume, listening cards, and recordings that come back when you reopen a lesson.
+- **Phase 2:** tone scoring per syllable from a classifier trained on AISHELL-3 plus contour similarity, both normalised to each speaker's own baseline; pitch lines; stats per tone, tone pair and character. See [docs/phase2-acceptance.md](docs/phase2-acceptance.md).
 
-### Next: Phase 2 — tone scoring
-
-The feedback cells already have a place for a score. Phase 2 fills it:
-
-- **Learner alignment:** your recording is aligned to the sentence, with a quality gate that skips takes that are
-  too quiet, clipped or the wrong sentence instead of scoring them.
-- **Pitch tracking:** pitch is measured on both tracks with Praat (`parselmouth`) and normalised to each speaker's own
-  range, so a lower voice isn't penalised.
-- **A tone score per syllable:** your pitch curve is compared with the reference's, and the cells turn green, orange
-  or red. A contour overlay shows both curves.
-- **Stats** per character, per tone and per tone pair (for example 3-3 sandhi), across all your attempts.
-- **Calibration** against your own recordings, so "green" matches what sounds right.
-
-### Phase 3 — consonants and vowels
+### Next: Phase 3 — consonants and vowels
 
 Per-syllable pronunciation feedback (goodness of pronunciation from a Chinese CTC model), so you see *which*
 syllables were mispronounced, not just which tones. It also adds a "most-missed syllables" list.

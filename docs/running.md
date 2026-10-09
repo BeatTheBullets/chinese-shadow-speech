@@ -43,3 +43,31 @@ runs `make dev`.
 Updating yt-dlp: YouTube changes often. When a lesson fails with "extraction failed, yt-dlp is probably outdated":
 
     cd backend && uv lock --upgrade-package yt-dlp && uv sync --extra dev --extra models
+
+## Tone scoring
+The tone model ships in `backend/shadow/scoring/models/` (`tone_v1.joblib` and `tone_v1.json`); nothing to download for normal use.
+`/health` reports `tone_model.loaded` and its version.
+
+Retraining: `make tone-model LABELS=<canonical|realised>`, using the value recorded in the plan ledger. It downloads
+~17.7 GB (AISHELL-3, OpenSLR SLR93, Apache-2.0) into `data/corpora/aishell3` (the script's own estimate is ~19 GB with
+extraction), takes 1-2 h on the GPU and needs the models extra. Feature caches are kept in
+`data/corpora/aishell3/features_v1_<labels>/`.
+
+After a model or feature change run `make rescore`: it re-scores every stored take and writes
+`data/reports/rescore-<date>.html`. `--probe` prints the percentiles used to pick the gate thresholds
+(`min_rms_dbfs`, `min_align_conf`).
+
+Voice profile: tones are judged against your own pitch range, which is learned from your first minute of voiced speech.
+Settings -> Voice profile shows it; **Reset voice profile** empties it (for a new mic or after a bad take) and the next
+takes rebuild it.
+
+Gate warnings (the take is always saved, it is just not scored):
+- "Too short — not scored. Say the whole sentence." Speak the full sentence.
+- "Too quiet — not scored. Move closer to the mic." Raise the mic level or move closer.
+- "Too loud — not scored. Lower the mic gain." The recording clips; lower the gain.
+- "Could not match this to the sentence — not scored." You said something else, or the audio is too noisy to align.
+- "No voice found — not scored." Check that the right microphone is selected.
+- "Tone model missing — not scored. See docs/running.md." Restore `backend/shadow/scoring/models/tone_v1.*` or retrain.
+- "This sentence has no reference timing — not scored." Re-align or edit the sentence in the drawer.
+- "Could not align this take — not scored." Record it again.
+- "Scoring failed — the take is saved." See the backend log; `make rescore` re-scores once fixed.
