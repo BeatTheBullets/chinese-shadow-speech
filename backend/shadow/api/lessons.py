@@ -87,7 +87,7 @@ def _attempt_stats(db: Session, *where: Any) -> AttemptStats:
     scores: dict[int, list[float]] = {}
     for sid, score_json in db.exec(q).all():
         counts[sid] = counts.get(sid, 0) + 1
-        if score_json and "overall" in score_json:
+        if score_json and score_json.get("overall") is not None:
             scores.setdefault(sid, []).append(score_json["overall"])
     return {sid: (n, scores[sid][-1], max(scores[sid])) if sid in scores else (n, None, None) for sid, n in counts.items()}
 

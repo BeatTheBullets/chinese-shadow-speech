@@ -54,7 +54,7 @@ def create_attempt(segment_id: int, request: Request, audio_file: UploadFile = F
     finally:
         raw.unlink(missing_ok=True)
     att.audio_path = str(dst)
-    att.score_json = score_attempt(deps, seg, dst)
+    score_attempt(deps, db, seg, att)
     if sess is not None:
         sess.attempts_count += 1; db.add(sess)
     db.add(att); db.commit(); db.refresh(att)
