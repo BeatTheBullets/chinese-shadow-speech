@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { cellsFromWords, cellClass, cellStatusFromScore } from './cells'
+import { cellsFromWords, cellClass } from './cells'
 import type { AlignSpan, Word } from '../api/types'
 
 const syl = (ch: string, tone: number) => ({ ch, pinyin: ch + tone, pinyin_toneless: ch, tone })
@@ -39,6 +39,8 @@ describe('cells', () => {
   })
   it('classes by status and score thresholds', () => {
     expect(cellClass({ ch: 'x', pinyin: '', tone: 1, status: 'ok' })).toBe('cell-ok')
-    expect(cellStatusFromScore(0.85)).toBe('ok'); expect(cellStatusFromScore(0.5)).toBe('suspect'); expect(cellStatusFromScore(null)).toBe('neutral')
+    expect(cellClass({ ch: 'x', pinyin: '', tone: 1, status: 'close' })).toBe('cell-warn')
+    expect(cellClass({ ch: 'x', pinyin: '', tone: 1, status: 'wrong' })).toBe('cell-bad')
+    expect(cellClass({ ch: 'x', pinyin: '', tone: 1, status: 'missing' })).toBe('cell-missing')
   })
 })

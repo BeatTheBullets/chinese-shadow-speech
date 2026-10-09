@@ -14,9 +14,20 @@ export interface Lesson {
 }
 export interface Passage { idx: number; title: string; start_s: number; end_s: number; segment_ids: number[]; done: boolean }
 export interface LessonDetail extends Lesson { segments: Segment[]; passages?: Passage[] }
-export interface Attempt { id: number; segment_id: number; session_id: number | null; created_at: string; mode: string; duration_s: number; score_json: Record<string, unknown> | null }
+// Phase 2 score JSON (spec §5.1). `overall` is null when the take was not scored; `warnings` then says why.
+export type SylStatus = 'ok' | 'close' | 'wrong' | 'unvoiced' | 'missing'
+export interface Contour { t0_s: number; step_ms: number; f0_st: (number | null)[]; spans: [number, number][] }
+export interface ScoredSyllable {
+  ch: string; pinyin: string; tone: number; target_tone: number | null; heard_tone: number | null; status: SylStatus
+  tone_score: number | null; p_target: number | null; contour: number | null
+}
+export interface Score {
+  overall: number | null; tone_overall: number | null; segmental_overall: number | null; rate_ratio: number | null
+  ref_contour: Contour | null; usr_contour: Contour | null; syllables: ScoredSyllable[]; warnings: string[]
+}
+export interface Attempt { id: number; segment_id: number; session_id: number | null; created_at: string; mode: string; duration_s: number; score_json: Score | null }
 // A sentence's newest stored attempt (GET /lessons/{id}/takes), and a past Flow run's takes in sentence order.
-export interface Take { segment_id: number; attempt_id: number; mode: string; created_at: string; duration_s: number }
+export interface Take { segment_id: number; attempt_id: number; mode: string; created_at: string; duration_s: number; score_json?: Score | null }
 export interface FlowRun { started_at: string; ended_at: string; session_id: number | null; items: { segment_id: number; idx: number; attempt_id: number }[] }
 export interface PracticeSession { id: number; lesson_id: number; mode: string; started_at: string; ended_at: string | null; attempts_count: number }
 export interface Job { id: string; stage: string; fraction: number; status: 'queued' | 'running' | 'done' | 'error'; error: string | null; lesson_id: number | null }
