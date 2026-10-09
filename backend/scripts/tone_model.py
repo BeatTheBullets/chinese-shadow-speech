@@ -79,9 +79,14 @@ def speaker_features(aligner, cfg, utts: list[Utterance], labels: str) -> dict[s
             "ctx": np.asarray(ctx, np.int64).reshape(-1, 2), "contours": np.asarray(contours, np.float32).reshape(-1, POINTS)}
 
 
+def features_dir(root: Path, labels: str) -> Path:
+    """Keyed by labels too: cached rows carry the label mode they were built with."""
+    return root / f"features_v{FEATURE_VERSION}_{labels}"
+
+
 def features(root: Path, utts: list[Utterance], labels: str) -> Path:
     cfg = load_settings().scoring
-    out = root / f"features_v{FEATURE_VERSION}"
+    out = features_dir(root, labels)
     out.mkdir(exist_ok=True)
     aligner = make_aligner("mms_fa", load_settings().resolved_device())
     by_spk: dict[str, list[Utterance]] = defaultdict(list)
@@ -110,6 +115,8 @@ def dtw_norm(test: list[tuple[str, dict]], band: int) -> float:
         (s1, a), (s2, b) = rng.sample(g, 2)
         if s1 != s2:
             dists.append(dtw_distance(a, b, band))
+    if not dists or not np.isfinite(np.median(dists)):
+        raise SystemExit("no cross-speaker same-context pairs for dtw_norm: too few held-out speakers")
     return float(np.median(dists) / 0.1)
 
 
@@ -119,7 +126,7 @@ def train(root: Path, name: str, hours: float, labels: str) -> None:
     from sklearn.ensemble import HistGradientBoostingClassifier
     from sklearn.metrics import confusion_matrix
     cfg = load_settings().scoring
-    files = sorted((root / f"features_v{FEATURE_VERSION}").glob("*.npz"))
+    files = sorted(features_dir(root, labels).glob("*.npz"))
     spks = [f.stem for f in files]
     random.Random(0).shuffle(spks)
     test_spk = set(spks[: max(1, int(len(spks) * TEST_SHARE))])
@@ -142,7 +149,7 @@ def train(root: Path, name: str, hours: float, labels: str) -> None:
             "sklearn": sklearn.__version__, "date": date.today().isoformat()}
     MODELS_DIR.mkdir(exist_ok=True)
     joblib.dump(clf, MODELS_DIR / f"{name}.joblib", compress=3)
-    (MODELS_DIR / f"{name}.json").write_text(json.dumps(meta, indent=1))
+    (MODELS_DIR / f"{name}.json").write_text(json.dumps(meta, indent=1, allow_nan=False))
     print(json.dumps({k: meta[k] for k in ("accuracy", "per_tone", "dtw_norm", "n_train", "n_test")}, indent=1))
     print("ACCEPT" if acc >= 0.85 else "BELOW 0.85 — stop and decide (spec §4.4)")
 
