@@ -1,6 +1,6 @@
 import type {
   ActivityStats, AnkiNotePayload, Attempt, FlowRun, Job, Lesson, LessonDetail, LessonStats, Mode, PracticeSession,
-  Segment, SentenceStats, SyllableStats, Take, ToneStats, UnexportedItem,
+  Segment, SentenceStats, SyllableStats, Take, ToneStats, UnexportedItem, VoiceProfile,
 } from './types'
 
 // Same-origin in production (the backend serves the built SPA); the dev server talks to the backend directly.
@@ -95,6 +95,10 @@ export const api = {
     sentences: () => req<SentenceStats>('/stats/sentences'),
     syllables: () => req<SyllableStats>('/stats/syllables'),
     tones: () => req<ToneStats>('/stats/tones'),
+  },
+  voiceProfile: {
+    get: () => req<VoiceProfile>('/voice-profile'),
+    reset: () => req<void>('/voice-profile', { method: 'DELETE' }),
   },
   review: {
     unexported: () => req<UnexportedItem[]>('/review/unexported'),

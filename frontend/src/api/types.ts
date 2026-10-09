@@ -41,11 +41,13 @@ export interface LessonStats {
 }
 export interface ActivityStats { days: { date: string; minutes: number; attempts: number }[] }
 export interface SentenceStats { regressed: SentenceStat[]; by_last: SentenceStat[] }
-export interface SyllableStats { syllables: { pinyin: string; tone: number; mean: number; n: number }[] }
+export interface SyllableStats { syllables: { ch: string; pinyin: string; tone: number; mean: number; n: number; trend: number | null }[] }
 export interface ToneStats {
   tones: { tone: number; mean: number; n: number }[]
   pairs: { prev_tone: number; tone: number; mean: number; n: number }[]
+  weeks: { week: string; tone: number; mean: number; n: number }[]
 }
+export interface VoiceProfile { baseline_hz: number | null; spread_st: number | null; voiced_s: number; updated_at: string | null }
 export interface UnexportedItem {
   lesson_id: number; lesson_title: string; lesson_source_type: Lesson['source_type']; lesson_source_ref: string
   last_attempt_at: string; segment: Segment
