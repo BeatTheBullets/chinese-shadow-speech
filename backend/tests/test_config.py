@@ -31,3 +31,18 @@ def test_youtube_defaults():
     from shadow.config import Settings
     y = Settings().youtube
     assert (y.enabled, y.max_minutes, y.cookies_file) == (True, 90, "")
+
+
+def test_phase2_scoring_defaults():
+    from shadow.config import Settings
+    s = Settings().scoring
+    assert (s.green_at, s.wrong_margin, s.ref_confidence) == (0.7, 0.25, 0.6)
+    assert (s.min_rms_dbfs, s.min_align_conf, s.max_clipped, s.profile_seconds) == (-45.0, 0.2, 0.01, 60.0)
+    assert s.tone_model == "tone_v1"
+
+
+def test_repo_config_toml_has_phase2_scoring_keys():
+    from pathlib import Path
+    from shadow.config import load_settings
+    s = load_settings(Path(__file__).resolve().parents[2] / "config.toml")
+    assert s.scoring.tone_model == "tone_v1" and s.scoring.green_at == 0.7

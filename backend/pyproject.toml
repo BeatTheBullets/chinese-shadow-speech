@@ -18,6 +18,9 @@ dependencies = [
   "soundfile>=0.12",
   "numpy>=1.26",
   "yt-dlp[default]>=2026.8.19",
+  "praat-parselmouth>=0.4.5",
+  "scikit-learn==1.9.*",
+  "joblib>=1.4",
 ]
 
 [project.optional-dependencies]
