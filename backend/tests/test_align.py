@@ -102,3 +102,21 @@ def test_make_aligner_resolves_names_without_loading_models():
     assert isinstance(q, Qwen3Aligner) and q._model is None
     with pytest.raises(ValueError):
         make_aligner("nope", "cpu")
+
+
+def test_locked_aligner_serialises_calls():
+    import threading, time
+    import numpy as np
+    from shadow.ingest.align import LockedAligner
+
+    class Slow:
+        _model = "m"
+        def __init__(self): self.active = 0; self.peak = 0
+        def align(self, wav, sr, text):
+            self.active += 1; self.peak = max(self.peak, self.active); time.sleep(0.05); self.active -= 1
+            return []
+
+    inner = Slow(); la = LockedAligner(inner)
+    ts = [threading.Thread(target=la.align, args=(np.zeros(10), 16000, "我")) for _ in range(4)]
+    [t.start() for t in ts]; [t.join() for t in ts]
+    assert inner.peak == 1 and la._model == "m"

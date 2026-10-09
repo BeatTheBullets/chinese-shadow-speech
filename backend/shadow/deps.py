@@ -2,7 +2,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from shadow.config import Settings
-from shadow.ingest.align import Aligner, FakeAligner, make_aligner
+from shadow.ingest.align import Aligner, FakeAligner, LockedAligner, make_aligner
 from shadow.ingest.asr import ASR, FakeASR, ParaformerASR
 from shadow.ingest.llm import LLM, AnthropicLLM, FakeLLM, RectifyOutput
 from shadow.ingest.transcript import Transcript
@@ -36,7 +36,7 @@ def build_deps(settings: Settings) -> Deps:
         llm = AnthropicLLM(settings.llm.model, settings.llm.effort, files.cache_dir("llm"),
                            settings.segmentation.min_chars, settings.segmentation.max_chars)
     return Deps(asr=ParaformerASR(settings.models.asr, device), llm=llm,
-                aligner=make_aligner(settings.resolved_aligner(), device), files=files, settings=settings,
+                aligner=LockedAligner(make_aligner(settings.resolved_aligner(), device)), files=files, settings=settings,
                 downloader=YtDlpDownloader(settings.youtube.cookies_file))
 
 

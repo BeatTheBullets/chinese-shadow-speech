@@ -1,5 +1,6 @@
 from __future__ import annotations
 import logging
+import threading
 from dataclasses import dataclass
 from typing import Protocol
 import numpy as np
@@ -19,6 +20,21 @@ class Span:
 
 class Aligner(Protocol):
     def align(self, wav: np.ndarray, sr: int, text: str) -> list[Span]: ...
+
+
+class LockedAligner:
+    """One aligner shared by ingest jobs and attempt scoring (Phase 2 spec §1 step 3): calls run one at a time."""
+    def __init__(self, inner: Aligner):
+        self.inner = inner
+        self._lock = threading.Lock()
+
+    @property
+    def _model(self):                   # Deps.loaded_models() looks for it
+        return getattr(self.inner, "_model", None)
+
+    def align(self, wav: np.ndarray, sr: int, text: str) -> list[Span]:
+        with self._lock:
+            return self.inner.align(wav, sr, text)
 
 
 def speech_chars(text: str) -> list[str]:
