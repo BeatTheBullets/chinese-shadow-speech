@@ -204,7 +204,10 @@ become `{t0_s, step_ms, f0_st, spans}`: `f0_st` in normalised semitones with
 time axis (the trim offset already added back). Plus `model_version` and
 `feature_version`. A take that failed the gate or could not be scored has
 `overall: null`; every reader of `overall` must allow null. `warnings` uses the
-gate codes of §1 plus `no_tone_model`, `pitch_failed`, `align_failed`.
+gate codes of §1 plus `no_tone_model`, `align_failed` (span count does not
+fit), `no_voice`, `no_reference` (no clip or alignment) and `score_failed`
+(any exception). Each score also carries `quality: {dbfs, clipped,
+align_conf}` for setting the gate thresholds.
 
 ### 5.2 Tables
 
