@@ -993,7 +993,7 @@ git commit -m "feat(backend): scoring quality gate; one aligner call at a time"
   - `failed_result(syllables: list[dict], warnings: list[str], quality: dict | None = None) -> TakeResult`
   - `syllables` items are `words_json` syllables: `{"ch", "pinyin", "pinyin_toneless", "tone"}`.
 
-Score JSON keys (spec §5.1): `overall, tone_overall, segmental_overall, rate_ratio, ref_contour, usr_contour, syllables, pitch_range_st, warnings, quality, model_version, feature_version`. Each syllable: `ch, pinyin, tone, target_tone, heard_tone, status, tone_score, p_target, contour, seg_score, ref_f0, usr_f0, ref_dur, usr_dur`. Contours: `{"t0_s", "step_ms": 10, "f0_st": [float | None], "spans": [[start_s, end_s], …]}`. `quality`: `{"dbfs", "clipped", "align_conf"}` (diagnostics for Task 10's thresholds).
+Score JSON keys (spec §5.1): `overall, tone_overall, segmental_overall, rate_ratio, ref_contour, usr_contour, syllables, pitch_range_st, warnings, quality, model_version, feature_version`. Each syllable: `ch, pinyin, tone, target_tone, heard_tone, status, tone_score, p_target, contour, seg_score, ref_f0, usr_f0, ref_dur, usr_dur`. Contours: `{"t0_s", "step_ms": 10, "f0_st": [float | None], "spans": [[start_s, end_s], …]}`. `quality`: `{"dbfs", "clipped", "align_conf"}` (diagnostics for Task 15's thresholds).
 
 - [ ] **Step 1: Write the failing tests**
 
