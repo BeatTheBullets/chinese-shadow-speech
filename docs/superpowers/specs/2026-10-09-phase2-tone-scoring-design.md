@@ -247,8 +247,9 @@ The feedback block keeps its shape (main spec §7.2).
   heard). Hover: "Speaker: tone 3 · You: tone 2 · 41".
 - **Score chips:** overall (large), tone, best so far, attempts. Segmental
   chip reads "Phase 3".
-- **Gate warnings** replace the score in the header and show in the cue line
-  ("Too quiet — not scored").
+- **Gate warnings** replace the score in the header and show in the hint
+  line under the transport ("Too quiet — not scored. Move closer to the
+  mic.").
 - **Stored takes** carry their score, so a reopened lesson shows colours; the
   segment's `last_score`/`best_score` in the store update from the upload
   response.
