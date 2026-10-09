@@ -57,7 +57,7 @@ After a model or feature change run `make rescore`: it re-scores every stored ta
 `data/reports/rescore-<date>.html`. `--probe` prints the percentiles used to pick the gate thresholds
 (`min_rms_dbfs`, `min_align_conf`).
 
-Voice profile: tones are judged against your own pitch range, which is learned from your first minute of voiced speech.
+Voice profile: tones are judged against your own pitch range, which is learned from your most recent minute or so of voiced speech and keeps adapting as you practise.
 Settings -> Voice profile shows it; **Reset voice profile** empties it (for a new mic or after a bad take) and the next
 takes rebuild it.
 
