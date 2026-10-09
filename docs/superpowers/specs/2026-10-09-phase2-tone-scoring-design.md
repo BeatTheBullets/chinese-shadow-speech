@@ -82,7 +82,8 @@ interquartile range in semitones around it.
 - **Reference speaker: whole lesson.** Computed over the voiced frames of all
   the lesson's segment clips, once, and stored in `Lesson.meta_json["pitch"]`
   (`{baseline_hz, spread_st, frames}`). Computed lazily on the first scored
-  take of a lesson (≈ 1–3 s once), recomputed after edits that change clips.
+  take of a lesson (≈ 1–5 s once). Not recomputed after edits: one edited
+  sentence barely moves a lesson-wide median.
 - **Learner: voice profile.** One `VoiceProfile` row per installation keeps a
   reservoir of recent voiced F0 values (the last 6000 voiced frames ≈ 60 s of
   speech, stored as JSON) and the derived `baseline_hz`, `spread_st`,
@@ -196,8 +197,13 @@ model) before the app relies on it.
 
 Main spec §5 shape, with these changes: `segmental_overall`/`seg_score` stay
 null; each syllable gains `target_tone`, `heard_tone`, `p_target`,
-`contour`, and `status` uses §3's values; contours are in normalised
-semitones; plus `model_version` and `feature_version`. `warnings` uses the
+`contour`, and `status` uses §3's values. `ref_contour` / `usr_contour`
+become `{t0_s, step_ms, f0_st, spans}`: `f0_st` in normalised semitones with
+`null` for unvoiced frames, `t0_s` the time of the first frame and `spans` the
+`[start_s, end_s]` of each syllable, both on the clip's / stored take's own
+time axis (the trim offset already added back). Plus `model_version` and
+`feature_version`. A take that failed the gate or could not be scored has
+`overall: null`; every reader of `overall` must allow null. `warnings` uses the
 gate codes of §1 plus `no_tone_model`, `pitch_failed`, `align_failed`.
 
 ### 5.2 Tables
