@@ -54,8 +54,7 @@ def _r(x: float | None, nd: int = 3) -> float | None:
 
 def score_take(*, ref: RefData, syllables: list[dict], text: str, wav: np.ndarray, sr: int, aligner: Aligner,
                model: ToneModel | None, profile: Baseline | None, profile_voiced_s: float, cfg: ScoringCfg) -> TakeResult:
-    # no margin: the aligner spans are on the trimmed audio, so slack would skew them against the reference
-    trimmed, off = trim_silence(wav, sr, keep_s=0.0)
+    trimmed, off = trim_silence(wav, sr)
     ref_speech_s = ref.spans[-1][1] - ref.spans[0][0] if ref.spans else 0.0
     quality = {"dbfs": round(level_dbfs(trimmed), 1), "clipped": round(clipped_ratio(trimmed), 4), "align_conf": None}
     if warnings := pre_gate(trimmed, sr, ref_speech_s, cfg):

@@ -26,7 +26,7 @@ def run(take, *, syllables=SYLS, text=TEXT, model=FakeToneModel(tone=1, p=0.9), 
 
 
 def test_matching_take_is_all_ok():
-    r = run(voice(REF_CONTOURS, lead_s=0.3))
+    r = run(voice(REF_CONTOURS))
     assert [s["status"] for s in r.json["syllables"]] == ["ok"] * 4
     assert r.json["overall"] == pytest.approx(r.json["tone_overall"]) and r.json["overall"] > 0.9
     assert r.json["warnings"] == [] and r.json["segmental_overall"] is None
