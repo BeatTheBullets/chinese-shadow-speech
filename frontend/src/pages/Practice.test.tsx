@@ -19,7 +19,7 @@ const h = vi.hoisted(() => ({
   playSequence: vi.fn(() => Promise.resolve()),
   player: { play: vi.fn(() => Promise.resolve()), playRange: vi.fn(() => Promise.resolve()), stop: vi.fn(), setVolume: vi.fn(), preload: vi.fn(() => Promise.resolve()), peaksFor: vi.fn<(url: string) => Promise<Float32Array>>(() => new Promise(() => {})) },
   ctxClose: vi.fn(() => Promise.resolve()),
-  twoTrack: null as null | { onPlaySyllable: (i: number) => void; youPeaks: Float32Array | null; youDuration: number },
+  twoTrack: null as null | { onPlaySyllable: (i: number) => void; youPeaks: Float32Array | null; youDuration: number; score?: unknown },
 }))
 vi.mock('../api/client', async (importOriginal) => ({ ...(await importOriginal<typeof import('../api/client')>()), api: h.api }))
 vi.mock('../anki/export', async (importOriginal) => ({ ...(await importOriginal<typeof import('../anki/export')>()), exportAndRecord: h.exportAndRecord }))
@@ -69,6 +69,36 @@ function renderPractice() {
 }
 
 describe('<Practice>', () => {
+
+  it('Echo: the uploaded take\u2019s score reaches the You track and the sentence\u2019s last score', async () => {
+    const score = { overall: 0.8, tone_overall: 0.8, segmental_overall: null, rate_ratio: 1, ref_contour: null, usr_contour: null, syllables: [], warnings: [] }
+    h.api.segments.postAttempt.mockResolvedValue({ id: 99, score_json: score })
+    renderPractice()
+    await screen.findByText('你好', { selector: 'p.sentence' })
+    await waitFor(() => expect(usePractice.getState().sessionId).toBe(5))
+    press('Enter'); await screen.findByRole('button', { name: '■ stop' }); await flush()
+    press('Enter'); await flush()
+    await waitFor(() => expect(h.twoTrack?.score).toEqual(score))
+    expect(usePractice.getState().lesson!.segments[0]).toMatchObject({ last_score: 0.8, attempts: 1 })
+  })
+
+  it('a gated take explains itself in the hint line', async () => {
+    const score = { overall: null, tone_overall: null, segmental_overall: null, rate_ratio: null, ref_contour: null, usr_contour: null, syllables: [], warnings: ['too_quiet'] }
+    h.api.segments.postAttempt.mockResolvedValue({ id: 99, score_json: score })
+    renderPractice()
+    await screen.findByText('你好', { selector: 'p.sentence' })
+    press('Enter'); await screen.findByRole('button', { name: '■ stop' }); await flush()
+    press('Enter'); await flush()
+    expect(await screen.findByText('Too quiet — not scored. Move closer to the mic.')).toBeInTheDocument()
+  })
+
+  it('stored takes bring their score back when the lesson is reopened', async () => {
+    const score = { overall: 0.6, tone_overall: 0.6, segmental_overall: null, rate_ratio: 1, ref_contour: null, usr_contour: null, syllables: [], warnings: [] }
+    h.api.lessons.takes.mockResolvedValue([{ segment_id: 11, attempt_id: 7, mode: 'echo', created_at: '', duration_s: 1, score_json: score }])
+    renderPractice()
+    await screen.findByText('你好', { selector: 'p.sentence' })
+    await waitFor(() => expect(h.twoTrack?.score).toEqual(score))
+  })
   const origAudioContext = globalThis.AudioContext
   const origCreate = URL.createObjectURL, origRevoke = URL.revokeObjectURL
   beforeEach(() => {

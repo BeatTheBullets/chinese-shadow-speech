@@ -1,4 +1,4 @@
-import type { Score } from '../api/types'
+import type { Score, Segment } from '../api/types'
 import type { Cell } from './cells'
 
 export const TONE_NAMES: Record<number, string> = { 0: 'neutral', 1: 'high', 2: 'rising', 3: 'low', 4: 'falling' }
@@ -31,4 +31,10 @@ export const pct = (x: number | null | undefined): string => (x == null ? '—' 
 export function cellTitle(c: Cell): string {
   if (c.target == null || c.heard == null) return c.pinyin
   return `${c.pinyin} · Speaker: tone ${c.target} (${TONE_NAMES[c.target]}) · You: tone ${c.heard} (${TONE_NAMES[c.heard]}) · ${pct(c.score)}`
+}
+
+// The sentence after one more attempt, as the lessons API would now report it (last/best of scored takes only).
+export function applyAttempt(seg: Segment, overall: number | null | undefined): Segment {
+  if (overall == null) return { ...seg, attempts: seg.attempts + 1 }
+  return { ...seg, attempts: seg.attempts + 1, last_score: overall, best_score: Math.max(seg.best_score ?? overall, overall) }
 }

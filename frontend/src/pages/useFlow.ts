@@ -9,6 +9,7 @@ import type { Mic } from '../audio/useMic'
 import { MIN_TAKE_S } from '../lib/echo'
 import { sliceRangesFromActual, type FlowResult, type FlowSub } from '../lib/flow'
 import { playFlow, type FlowClip } from '../lib/flowRun'
+import { applyAttempt } from '../lib/score'
 import { usePractice } from '../store/practice'
 import { useSettings } from '../store/settings'
 
@@ -99,10 +100,13 @@ export function useFlow(deps: FlowDeps) {
     for (const t of takes) {
       let attemptId: number | null = null
       try {
-        attemptId = (await api.segments.postAttempt(t.rg.segmentId, t.wav, { session_id, mode: 'flow' })).id
+        const a = await api.segments.postAttempt(t.rg.segmentId, t.wav, { session_id, mode: 'flow' })
+        attemptId = a.id
         const ps = usePractice.getState()
         ps.markPractised(t.rg.segmentId)
-        ps.recordTake(t.rg.segmentId, { id: attemptId, url: api.attempts.audioUrl(attemptId), duration: t.samples.length / sr })
+        ps.recordTake(t.rg.segmentId, { id: attemptId, url: api.attempts.audioUrl(attemptId), duration: t.samples.length / sr, score: a.score_json })
+        const now = ps.lesson?.segments.find((x) => x.id === t.rg.segmentId)
+        if (now) ps.updateSegment(applyAttempt(now, a.score_json?.overall))
       }
       catch (e) { mine(() => setError(`Upload failed: ${message(e)}`)) }
       mine(() => setState((f) => {

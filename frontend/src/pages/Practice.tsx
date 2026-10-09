@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } fr
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { exportAndRecord, reexportQuestion } from '../anki/export'
 import { api, ApiError } from '../api/client'
-import type { Attempt, FlowRun, LessonDetail, Mode, Segment, Take } from '../api/types'
+import type { Attempt, FlowRun, LessonDetail, Mode, Score, Segment, Take } from '../api/types'
 import { playClip, sleep } from '../audio/abortable'
 import { findSilenceEnd, sliceSamples } from '../audio/pcm'
 import { ClipPlayer, peaks as peaksOf, playSequence } from '../audio/player'
@@ -17,6 +17,7 @@ import FlowView, { FlowSetup, FlowTransport } from '../components/FlowView'
 import HelpOverlay from '../components/HelpOverlay'
 import KaraokeSentence, { GhostLine } from '../components/KaraokeSentence'
 import SessionExportDialog from '../components/SessionExportDialog'
+import ScoreHeader from '../components/ScoreHeader'
 import TopBar from '../components/TopBar'
 import Transport from '../components/Transport'
 import type { VolumeControls } from '../components/VolumeSliders'
@@ -28,6 +29,7 @@ import { guidedText, nextGuidedStep, type GuidedStep } from '../lib/guided'
 import { clipSpans, stageWipe } from '../lib/karaoke'
 import { actionForKey, type Action } from '../lib/keys'
 import { passageIndexOf, passageSpan } from '../lib/passages'
+import { applyAttempt, warningText } from '../lib/score'
 import { sessionUnsent } from '../lib/sessionExport'
 import { useNow } from '../lib/useNow'
 import { clamp01, guideApplies, playbackVolume } from '../lib/volume'
@@ -48,10 +50,10 @@ const readable = (e: unknown) => (e instanceof ApiError ? e.detail : message(e))
 function loadTakes(lessonId: number, current: () => boolean) {
   api.lessons.takes(lessonId).then((takes: Take[]) => {
     if (!current()) return
-    usePractice.getState().setStoredTakes(Object.fromEntries(takes.map((t) => [t.segment_id, stored(t.attempt_id, t.duration_s)])))
+    usePractice.getState().setStoredTakes(Object.fromEntries(takes.map((t) => [t.segment_id, stored(t.attempt_id, t.duration_s, t.score_json)])))
   }).catch(() => {})
 }
-const stored = (attemptId: number, duration: number): StoredTake => ({ id: attemptId, url: api.attempts.audioUrl(attemptId), duration })
+const stored = (attemptId: number, duration: number, score?: Score | null): StoredTake => ({ id: attemptId, url: api.attempts.audioUrl(attemptId), duration, score })
 
 // A multi-step run in progress. Aborting its controller (stop, mode switch, navigation, unmount) ends it.
 type RunKind = 'chorus' | 'flow' | 'guided'
@@ -289,8 +291,15 @@ export default function Practice() {
     const duration = samples.length / rec.sampleRate
     if (duration < MIN_TAKE_S) { dispatch('CANCEL'); setError('Too short to keep, nothing was saved. Try again.'); return }
     const wav = toWav16k(samples, rec.sampleRate)
-    // Once uploaded, the take is the sentence's newest stored one (what R replays after moving away and back).
-    const uploaded = (a: Attempt) => { const cur = usePractice.getState(); cur.markPractised(s.id); cur.recordTake(s.id, stored(a.id, duration)) }
+    // Once uploaded, the take is the sentence's newest stored one, with its score (what R replays after moving away and back).
+    const uploaded = (a: Attempt) => {
+      const cur = usePractice.getState()
+      cur.markPractised(s.id); cur.recordTake(s.id, stored(a.id, duration, a.score_json))
+      const now = cur.lesson?.segments.find((x) => x.id === s.id)
+      if (now) cur.updateSegment(applyAttempt(now, a.score_json?.overall))
+      const why = warningText(a.score_json)
+      if (why) cur.setHint(why)
+    }
     // The store moved to another sentence meanwhile (e.g. the lesson reloaded): save the take, skip the playback.
     if (currentSegment(ps)?.id !== s.id) {
       dispatch('CANCEL')
@@ -303,7 +312,7 @@ export default function Practice() {
     ps.setLastAttempt(take); ps.bumpAttempts()
     if (usePractice.getState().attemptsThisSegment >= useSettings.getState().practice.moveOnAfter) ps.setHint(MOVE_ON)
     const upload = api.segments.postAttempt(s.id, wav, { session_id: ps.sessionId ?? undefined, mode })
-      .then((a) => { uploaded(a); const cur = usePractice.getState(); if (cur.lastAttempt?.url === url) cur.setLastAttempt({ ...take, id: a.id }) })
+      .then((a) => { uploaded(a); const cur = usePractice.getState(); if (cur.lastAttempt?.url === url) cur.setLastAttempt({ ...take, id: a.id, score: a.score_json }) })
       .catch((e) => setError(`Upload failed: ${message(e)}`))
     dispatch('UPLOADED')
     const ctrl = new AbortController()
@@ -712,7 +721,8 @@ export default function Practice() {
                 {!(st.textPrefs.hanzi && show) && wipe && <GhostLine count={spans.length} wipe={wipe} />}
                 <TwoTrack segment={seg} refPeaks={refPeaks} refDuration={seg.end_s - seg.start_s} refPlayhead={refHead}
                   youPeaks={youPeaks} youDuration={take?.duration ?? 0} youPlayhead={youHead}
-                  onPlayRef={() => act('play')} onPlayYou={() => act('replayYou')} onPlaySyllable={playSyllable} />
+                  onPlayRef={() => act('play')} onPlayYou={() => act('replayYou')} onPlaySyllable={playSyllable}
+                  score={take?.score ?? null} scoreHeader={<ScoreHeader score={take?.score} best={seg.best_score} attempts={seg.attempts} />} />
               </>)}
             </div>
             <Transport onAction={act} rate={st.rate} onRate={st.setRate} recording={echo === 'recording'} busy={echo === 'uploading'} flagged={seg.difficulty_flag} hint={st.hint} error={error} recordLabel={recordLabel} volume={volume}
