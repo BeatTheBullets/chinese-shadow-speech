@@ -56,3 +56,8 @@ def test_spa_catch_all_never_serves_files_outside_dist(data_dir, tmp_path, monke
         r = c.get(path)
         assert "SECRET" not in r.text, path
         assert r.text == "<html>spa</html>", path
+
+
+def test_health_reports_the_tone_model(client):
+    tm = client.get("/health").json()["tone_model"]
+    assert tm == {"loaded": True, "version": "fake", "accuracy": None}

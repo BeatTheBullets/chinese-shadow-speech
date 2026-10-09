@@ -195,3 +195,14 @@ def test_flow_runs_follow_a_merge(client, tmp_path):
     assert client.post(f"/segments/{s0}/merge-next").status_code == 200       # s1's attempts move to s0, s1 is gone
     run = _runs(client, lid)[0]
     assert [(i["segment_id"], i["idx"], i["attempt_id"]) for i in run["items"]] == [(s0, 0, later), (s2, 1, third)]
+
+
+def test_takes_carry_their_score(client, tmp_path):
+    from tests.helpers import make_tone_wav
+    from tests.test_lessons_api import _upload
+    lid = _upload(client, tmp_path)
+    sid = client.get(f"/lessons/{lid}").json()["segments"][0]["id"]
+    with open(make_tone_wav(tmp_path / "t.wav", 2.6), "rb") as f:
+        att = client.post(f"/segments/{sid}/attempts", files={"audio": ("t.wav", f, "audio/wav")}, data={"mode": "echo"}).json()
+    take = client.get(f"/lessons/{lid}/takes").json()["takes"][0]
+    assert take["score_json"] == att["score_json"]

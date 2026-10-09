@@ -1,5 +1,5 @@
 from __future__ import annotations
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func
@@ -75,18 +75,40 @@ def sentences(db: Session = Depends(get_session)):
             "by_last": sorted(rows, key=lambda r: r["last"])}
 
 
+_TONE = func.coalesce(SyllableScore.target_tone, SyllableScore.tone)   # the tone the speaker produced, when known
+_SCORED = SyllableScore.tone_score.is_not(None)
+
+
 @router.get("/stats/syllables")
 def syllables(db: Session = Depends(get_session)):
-    q = (select(SyllableScore.pinyin_toneless, SyllableScore.tone, func.avg(SyllableScore.tone_score), func.count())
-         .where(SyllableScore.tone_score.is_not(None)).group_by(SyllableScore.pinyin_toneless, SyllableScore.tone)
-         .order_by(func.avg(SyllableScore.tone_score)))
-    return {"syllables": [{"pinyin": p, "tone": t, "mean": m, "n": n} for p, t, m, n in db.exec(q).all()]}
+    """Per character, oldest first: mean, count, most frequent target tone, and the last 10 against the rest."""
+    q = (select(SyllableScore.ch, SyllableScore.pinyin_toneless, _TONE, SyllableScore.tone_score)
+         .where(_SCORED, _TONE >= 0).order_by(SyllableScore.attempt_id, SyllableScore.idx))
+    by_ch: dict[str, dict] = {}
+    for ch, pinyin, tone, score in db.exec(q).all():
+        d = by_ch.setdefault(ch, {"pinyin": pinyin, "tones": Counter(), "scores": []})
+        d["tones"][tone] += 1; d["scores"].append(score)
+    out = []
+    for ch, d in by_ch.items():
+        s = d["scores"]
+        trend = sum(s[-10:]) / 10 - sum(s[:-10]) / len(s[:-10]) if len(s) >= 15 else None
+        out.append({"ch": ch, "pinyin": d["pinyin"], "tone": d["tones"].most_common(1)[0][0], "mean": sum(s) / len(s),
+                    "n": len(s), "trend": trend})
+    return {"syllables": sorted(out, key=lambda r: r["mean"])[:50]}
 
 
 @router.get("/stats/tones")
 def tones(db: Session = Depends(get_session)):
-    q1 = select(SyllableScore.tone, func.avg(SyllableScore.tone_score), func.count()).where(SyllableScore.tone_score.is_not(None)).group_by(SyllableScore.tone)
-    q2 = (select(SyllableScore.prev_tone, SyllableScore.tone, func.avg(SyllableScore.tone_score), func.count())
-          .where(SyllableScore.tone_score.is_not(None), SyllableScore.prev_tone.is_not(None)).group_by(SyllableScore.prev_tone, SyllableScore.tone))
+    q1 = select(_TONE, func.avg(SyllableScore.tone_score), func.count()).where(_SCORED, _TONE >= 0).group_by(_TONE)
+    q2 = (select(SyllableScore.prev_tone, _TONE, func.avg(SyllableScore.tone_score), func.count())
+          .where(_SCORED, _TONE >= 0, SyllableScore.prev_tone >= 0).group_by(SyllableScore.prev_tone, _TONE))
+    since = datetime.combine(datetime.now(timezone.utc).date() - timedelta(weeks=12), datetime.min.time(), tzinfo=timezone.utc)
+    q3 = (select(Attempt.created_at, _TONE, SyllableScore.tone_score).join(Attempt, Attempt.id == SyllableScore.attempt_id)
+          .where(_SCORED, _TONE >= 0, Attempt.created_at >= since))
+    weeks: dict[tuple[str, int], list[float]] = defaultdict(list)
+    for created, tone, score in db.exec(q3).all():
+        y, w, _ = created.isocalendar()
+        weeks[(f"{y}-W{w:02d}", tone)].append(score)
     return {"tones": [{"tone": t, "mean": m, "n": n} for t, m, n in db.exec(q1).all()],
-            "pairs": [{"prev_tone": p, "tone": t, "mean": m, "n": n} for p, t, m, n in db.exec(q2).all()]}
+            "pairs": [{"prev_tone": p, "tone": t, "mean": m, "n": n} for p, t, m, n in db.exec(q2).all()],
+            "weeks": [{"week": wk, "tone": t, "mean": sum(v) / len(v), "n": len(v)} for (wk, t), v in sorted(weeks.items())]}

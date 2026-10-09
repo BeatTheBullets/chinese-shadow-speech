@@ -108,7 +108,7 @@ def lesson_takes(lesson_id: int, db: Session = Depends(get_session)):
     the You track shows when the lesson is opened again."""
     _get_lesson(db, lesson_id)
     return TakesOut(takes=[TakeOut(segment_id=a.segment_id, attempt_id=a.id, mode=a.mode, created_at=_utc(a.created_at),
-                                   duration_s=a.duration_s) for a, _ in _latest_per_segment(_lesson_attempts(db, lesson_id))])
+                                   duration_s=a.duration_s, score_json=a.score_json) for a, _ in _latest_per_segment(_lesson_attempts(db, lesson_id))])
 
 
 @router.get("/lessons/{lesson_id}/flow-runs", response_model=FlowRunsOut)
