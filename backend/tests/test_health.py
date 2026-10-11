@@ -9,7 +9,7 @@ def test_health(data_dir):
     assert r.status_code == 200
     body = r.json()
     assert body["device"] in {"cpu", "cuda"}
-    assert body["models_loaded"] == []
+    assert set(body["models_loaded"]) <= {"tone"}   # the committed tone model loads at start-up
     assert "versions" in body
 
 

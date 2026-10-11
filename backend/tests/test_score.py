@@ -8,7 +8,7 @@ from shadow.scoring.score import RefData, score_take
 from shadow.scoring.tone import FakeToneModel
 from tests.helpers import voice
 
-SR, CFG = 16000, ScoringCfg()
+SR, CFG = 16000, ScoringCfg(min_rms_dbfs=-45.0, min_align_conf=0.2)   # explicit: the defaults are tuned to the user's takes
 TEXT = "今天中心"                                   # jīn tiān zhōng xīn: all tone 1
 SYLS = [{"ch": c, "pinyin": p, "pinyin_toneless": p, "tone": 1} for c, p in zip(TEXT, ["jin", "tian", "zhong", "xin"])]
 REF_CONTOURS = [(220, 220), (150, 300), (300, 150), (220, 220)]

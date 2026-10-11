@@ -4,7 +4,7 @@ from shadow.ingest.align import Span
 from shadow.scoring.gate import align_gate, clipped_ratio, level_dbfs, pre_gate
 from tests.helpers import voice
 
-SR, CFG = 16000, ScoringCfg()
+SR, CFG = 16000, ScoringCfg(min_rms_dbfs=-45.0, min_align_conf=0.2)   # explicit: the defaults are tuned to the user's takes
 
 
 def test_good_take_passes():
