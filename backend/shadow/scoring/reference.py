@@ -34,6 +34,10 @@ def reference_pitch(files: FileLayout, cfg: ScoringCfg, seg: Segment) -> Pitch |
     return p
 
 
+def reference_audio(seg: Segment) -> tuple[np.ndarray, int]:
+    return audio.read_wav(Path(seg.clip_wav_path))
+
+
 def lesson_baseline(files: FileLayout, cfg: ScoringCfg, db: Session, lesson: Lesson) -> Baseline | None:
     """The speaker over every clip of the lesson, computed once and kept in meta_json["pitch"] (spec §2)."""
     meta = lesson.meta_json or {}

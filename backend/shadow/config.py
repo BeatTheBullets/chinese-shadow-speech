@@ -14,6 +14,9 @@ class ModelsCfg(BaseModel):
     asr: str = "iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch"
     aligner: str = "auto"
     gop_model: str = "wbbbbb/wav2vec2-large-chinese-zh-cn"
+    tone_embedder: str = "TencentGameMate/chinese-wav2vec2-base"      # Phase 2 spec §10 (MIT)
+    tone_embedder_revision: str = "3991242c806928916fff4a8c0e4f76acf661b743"
+    tone_layer: int = 6
 
 
 class LlmCfg(BaseModel):

@@ -3,15 +3,17 @@ call these; any change to what they return must bump FEATURE_VERSION and retrain
 from __future__ import annotations
 from dataclasses import dataclass
 import numpy as np
+from shadow.scoring.embed import DIM
 from shadow.scoring.pitch import STEP_S
 
-FEATURE_VERSION = 1
+FEATURE_VERSION = 2
 POINTS = 20
 NEIGHBOUR_POINTS = 5
 TRIM = 0.15
 _OWN = POINTS + 6 + 3                    # contour, its summary, voiced ratio / relative duration / position
 _NEIGHBOUR = NEIGHBOUR_POINTS + 3        # 5-point contour, mean, voiced ratio, present flag
-N_FEATURES = _OWN + 2 * _NEIGHBOUR
+N_PITCH = _OWN + 2 * _NEIGHBOUR
+N_FEATURES = 3 * DIM + 2 + N_PITCH         # own, previous (+flag), next (+flag) embeddings, then the pitch features
 
 
 @dataclass
@@ -50,8 +52,8 @@ def _neighbour(s: SylPitch | None) -> list[float]:
     return [*pts.tolist(), float(s.contour.mean()), s.voiced_ratio, 1.0]
 
 
-def feature_matrix(sylls: list[SylPitch]) -> np.ndarray:
-    """One row per syllable. Unvoiced syllables get a zero contour; callers do not classify them."""
+def pitch_matrix(sylls: list[SylPitch]) -> np.ndarray:
+    """One row per syllable. Unvoiced syllables get a zero contour."""
     n = len(sylls)
     mean_dur = float(np.mean([s.duration for s in sylls])) if n else 1.0
     rows = []
@@ -59,6 +61,18 @@ def feature_matrix(sylls: list[SylPitch]) -> np.ndarray:
         c = s.contour if s.contour is not None else np.zeros(POINTS)
         own = [*c.tolist(), *_summary(c), s.voiced_ratio, s.duration / (mean_dur or 1.0), i / max(n - 1, 1)]
         rows.append(own + _neighbour(sylls[i - 1] if i > 0 else None) + _neighbour(sylls[i + 1] if i < n - 1 else None))
+    return np.asarray(rows, dtype=np.float32).reshape(n, N_PITCH)
+
+
+def feature_matrix(sylls: list[SylPitch], pooled: np.ndarray) -> np.ndarray:
+    """The classifier's rows (spec §10): each syllable's pooled embedding, its neighbours' with presence flags,
+    and its pitch features. Missing neighbours are zeros with flag 0."""
+    n = len(sylls)
+    zero = np.zeros(DIM, np.float32)
+    P = pitch_matrix(sylls)
+    rows = [np.concatenate([pooled[i], pooled[i - 1] if i > 0 else zero, [1.0 if i > 0 else 0.0],
+                            pooled[i + 1] if i < n - 1 else zero, [1.0 if i < n - 1 else 0.0], P[i]])
+            for i in range(n)]
     return np.asarray(rows, dtype=np.float32).reshape(n, N_FEATURES)
 
 

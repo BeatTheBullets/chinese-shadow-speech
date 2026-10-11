@@ -30,6 +30,7 @@ models = [
   "funasr>=1.2",
   "modelscope>=1.20",
   "qwen-asr>=0.0.6",
+  "transformers>=4.57",
 ]
 dev = [
   "pytest>=8",

@@ -1976,6 +1976,7 @@ models = [
     { name = "qwen-asr" },
     { name = "torch" },
     { name = "torchaudio" },
+    { name = "transformers" },
 ]
 
 [package.metadata]
@@ -2004,6 +2005,7 @@ requires-dist = [
     { name = "sse-starlette", specifier = ">=2.1" },
     { name = "torch", marker = "extra == 'models'", specifier = "==2.11.*", index = "https://download.pytorch.org/whl/cu126" },
     { name = "torchaudio", marker = "extra == 'models'", specifier = "==2.11.*", index = "https://download.pytorch.org/whl/cu126" },
+    { name = "transformers", marker = "extra == 'models'", specifier = ">=4.57" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
     { name = "yt-dlp", extras = ["default"], specifier = ">=2026.8.19" },
 ]

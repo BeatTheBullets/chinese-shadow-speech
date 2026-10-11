@@ -18,7 +18,8 @@ import soundfile as sf
 from shadow.config import load_settings
 from shadow.ingest.align import make_aligner
 from shadow.scoring.corpus import Utterance, read_split, realise
-from shadow.scoring.features import FEATURE_VERSION, N_FEATURES, POINTS, dtw_distance, feature_matrix, syllable_pitch
+from shadow.scoring.features import FEATURE_VERSION, POINTS, dtw_distance, syllable_pitch
+from shadow.scoring.features import N_PITCH as N_FEATURES, pitch_matrix as feature_matrix   # rewritten in Task 18
 from shadow.scoring.pitch import baseline_of, normalise, track_pitch
 from shadow.scoring.tone import MODELS_DIR, TONES
 

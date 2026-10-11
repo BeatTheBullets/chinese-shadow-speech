@@ -6,7 +6,8 @@ from typing import TYPE_CHECKING
 from sqlmodel import Session
 from shadow.ingest import audio
 from shadow.scoring.profile import add_frames, get_profile, profile_baseline
-from shadow.scoring.reference import lesson_baseline, reference_pitch, reference_spans, segment_syllables
+from shadow.scoring.reference import (lesson_baseline, reference_audio, reference_pitch, reference_spans,
+                                     segment_syllables)
 from shadow.scoring.score import RefData, failed_result, score_take
 from shadow.store.models import Attempt, Lesson, Segment, SyllableScore
 
@@ -30,9 +31,13 @@ def score_attempt(deps: Deps, db: Session, segment: Segment, attempt: Attempt) -
         else:
             prof = get_profile(db)
             wav, sr = audio.read_wav(Path(attempt.audio_path))
-            result = score_take(ref=RefData(ref_pitch, reference_spans(segment), ref_base), syllables=syllables,
-                                text=segment.text, wav=wav, sr=sr, aligner=deps.aligner, model=deps.tone_model,
-                                profile=profile_baseline(prof), profile_voiced_s=prof.voiced_s or 0.0, cfg=cfg)
+            if deps.embedder is None:
+                result = failed_result(syllables, ["no_tone_model"])
+            else:
+                ref = RefData(ref_pitch, reference_spans(segment), ref_base, *reference_audio(segment))
+                result = score_take(ref=ref, syllables=syllables, text=segment.text, wav=wav, sr=sr,
+                                    aligner=deps.aligner, embedder=deps.embedder, model=deps.tone_model,
+                                    profile=profile_baseline(prof), profile_voiced_s=prof.voiced_s or 0.0, cfg=cfg)
     except Exception:
         log.exception("scoring attempt %s failed", attempt.id)
         result = failed_result(syllables, ["score_failed"])

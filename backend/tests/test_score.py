@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 from shadow.config import ScoringCfg
 from shadow.ingest.align import FakeAligner, Span
+from shadow.scoring.embed import FakeEmbedder
 from shadow.scoring.pitch import baseline_of, track_pitch
 from shadow.scoring.score import RefData, score_take
 from shadow.scoring.tone import FakeToneModel
@@ -17,12 +18,12 @@ def ref_data(contours=REF_CONTOURS):
     wav = voice(contours)
     p = track_pitch(wav, SR)
     spans = [(s.start, s.end) for s in FakeAligner().align(wav, SR, TEXT)]
-    return RefData(p, spans, baseline_of(p.voiced()))
+    return RefData(p, spans, baseline_of(p.voiced()), wav, SR)
 
 
 def run(take, *, syllables=SYLS, text=TEXT, model=FakeToneModel(tone=1, p=0.9), aligner=FakeAligner(), **kw):
     return score_take(ref=ref_data(), syllables=syllables, text=text, wav=take, sr=SR, aligner=aligner, model=model,
-                      profile=kw.get("profile"), profile_voiced_s=kw.get("voiced_s", 0.0), cfg=CFG)
+                      embedder=FakeEmbedder(), profile=kw.get("profile"), profile_voiced_s=kw.get("voiced_s", 0.0), cfg=CFG)
 
 
 def test_matching_take_is_all_ok():
@@ -53,7 +54,8 @@ def test_tiny_take_is_gated_before_pitch(monkeypatch):
     import shadow.scoring.score as score
     monkeypatch.setattr(score, "track_pitch", lambda *a, **k: (_ for _ in ()).throw(AssertionError("pitch called")))
     r = score_take(ref=ref_data(), syllables=SYLS, text=TEXT, wav=voice([(200, 200)], syl_s=0.1), sr=SR,
-                   aligner=FakeAligner(), model=FakeToneModel(), profile=None, profile_voiced_s=0.0, cfg=CFG)
+                   aligner=FakeAligner(), model=FakeToneModel(), embedder=FakeEmbedder(), profile=None, profile_voiced_s=0.0,
+                   cfg=CFG)
     assert r.json["overall"] is None and "too_short" in r.json["warnings"] and r.rows == []
     assert [s["status"] for s in r.json["syllables"]] == ["missing"] * 4
 
@@ -117,3 +119,14 @@ def test_profile_sets_the_learner_baseline_once_it_has_enough_speech():
     with_profile = run(take, profile=Baseline(110.0, 3.0), voiced_s=600.0).json["usr_contour"]["f0_st"]
     a = np.array([v for v in alone if v is not None]); b = np.array([v for v in with_profile if v is not None])
     assert b.mean() > a.mean() + 1                     # a 110 Hz baseline puts a 220 Hz take high above it
+
+
+def test_pitch_unvoiced_syllable_is_still_judged_without_contour(monkeypatch):
+    import shadow.scoring.score as score
+    real = score.syllable_pitch
+    def no_pitch_on_third(norm, t0, start, end, min_voiced):          # pretend syllable 3 has no voiced frames
+        s = real(norm, t0, start, end, min_voiced)
+        return score.SylPitch(None, 0.0, s.duration) if 0.5 <= start < 0.75 else s
+    monkeypatch.setattr(score, "syllable_pitch", no_pitch_on_third)
+    syl = run(voice(REF_CONTOURS)).json["syllables"][2]
+    assert syl["status"] in ("ok", "close") and syl["contour"] is None and syl["tone_score"] == pytest.approx(syl["p_target"])

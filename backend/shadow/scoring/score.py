@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 import numpy as np
 from shadow.config import ScoringCfg
 from shadow.ingest.align import Aligner
+from shadow.scoring.embed import Embedder, pool
 from shadow.scoring.features import FEATURE_VERSION, SylPitch, feature_matrix, syllable_pitch
 from shadow.scoring.gate import align_gate, clipped_ratio, level_dbfs, pre_gate
 from shadow.scoring.pitch import Baseline, Pitch, baseline_of, blend, normalise, track_pitch, trim_silence
@@ -17,6 +18,8 @@ class RefData:
     pitch: Pitch                          # on the clip's own time axis
     spans: list[tuple[float, float]]      # each syllable's [start, end] on the same axis
     baseline: Baseline                    # the speaker over the whole lesson (spec §2)
+    wav: np.ndarray                       # the reference clip's samples, for its embeddings
+    sr: int
 
 
 @dataclass
@@ -53,7 +56,7 @@ def _r(x: float | None, nd: int = 3) -> float | None:
 
 
 def score_take(*, ref: RefData, syllables: list[dict], text: str, wav: np.ndarray, sr: int, aligner: Aligner,
-               model: ToneModel | None, profile: Baseline | None, profile_voiced_s: float, cfg: ScoringCfg) -> TakeResult:
+               embedder: Embedder, model: ToneModel | None, profile: Baseline | None, profile_voiced_s: float, cfg: ScoringCfg) -> TakeResult:
     trimmed, off = trim_silence(wav, sr)
     ref_speech_s = ref.spans[-1][1] - ref.spans[0][0] if ref.spans else 0.0
     quality = {"dbfs": round(level_dbfs(trimmed), 1), "clipped": round(clipped_ratio(trimmed), 4), "align_conf": None}
@@ -77,7 +80,9 @@ def score_take(*, ref: RefData, syllables: list[dict], text: str, wav: np.ndarra
     norm_u = normalise(pitch.f0, base, cfg.normalise_span)
     syl_r = [syllable_pitch(norm_r, ref.pitch.t0, a, b, cfg.min_voiced_frames) for a, b in ref.spans]
     syl_u = [syllable_pitch(norm_u, pitch.t0, s.start, s.end, cfg.min_voiced_frames) for s in spans]
-    P_r, P_u = model.proba(feature_matrix(syl_r)), model.proba(feature_matrix(syl_u))
+    emb_r = pool(embedder.frames(ref.wav, ref.sr), ref.spans)
+    emb_u = pool(embedder.frames(trimmed, sr), [(s.start, s.end) for s in spans])
+    P_r, P_u = model.proba(feature_matrix(syl_r, emb_r)), model.proba(feature_matrix(syl_u, emb_u))
 
     out_syl, rows, prev = [], [], None
     for i, (s, r, u) in enumerate(zip(syllables, syl_r, syl_u)):
@@ -87,12 +92,14 @@ def score_take(*, ref: RefData, syllables: list[dict], text: str, wav: np.ndarra
         if u.duration < MIN_SPAN_S:
             js = _syl_json(s, "missing", tone_score=0.0, **common)
             target = heard = None
-        elif s["tone"] < 0 or r.contour is None or u.contour is None:
+        elif s["tone"] < 0:
             js = _syl_json(s, "unvoiced", **common)
             target = heard = None
         else:
+            # a syllable without voiced pitch (either track) is still classified; it just has no contour term (§10)
             target = target_tone(P_r[i], s["tone"], cfg.ref_confidence)
-            sim = None if target == 0 else contour_similarity(r.contour, u.contour, cfg.dtw_band, model.dtw_norm)
+            sim = (None if target == 0 or r.contour is None or u.contour is None
+                   else contour_similarity(r.contour, u.contour, cfg.dtw_band, model.dtw_norm))
             v = judge(P_u[i], target, sim, cfg)
             heard = v.heard
             js = _syl_json(s, v.status, target_tone=target, heard_tone=heard, tone_score=_r(v.tone_score),

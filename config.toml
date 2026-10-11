@@ -7,6 +7,9 @@ device = "auto"                     # auto | cuda | cpu
 asr = "iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch"
 aligner = "auto"                    # auto (→ mms_fa) | qwen3_fa | mms_fa | mfa
 gop_model = "wbbbbb/wav2vec2-large-chinese-zh-cn"
+tone_embedder = "TencentGameMate/chinese-wav2vec2-base"
+tone_embedder_revision = "3991242c806928916fff4a8c0e4f76acf661b743"
+tone_layer = 6
 
 [llm]
 model = "claude-sonnet-5-5"
