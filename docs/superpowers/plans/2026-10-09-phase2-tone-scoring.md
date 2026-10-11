@@ -3067,7 +3067,7 @@ git commit -m "docs: Phase 2 tone scoring in the README, running notes and accep
 
 ## Revision 2026-10-11 — speech-model tone features (spec §10)
 
-Task 8's pitch-only model reached 75.1 % (below the 85 % gate); the user chose speech-model features. Tasks 17–19 replace the classifier's features; Task 15 Steps 5–7 run after Task 19. Global Constraints change: `FEATURE_VERSION = 2`; `unvoiced` status only for non-hanzi characters (tone −1).
+Task 8's pitch-only model reached 75.1 % (below the 85 % gate); the user chose speech-model features. Tasks 17–19 replace the classifier's features (order 17 → 20 → 18 → 19, spec §10.1 adds Task 20); Task 15 Steps 5–7 run after Task 19. Global Constraints change: `FEATURE_VERSION = 2`; `unvoiced` status only for non-hanzi characters (tone −1).
 
 ### Task 17: Speech-model embedder and v2 features in scoring
 
@@ -3320,39 +3320,153 @@ git commit -m "feat(backend): tone features from chinese-wav2vec2 layer 6; pitch
 
 ---
 
-### Task 18: Training tool v2
+### Task 20: Syllable windows in scoring (spec §10.1)
+
+Runs before Task 18 (the training tool reuses `windows`).
 
 **Files:**
-- Modify: `backend/scripts/tone_model.py`
+- Create: `backend/shadow/scoring/windows.py`, `backend/tests/test_windows.py`
+- Modify: `backend/shadow/scoring/score.py`, `backend/tests/test_score.py` (only if an assertion depends on raw spans)
 
 **Interfaces:**
-- Consumes: Task 17 (`Wav2Vec2Embedder`, `pool`, `feature_matrix(sylls, pooled)`, `N_FEATURES`, `POINTS`, `FEATURE_VERSION = 2`).
-- Produces: the same CLI; `--hours` default 15; per-speaker npz arrays `X (n, N_FEATURES)`, `y`, `ctx (n, 2)`, `contours (n, POINTS)` (zeros when unvoiced), `voiced (n,) bool`; cache dir `features_v2_<labels>`; the classifier is `make_pipeline(StandardScaler(), MLPClassifier(hidden_layer_sizes=(256,), early_stopping=True, random_state=0))`.
+- Produces: `MAX_EXT = 0.5`, `TAIL = 0.15`; `windows(spans: list[tuple[float, float]], dur: float) -> list[tuple[float, float]]`.
 
-- [ ] **Step 1: Rewrite the feature and train stages**
+- [ ] **Step 1: Write the failing tests**
 
-In `speaker_features(aligner, embedder, cfg, utts, labels)`:
-- keep each aligned utterance's waveform and sample rate alongside its pitch and spans (`done.append((u, wav, sr, p, spans))`);
-- per utterance: `pooled = pool(embedder.frames(wav, sr), [(s.start, s.end) for s in spans])`, `F = feature_matrix(sylls, pooled)`;
-- keep **every** labelled syllable (`t is not None`), voiced or not; `contours` gets `s.contour` or `np.zeros(POINTS)`; add `voiced.append(s.contour is not None)`;
-- return `{"X", "y", "ctx", "contours", "voiced"}` with `X` reshaped to `(-1, N_FEATURES)` and `voiced` as bool.
+`backend/tests/test_windows.py`:
+```python
+import pytest
+from shadow.scoring.windows import windows
 
-In `features(...)`: build `embedder = Wav2Vec2Embedder(m.tone_embedder, m.tone_embedder_revision, m.tone_layer, device)` from `load_settings().models` and pass it.
 
-In `dtw_norm(...)`: iterate only rows with `d["voiced"]` true.
+def test_window_runs_to_the_next_start():
+    assert windows([(0.0, 0.1), (0.25, 0.3)], dur=1.0) == [(0.0, 0.25), (0.25, pytest.approx(0.45))]
 
-In `train(...)`: replace the `HistGradientBoostingClassifier` with the pipeline above (imports from `sklearn.pipeline`, `sklearn.preprocessing`, `sklearn.neural_network`); add `"embedder": f"{m.tone_embedder}@{m.tone_embedder_revision}", "layer": m.tone_layer` to the metadata. Change the `--hours` default to `15.0` and the docstring's time estimate ("~1 h for 15 h on the GPU").
 
-- [ ] **Step 2: Smoke-test the train stage on fake features**
+def test_pause_caps_the_window_at_span_end_plus_tail():
+    w = windows([(0.0, 0.1), (0.9, 1.0)], dur=2.0)            # next start 0.9 is > 0.5 after 0.0
+    assert w[0] == (0.0, pytest.approx(0.25))
 
-Same as Task 7 Step 6 but with 20 fake speakers, `X` of width `N_FEATURES`, and a `voiced` array (`rng.random(n) > 0.1`); it must print the metrics, `ACCEPT`/`BELOW…`, and a `(1, 5)` proba shape from `load_tone_model('smoke', …).proba(np.zeros((1, N_FEATURES)))`; then remove the scratch directory.
 
-- [ ] **Step 3: Run tests and commit**
+def test_last_window_never_passes_the_audio_end_and_never_ends_before_its_span():
+    assert windows([(0.0, 0.2)], dur=0.3) == [(0.0, pytest.approx(0.3))]
+    assert windows([(0.0, 0.7), (0.8, 0.9)], dur=1.0)[0] == (0.0, pytest.approx(0.8))   # long span: next start
+    assert windows([(0.0, 0.2), (0.1, 0.3)], dur=1.0)[0] == (0.0, 0.2)                  # overlap: own end
+```
 
-Run: `cd backend && ~/.local/bin/uv run pytest -q` (expected: all pass)
+- [ ] **Step 2: Run to verify failure**
+
+Run: `cd backend && ~/.local/bin/uv run pytest tests/test_windows.py -q` — expected FAIL (module missing).
+
+- [ ] **Step 3: Implement**
+
+`backend/shadow/scoring/windows.py`:
+```python
+"""Syllable windows (Phase 2 spec §10.1): MMS (CTC) spans stop at the last letter's peak, about half-way through
+the syllable; pitch, embeddings and the contour overlay use the window up to where the next syllable starts."""
+from __future__ import annotations
+
+MAX_EXT = 0.5            # a window runs to the next start only if that is at most this far after its own start
+TAIL = 0.15              # otherwise (a pause, or the last syllable) it ends this far after its span
+
+
+def windows(spans: list[tuple[float, float]], dur: float) -> list[tuple[float, float]]:
+    out = []
+    for i, (a, b) in enumerate(spans):
+        nxt = spans[i + 1][0] if i + 1 < len(spans) else None
+        if nxt is not None and nxt <= max(b, a + MAX_EXT):
+            e = nxt
+        else:
+            e = min(b + TAIL, nxt if nxt is not None else dur, dur)
+        out.append((a, max(e, b)))
+    return out
+```
+(This is the spike's `extend` rule from `.superpowers/sdd/2026-10-09-phase2-tone-scoring/spike-reference/common.py`, with the last syllable capped at the audio's end.)
+
+In `backend/shadow/scoring/score.py::score_take`, after the span-count check:
+```python
+    ref_win = windows(ref.spans, len(ref.wav) / ref.sr)
+    usr_win = windows([(s.start, s.end) for s in spans], len(trimmed) / sr)
+```
+and use `ref_win` / `usr_win` (instead of `ref.spans` / the raw learner spans) for `syllable_pitch`, `pool`, `rate_ratio` stays on raw spans, `_contour_json` spans (`usr_win` shifted by `off`), while the `missing` check (`u.duration < MIN_SPAN_S`) keeps using the raw learner span: compute `raw_dur = spans[i].end - spans[i].start` for it. `usr_dur`/`ref_dur` in the JSON report window durations.
+
+- [ ] **Step 4: Run all backend tests, commit**
+
+Run: `cd backend && ~/.local/bin/uv run pytest -q` (all pass; fix any score test whose numbers depended on raw spans by reasoning about windows, not by loosening bounds).
 ```bash
-git add backend/scripts/tone_model.py
-git commit -m "feat(backend): train the tone model on speech-model features (MLP, every labelled syllable)"
+git add backend/shadow/scoring/windows.py backend/shadow/scoring/score.py backend/tests
+git commit -m "feat(backend): score syllables over windows that reach the next syllable (MMS spans stop half-way)"
+```
+
+---
+
+### Task 18: Training tool v2 (speech-model features, pitch-altered copies)
+
+**Files:**
+- Create: `backend/shadow/scoring/augment.py`, `backend/tests/test_augment.py`
+- Modify: `backend/scripts/tone_model.py`
+
+**Reference:** the spike's working extractor `.superpowers/sdd/2026-10-09-phase2-tone-scoring/spike-reference/aug_extract.py` (and `common.py`, `RESULTS.md`) — port its logic; production must use the app's own modules (`windows`, `Wav2Vec2Embedder`, `pool`, `feature_matrix`, `syllable_pitch`, `pitch_matrix`), not the spike's copies.
+
+**Interfaces:**
+- Consumes: Task 17 (`Wav2Vec2Embedder`, `pool`, `feature_matrix(sylls, pooled)`, `N_FEATURES`, `FEATURE_VERSION = 2`), Task 20 (`windows`).
+- Produces:
+  - `augment.py`: `LEVEL = 0.6`; `TEMPLATES = {1: [5,5,5,5,5], 2: [3,2.7,3,4,5], 3: [2,1.3,1,1,None], 4: [5,4.5,3.5,2,1]}`; `FRACS = [0.05, 0.27, 0.5, 0.73, 0.95]`; `contour_units(choice: int | str, rng: np.random.Generator) -> np.ndarray` (5 values in spread units; `"flat"` → zeros; `None` in a template → `rng.uniform(1, 3)`; `(levels − 3) · LEVEL · rng.uniform(0.7, 1.3) + rng.uniform(−0.3, 0.3)`); `resynth(wav, sr, wins, units, base: Baseline, floor, ceiling) -> np.ndarray` (parselmouth Manipulation → new PitchTier with a point at each FRACS position of each window at `base.hz · 2^(u · base.spread_st / 12)` → overlap-add resynthesis; `units=None` returns the input unchanged); `alter_choices(tones: list[int | None], rng) -> tuple[list, list[int]]` (per syllable a choice from {1,2,3,4,"flat"} minus its own tone; labels = imposed tone with flat → 1, or −1 when the own tone is 0/None).
+  - `tone_model.py`: `--hours` default 10; per-speaker npz `X, y, ctx, contours, voiced, kind` where `kind` is 0 native, 1 altered, 2 flat (flat and the single altered copy only for test speakers); cache dir `features_v2_<labels>`; classifier `make_pipeline(StandardScaler(), MLPClassifier(hidden_layer_sizes=(256,), early_stopping=True, random_state=0))` trained on native + altered rows of training speakers; metadata adds `accuracy_altered`, `false_wrong_native`, `flat_still_original`, `embedder`, `layer`, `augmentation`; prints `ACCEPT` only if native ≥ 0.85 and altered ≥ 0.85.
+
+- [ ] **Step 1: Write the failing tests**
+
+`backend/tests/test_augment.py`:
+```python
+import numpy as np
+import pytest
+from shadow.scoring.augment import alter_choices, contour_units, resynth
+from shadow.scoring.pitch import Baseline, track_pitch
+from tests.helpers import voice
+
+SR = 16000
+
+
+def test_contour_units_shapes():
+    rng = np.random.default_rng(0)
+    assert np.all(contour_units("flat", rng) == 0)
+    rise = contour_units(2, rng); fall = contour_units(4, rng)
+    assert rise[-1] > rise[0] and fall[-1] < fall[0]
+    assert np.ptp(contour_units(1, rng)) == pytest.approx(0.0)
+
+
+def test_alter_choices_never_keeps_the_own_tone():
+    rng = np.random.default_rng(1)
+    for _ in range(50):
+        ch, lab = alter_choices([1, 2, 3, 4, 0, None], rng)
+        assert all(c != t for c, t in zip(ch[:4], [1, 2, 3, 4]))
+        assert lab[4] == -1 and lab[5] == -1
+        assert all(l == (1 if c == "flat" else c) for c, l in zip(ch[:4], lab[:4]))
+
+
+def test_resynth_imposes_a_rise_on_a_flat_voice():
+    wav = voice([(180, 180)], syl_s=0.6)
+    base = Baseline(180.0, 4.0)
+    out = resynth(wav, SR, [(0.0, 0.6)], [np.array([-1.0, -0.5, 0.0, 0.5, 1.0])], base, 60, 500)
+    f0 = track_pitch(out, SR).voiced()
+    assert len(out) == pytest.approx(len(wav), abs=SR // 100)
+    assert f0[-5:].mean() > f0[:5].mean() * 1.2
+    assert np.array_equal(resynth(wav, SR, [(0.0, 0.6)], None, base, 60, 500), wav)
+```
+
+- [ ] **Step 2: Run to verify failure, then implement `augment.py`** (port `contour_units`, `resynth` and the choice/label logic from the spike's `aug_extract.py` lines 25–60 and 92–100, using `parselmouth.praat.call`), and run `tests/test_augment.py` until it passes.
+
+- [ ] **Step 3: Rewrite the feature and train stages of `scripts/tone_model.py`**
+
+Per speaker (one pass, GPU): for each picked utterance align (`MmsAligner`), keep `(u, wav, sr, spans)`; `p0 = track_pitch(wav, …)`; speaker baseline from all native `p0`; `wins = windows([(s.start, s.end) …], len(wav)/sr)`. Then for each version — native; for training speakers two altered copies; for test speakers one altered copy and one flat copy — build the audio (`resynth` with `alter_choices`/`contour_units`, or flat units), re-track its pitch, normalise with the **native** speaker baseline, compute `syllable_pitch` over `wins`, `pooled = pool(embedder.frames(audio, sr), wins)`, `F = feature_matrix(sylls, pooled)`, and keep rows whose label is usable (native: labelled tone; altered/flat: label ≠ −1) with `kind`, `ctx` (from native labels), `contours`, `voiced`. Train on `kind ∈ {0, 1}` rows of training speakers. Evaluate on test speakers: native accuracy (kind 0, overall + per tone), altered accuracy (kind 1, per imposed tone), false-"wrong" on native (`max P − P(true) ≥ 0.25`), flat still-original (kind 2 rows whose native tone is 2/3/4 and whose prediction equals that native tone — store the native tone alongside). `dtw_norm` from native voiced test rows as before. Memory: keep `X` as float32; 10 h ≈ 3 × 90k rows × 2351 × 4 B ≈ 2.5 GB.
+
+- [ ] **Step 4: Smoke-test the train stage on fake features** (20 fake speakers with `kind` arrays; it must print the metrics and `(1, 5)` from `load_tone_model('smoke', …).proba(np.zeros((1, N_FEATURES)))`), then remove the scratch dir.
+
+- [ ] **Step 5: Run all backend tests and commit**
+
+```bash
+git add backend/shadow/scoring/augment.py backend/tests/test_augment.py backend/scripts/tone_model.py
+git commit -m "feat(backend): train the tone model on speech-model features with pitch-altered copies"
 ```
 
 ---
@@ -3361,8 +3475,8 @@ git commit -m "feat(backend): train the tone model on speech-model features (MLP
 
 Controller-run, like Task 8.
 
-- [ ] **Step 1:** `rm -f backend/shadow/scoring/models/tone_v1.*` (the uncommitted v1 files), then in the background: `cd backend && ~/.local/bin/uv run python scripts/tone_model.py --labels realised > ../data/corpora/tone_model_v2.log 2>&1`.
-- [ ] **Step 2:** If `BELOW 0.85`: stop and report to the user. If `ACCEPT`: record metrics in the Ledger, check the joblib size (< 50 MB; if larger, report), and commit:
+- [ ] **Step 1:** `rm -f backend/shadow/scoring/models/tone_v1.*` (the uncommitted v1 files), then in the background with thread caps (`OMP_NUM_THREADS=4 MKL_NUM_THREADS=4 OPENBLAS_NUM_THREADS=4`): `cd backend && ~/.local/bin/uv run python scripts/tone_model.py --labels realised > ../data/corpora/tone_model_v2.log 2>&1`.
+- [ ] **Step 2:** If not `ACCEPT` (native and altered both ≥ 0.85): stop and report to the user. If `ACCEPT`: record metrics in the Ledger, check the joblib size (< 50 MB; if larger, report), and commit:
 ```bash
 git add backend/shadow/scoring/models/tone_v1.joblib backend/shadow/scoring/models/tone_v1.json docs/superpowers/plans/2026-10-09-phase2-tone-scoring.md
 git commit -m "feat(backend): tone model v1 on chinese-wav2vec2 features (metrics in the plan ledger)"
