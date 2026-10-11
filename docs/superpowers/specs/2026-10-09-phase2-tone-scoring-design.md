@@ -302,3 +302,49 @@ model loaded. Scoring errors are logged with the attempt id.
 7. Stats and Settings.
 8. Docs: README roadmap, `docs/running.md` (training and rescore),
    acceptance checklist `docs/phase2-acceptance.md`.
+
+## 10. Revision 2026-10-11: speech-model tone features
+
+The pitch-only classifier of §4 reached 75.1 % on held-out AISHELL-3 speakers
+(30 h; neutral 51 %, third tone 68 %) and would have marked about one correct
+syllable in six red. the user chose to classify tone from a pretrained Chinese
+speech model instead. A spike on 40 training / 10 held-out speakers measured,
+per hidden layer of `TencentGameMate/chinese-wav2vec2-base` (MIT, 95 M
+parameters, 360 MB), mean-pooled over each aligned syllable with logistic
+regression: layer 0 65.5 %, 3 85.5 %, 6 **93.6 %** (best), 9 91.1 %,
+12 80.5 %; pitch-only on the same data 71.6 %. Layer 6 with the previous and
+next syllables' embeddings and the 45 pitch features, through a small MLP:
+**95.9 %** (per tone 0: 91, 1: 97, 2: 95, 3: 96, 4: 97 %). Model forward:
+13 ms per 3 s take on the GPU (435 MB peak, fp32), 345 ms on the CPU.
+
+This section replaces §4.2–§4.4 where they differ, and one rule of §3.
+
+- **Embedder.** `chinese-wav2vec2-base` at a pinned revision
+  (`3991242c806928916fff4a8c0e4f76acf661b743`), fp32, raw 16 kHz waveform
+  input (no extra normalisation, as in the spike), hidden state 6
+  (`hidden_states[6]`, i.e. after the sixth transformer layer). Loaded lazily
+  on first use, on the configured device; calls serialised with a lock.
+  Config `[models] tone_embedder`, `tone_embedder_revision`, `tone_layer`.
+- **Pooling.** Per syllable span, the mean of the frames whose centre
+  (`i·20 ms + 12.5 ms`) lies inside `[start, end]`; the nearest frame when
+  none does.
+- **Features (`FEATURE_VERSION = 2`).** `[own embedding (768), previous
+  syllable's embedding (768), previous present (1), next syllable's embedding
+  (768), next present (1), the 45 pitch features of §4.2]` = 2351 values.
+  Missing neighbours are zeros with the flag 0.
+- **Model.** `StandardScaler` + `MLPClassifier(hidden_layer_sizes=(256,),
+  early_stopping=True, random_state=0)` in one scikit-learn pipeline, trained
+  on **every labelled syllable**, voiced or not, from 15 h of AISHELL-3
+  (`--hours 15`, realised labels). `dtw_norm` is computed as before from the
+  pitch contours of voiced syllables. Acceptance stays ≥ 85 % on held-out
+  speakers.
+- **Unvoiced syllables (replaces the §3 rule).** A syllable whose pitch is
+  unvoiced on either track is still classified: it gets no contour term
+  (`tone_score = p_target`, like a neutral target) and normal ok / close /
+  wrong status. `unvoiced` (grey ∅) remains only for non-hanzi characters
+  (tone −1). The pitch lines still show a gap there.
+- **Reference.** The reference clip's embeddings are computed per scoring
+  call (13 ms); not cached.
+- **Memory.** About 0.45 GB of GPU memory in addition to the aligner. On a
+  CPU-only machine scoring a take takes about 0.4 s longer.
+- `/health` lists `embedder` among loaded models once it has been used.
