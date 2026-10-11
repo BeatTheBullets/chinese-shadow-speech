@@ -75,4 +75,16 @@ describe('<Settings>', () => {
     expect(await screen.findByText(/No voice profile yet/)).toBeInTheDocument()
     expect(h.voice.reset).toHaveBeenCalled()
   })
+
+  it('says so when the voice profile cannot be reset (the backend is down)', async () => {
+    const { ApiError } = await import('../api/client')
+    h.voice.reset.mockRejectedValue(new ApiError(500, 'Internal Server Error', '{"detail":"database is locked"}', 'database is locked'))
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    render(<Settings />)
+    fireEvent.click(screen.getByRole('button', { name: 'Reset voice profile' }))
+    expect(await screen.findByText('Could not reset the voice profile: database is locked')).toBeInTheDocument()
+    h.voice.reset.mockRejectedValue(new TypeError('Failed to fetch'))
+    fireEvent.click(screen.getByRole('button', { name: 'Reset voice profile' }))
+    expect(await screen.findByText('Could not reset the voice profile: Failed to fetch')).toBeInTheDocument()
+  })
 })
