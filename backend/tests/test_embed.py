@@ -20,5 +20,5 @@ def test_pool_means_frames_whose_centres_fall_in_the_span():
 
 def test_pool_empty_span_takes_nearest_frame():
     frames = np.repeat(np.arange(10, dtype=np.float32)[:, None], DIM, axis=1)
-    assert pool(frames, [(0.041, 0.042)])[0, 0] == 2.0
+    assert pool(frames, [(0.041, 0.042)])[0, 0] == 1.0      # midpoint 0.0415: frame 1 (centre 0.0325) is nearer than frame 2 (0.0525)
     assert FRAME_S == 0.02

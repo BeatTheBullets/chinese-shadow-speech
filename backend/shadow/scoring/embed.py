@@ -49,10 +49,12 @@ class Wav2Vec2Embedder:
 
 
 def pool(frames: np.ndarray, spans: list[tuple[float, float]]) -> np.ndarray:
-    """Mean of the frames whose centre lies inside each [start, end]; the frame holding the span's midpoint when none does."""
+    """Mean of the frames whose centre lies inside each [start, end]; the nearest frame when none does."""
+    if len(frames) == 0:
+        raise ValueError("no embedding frames")
     centres = np.arange(len(frames)) * FRAME_S + _CENTRE
     out = np.zeros((len(spans), frames.shape[1]), np.float32)
     for i, (a, b) in enumerate(spans):
         idx = np.flatnonzero((centres >= a) & (centres <= b))
-        out[i] = frames[idx].mean(axis=0) if len(idx) else frames[min(max(int((a + b) / 2 / FRAME_S), 0), len(frames) - 1)]
+        out[i] = frames[idx].mean(axis=0) if len(idx) else frames[int(np.argmin(np.abs(centres - (a + b) / 2)))]
     return out
