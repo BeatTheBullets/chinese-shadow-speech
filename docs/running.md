@@ -48,13 +48,14 @@ Updating yt-dlp: YouTube changes often. When a lesson fails with "extraction fai
 The tone model ships in `backend/shadow/scoring/models/` (`tone_v1.joblib` and `tone_v1.json`); nothing to download for normal use.
 `/health` reports `tone_model.loaded` and its version.
 
-Retraining: `make tone-model LABELS=<canonical|realised>`, using the value recorded in the plan ledger. It downloads
-~17.7 GB (AISHELL-3, OpenSLR SLR93, Apache-2.0) into `data/corpora/aishell3` (the script's own estimate is ~19 GB with
-extraction), takes 1-2 h on the GPU and needs the models extra. Feature caches are kept in
-`data/corpora/aishell3/features_v1_<labels>/`.
+Retraining: `make tone-model LABELS=realised`. It downloads ~17.7 GB (AISHELL-3, OpenSLR SLR93, Apache-2.0) into
+`data/corpora/aishell3` (the script's own estimate is ~19 GB with extraction), trains on 10 h of it with two
+pitch-altered copies per utterance, takes ~1.5 h on the GPU and needs the models extra. The speech model
+(chinese-wav2vec2, ~380 MB from Hugging Face, MIT) is downloaded on first use. Feature caches are kept under
+`data/corpora/aishell3/`.
 
 After a model or feature change run `make rescore`: it re-scores every stored take and writes
-`data/reports/rescore-<date>.html`. `--probe` prints the percentiles used to pick the gate thresholds
+`data/reports/rescore-<date>.html`. `--probe` (run `cd backend && uv run python scripts/rescore.py --probe` directly; the make target takes no args) prints the percentiles used to pick the gate thresholds
 (`min_rms_dbfs`, `min_align_conf`).
 
 Voice profile: tones are judged against your own pitch range, which is learned from your most recent minute or so of voiced speech and keeps adapting as you practise.

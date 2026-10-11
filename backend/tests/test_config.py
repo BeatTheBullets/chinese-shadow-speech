@@ -37,7 +37,7 @@ def test_phase2_scoring_defaults():
     from shadow.config import Settings
     s = Settings().scoring
     assert (s.green_at, s.wrong_margin, s.ref_confidence) == (0.7, 0.25, 0.6)
-    assert (s.min_rms_dbfs, s.min_align_conf, s.max_clipped, s.profile_seconds) == (-45.0, 0.2, 0.01, 60.0)
+    assert (s.min_rms_dbfs, s.min_align_conf, s.max_clipped, s.profile_seconds) == (-78.0, 0.05, 0.01, 60.0)
     assert s.tone_model == "tone_v1"
 
 
