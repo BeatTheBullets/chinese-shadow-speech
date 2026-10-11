@@ -46,17 +46,22 @@ class SklearnToneModel:
 
 
 def load_tone_model(name: str, models_dir: Path = MODELS_DIR) -> ToneModel | None:
-    """The shipped model, or None (scores then carry `no_tone_model`) when it is missing or built for other features."""
+    """The shipped model, or None (scores then carry `no_tone_model`) when it is missing, unreadable or built for
+    other features. Never raises: build_deps loads it at start-up, and a bad file must not stop the server."""
     meta_p, model_p = models_dir / f"{name}.json", models_dir / f"{name}.joblib"
     if not (meta_p.exists() and model_p.exists()):
         log.warning("tone model %s not found in %s", name, models_dir)
         return None
-    meta = json.loads(meta_p.read_text())
-    if meta.get("feature_version") != FEATURE_VERSION:
-        log.warning("tone model %s has feature version %s, the app %s", name, meta.get("feature_version"), FEATURE_VERSION)
+    try:
+        meta = json.loads(meta_p.read_text())
+        if meta.get("feature_version") != FEATURE_VERSION:
+            log.warning("tone model %s has feature version %s, the app %s", name, meta.get("feature_version"), FEATURE_VERSION)
+            return None
+        import joblib
+        return SklearnToneModel(joblib.load(model_p), meta)
+    except Exception:
+        log.exception("tone model %s in %s could not be loaded", name, models_dir)
         return None
-    import joblib
-    return SklearnToneModel(joblib.load(model_p), meta)
 
 
 def target_tone(ref_p: np.ndarray | None, canonical: int, min_conf: float) -> int:

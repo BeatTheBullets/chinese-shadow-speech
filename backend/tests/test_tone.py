@@ -72,3 +72,13 @@ def test_load_tone_model_reorders_classes(tmp_path):
     (tmp_path / "m.json").write_text(json.dumps({"version": "m1", "feature_version": FEATURE_VERSION, "dtw_norm": 2.0}))
     m = load_tone_model("m", tmp_path)
     assert m.version == "m1" and m.dtw_norm == 2.0 and m.proba(np.zeros((1, 3))).shape == (1, 5)
+
+
+def test_a_corrupt_tone_model_is_none_not_a_crash(tmp_path):
+    """build_deps loads it at start-up: an unreadable file must not stop the server (scores say no_tone_model)."""
+    from shadow.scoring.features import FEATURE_VERSION
+    (tmp_path / "m.json").write_text(json.dumps({"version": "m", "feature_version": FEATURE_VERSION, "dtw_norm": 1.0}))
+    (tmp_path / "m.joblib").write_bytes(b"not a pickle")
+    assert load_tone_model("m", tmp_path) is None
+    (tmp_path / "m.json").write_text("{not json")
+    assert load_tone_model("m", tmp_path) is None
