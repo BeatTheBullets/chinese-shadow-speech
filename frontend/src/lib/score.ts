@@ -26,6 +26,11 @@ export function warningText(score: Score | null | undefined): string | null {
   return w ? WARNINGS[w] ?? `Not scored (${w}).` : null
 }
 
+// A hint warningText produced: a later scored take clears it (other hints, e.g. move-on, stay).
+export function isWarningText(hint: string): boolean {
+  return Object.values(WARNINGS).includes(hint) || /^Not scored \(.*\)\.$/.test(hint)
+}
+
 export const pct = (x: number | null | undefined): string => (x == null ? '—' : String(Math.round(x * 100)))
 
 export function cellTitle(c: Cell): string {

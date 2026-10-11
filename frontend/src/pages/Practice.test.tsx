@@ -92,6 +92,40 @@ describe('<Practice>', () => {
     expect(await screen.findByText('Too quiet — not scored. Move closer to the mic.')).toBeInTheDocument()
   })
 
+  const gated = { overall: null, tone_overall: null, segmental_overall: null, rate_ratio: null, ref_contour: null, usr_contour: null, syllables: [], warnings: ['too_quiet'] }
+  const scored = { ...gated, overall: 0.8, tone_overall: 0.8, warnings: [] }
+  const QUIET = 'Too quiet — not scored. Move closer to the mic.'
+
+  it('a gated take that uploads after moving on does not explain itself under the next sentence', async () => {
+    const pending = deferred<{ id: number; score_json: typeof gated }>()
+    h.api.segments.postAttempt.mockReturnValue(pending.promise)
+    renderPractice()
+    await screen.findByText('你好', { selector: 'p.sentence' })
+    press('Enter'); await screen.findByRole('button', { name: '■ stop' }); await flush()
+    press('Enter'); await flush()
+    press('ArrowRight'); await screen.findByText('再见', { selector: 'p.sentence' })
+    await act(async () => { pending.resolve({ id: 99, score_json: gated }) }); await flush()
+    expect(screen.queryByText(QUIET)).toBeNull()
+    expect(usePractice.getState().hint).toBe('')
+  })
+
+  it('a scored retake clears the gate warning but keeps the move-on hint', async () => {
+    h.api.segments.postAttempt.mockResolvedValueOnce({ id: 1, score_json: gated }).mockResolvedValueOnce({ id: 2, score_json: scored })
+      .mockResolvedValueOnce({ id: 3, score_json: gated }).mockResolvedValueOnce({ id: 4, score_json: scored })
+    renderPractice()
+    await screen.findByText('你好', { selector: 'p.sentence' })
+    const take = async () => { press('Enter'); await flush(); press('Enter'); await flush() }
+    await take()
+    expect(await screen.findByText(QUIET)).toBeInTheDocument()
+    await take()
+    await waitFor(() => expect(screen.queryByText(QUIET)).toBeNull())
+    await take()
+    expect(await screen.findByText(QUIET)).toBeInTheDocument()
+    await take() // the fourth attempt reaches moveOnAfter (4): the move-on hint, then a scored upload
+    await waitFor(() => expect(screen.queryByText(QUIET)).toBeNull())
+    expect(screen.getByText(/Move on and come back later/)).toBeInTheDocument()
+  })
+
   it('stored takes bring their score back when the lesson is reopened', async () => {
     const score = { overall: 0.6, tone_overall: 0.6, segmental_overall: null, rate_ratio: 1, ref_contour: null, usr_contour: null, syllables: [], warnings: [] }
     h.api.lessons.takes.mockResolvedValue([{ segment_id: 11, attempt_id: 7, mode: 'echo', created_at: '', duration_s: 1, score_json: score }])

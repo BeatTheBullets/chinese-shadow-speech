@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Score, ScoredSyllable, Segment } from '../api/types'
 import type { Cell } from './cells'
-import { applyAttempt, cellTitle, pct, warningText, withScore } from './score'
+import { applyAttempt, cellTitle, isWarningText, pct, warningText, withScore } from './score'
 
 const cells: Cell[] = [{ ch: '你', pinyin: 'ní', tone: 3, status: 'neutral' }, { ch: '好', pinyin: 'hǎo', tone: 3, status: 'neutral' }]
 const syl = (o: Partial<ScoredSyllable>): ScoredSyllable => ({ ch: '你', pinyin: 'ní', tone: 3, target_tone: 2, heard_tone: 2, status: 'ok', tone_score: 0.9, p_target: 0.9, contour: 0.9, ...o })
@@ -22,6 +22,12 @@ describe('score', () => {
     expect(warningText(score({ overall: null, warnings: ['too_quiet'] }))).toBe('Too quiet — not scored. Move closer to the mic.')
     expect(warningText(score({ overall: null, warnings: ['odd_code'] }))).toBe('Not scored (odd_code).')
     expect(warningText(score())).toBeNull()
+  })
+  it('recognises its own warning texts, and only those', () => {
+    expect(isWarningText('Too quiet — not scored. Move closer to the mic.')).toBe(true)
+    expect(isWarningText('Not scored (odd_code).')).toBe(true)
+    expect(isWarningText('Several tries on this one. Move on and come back later.')).toBe(false)
+    expect(isWarningText('')).toBe(false)
   })
   it('formats percentages and cell titles', () => {
     expect(pct(0.456)).toBe('46'); expect(pct(null)).toBe('—')
