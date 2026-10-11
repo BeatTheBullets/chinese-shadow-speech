@@ -54,6 +54,7 @@ def create_attempt(segment_id: int, request: Request, audio_file: UploadFile = F
     finally:
         raw.unlink(missing_ok=True)
     att.audio_path = str(dst)
+    db.add(att); db.commit()            # the take is saved before scoring, which must not hold SQLite's write lock
     score_attempt(deps, db, seg, att)
     if sess is not None:
         sess.attempts_count += 1; db.add(sess)

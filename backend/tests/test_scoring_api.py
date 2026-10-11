@@ -82,3 +82,43 @@ def test_a_scoring_crash_still_saves_the_take(client, tmp_path, monkeypatch):
     assert client.get(f"/attempts/{r.json()['id']}/audio").status_code == 200
     with Session(client.app.state.engine) as db:
         assert db.exec(select(Attempt)).one().score_json["overall"] is None
+
+
+def test_scoring_does_not_hold_the_write_lock(client, tmp_path, monkeypatch):
+    """A slow score (first-ever take downloads the embedder) must not lock the database: another write meanwhile
+    (the next Echo upload, an ingest job) would wait SQLite's busy timeout, fail, and lose its take."""
+    import threading
+    from sqlalchemy import create_engine
+    import shadow.scoring as scoring
+    lid, seg = _first_segment(client, tmp_path)
+    started, release, real = threading.Event(), threading.Event(), scoring.score_take
+
+    def slow(**kw):
+        started.set(); release.wait(10)
+        return real(**kw)
+    monkeypatch.setattr(scoring, "score_take", slow)
+    out = {}
+    t = threading.Thread(target=lambda: out.update(r=_post(client, make_tone_wav(tmp_path / "t.wav", 2.6), seg["id"])))
+    t.start()
+    try:
+        assert started.wait(10)
+        other = create_engine(client.app.state.engine.url, connect_args={"timeout": 0.5})
+        with Session(other) as db:              # fails with "database is locked" while the request holds the lock
+            db.add(Attempt(segment_id=seg["id"], mode="echo", audio_path="", duration_s=0.0)); db.commit()
+        other.dispose()
+    finally:
+        release.set(); t.join(10)
+    assert out["r"].status_code == 201 and out["r"].json()["score_json"]["overall"] is not None
+
+
+def test_a_failing_score_write_still_saves_the_take(client, tmp_path, monkeypatch):
+    import shadow.scoring as scoring
+    lid, seg = _first_segment(client, tmp_path)
+    monkeypatch.setattr(scoring, "add_frames", lambda *a: 1 / 0)
+    r = _post(client, make_tone_wav(tmp_path / "t.wav", 2.6), seg["id"])
+    assert r.status_code == 201 and r.json()["score_json"]["warnings"] == ["score_failed"]
+    assert client.get(f"/attempts/{r.json()['id']}/audio").status_code == 200
+    with Session(client.app.state.engine) as db:
+        att = db.exec(select(Attempt)).one()
+        assert att.audio_path and att.duration_s > 0 and att.score_json["overall"] is None
+        assert db.exec(select(SyllableScore)).all() == [] and db.exec(select(VoiceProfile)).all() == []
