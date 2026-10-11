@@ -44,7 +44,7 @@ class ScoringCfg(BaseModel):
     green_at: float = 0.7             # Phase 2 spec §3: ok needs the target tone heard and tone_score ≥ this
     wrong_margin: float = 0.25        # wrong: another tone beats P(target) by at least this
     ref_confidence: float = 0.6       # the reference's own classification becomes the target from this probability
-    min_rms_dbfs: float = -78.0       # gate (spec §1); re-set from the user's takes in the plan's Task 15
+    min_rms_dbfs: float = -55.0       # gate (spec §1); re-set from the user's takes in the plan's Task 15
     min_align_conf: float = 0.05
     max_clipped: float = 0.01
     profile_seconds: float = 60.0     # voiced seconds before the voice profile alone sets the learner's baseline
