@@ -3065,6 +3065,313 @@ git commit -m "docs: Phase 2 tone scoring in the README, running notes and accep
 
 ---
 
+## Revision 2026-10-11 — speech-model tone features (spec §10)
+
+Task 8's pitch-only model reached 75.1 % (below the 85 % gate); the user chose speech-model features. Tasks 17–19 replace the classifier's features; Task 15 Steps 5–7 run after Task 19. Global Constraints change: `FEATURE_VERSION = 2`; `unvoiced` status only for non-hanzi characters (tone −1).
+
+### Task 17: Speech-model embedder and v2 features in scoring
+
+**Files:**
+- Create: `backend/shadow/scoring/embed.py`, `backend/tests/test_embed.py`
+- Modify: `backend/shadow/scoring/features.py`, `backend/shadow/scoring/score.py`, `backend/shadow/scoring/reference.py`, `backend/shadow/scoring/__init__.py`, `backend/shadow/config.py` (`ModelsCfg`), `config.toml` (`[models]`), `backend/shadow/deps.py`, `backend/pyproject.toml` (+ `uv.lock`), `backend/tests/test_features.py`, `backend/tests/test_score.py`, `backend/tests/test_tone.py` (only if it asserts `FEATURE_VERSION == 1`)
+
+**Interfaces:**
+- Produces:
+  - `embed.py`: `FRAME_S = 0.02`, `DIM = 768`; `class Embedder(Protocol): def frames(self, wav: np.ndarray, sr: int) -> np.ndarray` (shape `(T, DIM)`, float32, one row per 20 ms frame); `FakeEmbedder()` (deterministic, no model); `Wav2Vec2Embedder(name: str, revision: str, layer: int, device: str)` with a lazily loaded `_model` and a lock; `pool(frames: np.ndarray, spans: list[tuple[float, float]]) -> np.ndarray` (shape `(len(spans), DIM)`).
+  - `features.py`: `FEATURE_VERSION = 2`; `N_PITCH = 45` (the old `N_FEATURES` value, renamed); `N_FEATURES = 3 * DIM + 2 + N_PITCH` (= 2351); `pitch_matrix(sylls) -> np.ndarray` (the old `feature_matrix`, renamed, unchanged output); `feature_matrix(sylls: list[SylPitch], pooled: np.ndarray) -> np.ndarray` (rows `[own, prev, prev_flag, next, next_flag, pitch45]`, float32).
+  - `RefData` gains `wav: np.ndarray` and `sr: int` (the reference clip samples); `score_take(..., embedder: Embedder, ...)` gains a keyword `embedder`.
+  - `ModelsCfg.tone_embedder = "TencentGameMate/chinese-wav2vec2-base"`, `tone_embedder_revision = "3991242c806928916fff4a8c0e4f76acf661b743"`, `tone_layer = 6`.
+  - `Deps.embedder: Embedder | None` (real: `Wav2Vec2Embedder(...)` on the resolved device; fake: `FakeEmbedder()`); `loaded_models()` lists `"embedder"` once its `_model` is loaded.
+
+- [ ] **Step 1: Dependency**
+
+`transformers` is installed only transitively. Make it explicit in the `models` extra: `cd backend && ~/.local/bin/uv add --no-sync --optional models "transformers>=4.57"` then `~/.local/bin/uv sync --extra dev --extra models`.
+
+- [ ] **Step 2: Write the failing tests**
+
+`backend/tests/test_embed.py`:
+```python
+import numpy as np
+import pytest
+from shadow.scoring.embed import DIM, FRAME_S, FakeEmbedder, pool
+
+
+def test_fake_embedder_shape_and_determinism():
+    wav = np.linspace(-0.5, 0.5, 16000, dtype=np.float32)
+    a, b = FakeEmbedder().frames(wav, 16000), FakeEmbedder().frames(wav, 16000)
+    assert a.shape == (50, DIM) and a.dtype == np.float32 and np.array_equal(a, b)
+
+
+def test_pool_means_frames_whose_centres_fall_in_the_span():
+    frames = np.repeat(np.arange(10, dtype=np.float32)[:, None], DIM, axis=1)   # frame i holds value i
+    out = pool(frames, [(0.0, 0.05), (0.06, 0.1), (0.5, 0.6)])
+    # centres: 0.0125, 0.0325, 0.0525 … → span 1 takes frames 0,1; span 2 takes frames 3,4
+    assert out.shape == (3, DIM)
+    assert out[0, 0] == pytest.approx(0.5) and out[1, 0] == pytest.approx(3.5)
+    assert out[2, 0] == 9.0                                                     # beyond the end: nearest frame
+
+
+def test_pool_empty_span_takes_nearest_frame():
+    frames = np.repeat(np.arange(10, dtype=np.float32)[:, None], DIM, axis=1)
+    assert pool(frames, [(0.041, 0.042)])[0, 0] == 2.0
+    assert FRAME_S == 0.02
+```
+
+Replace the bodies of `test_feature_matrix_shape_and_neighbours` and `test_feature_matrix_single_syllable_has_empty_neighbours` in `backend/tests/test_features.py` (and update the import line: `pitch_matrix`, `N_PITCH` instead of the old names where used):
+```python
+def test_pitch_matrix_shape_and_neighbours():
+    up = SylPitch(np.linspace(-1, 1, POINTS), 1.0, 0.2)
+    down = SylPitch(np.linspace(1, -1, POINTS), 1.0, 0.2)
+    quiet = SylPitch(None, 0.1, 0.1)
+    X = pitch_matrix([up, down, quiet])
+    assert X.shape == (3, N_PITCH) and X.dtype == np.float32
+    assert np.allclose(X[0, :POINTS], up.contour) and not np.allclose(X[0], X[1])
+
+
+def test_feature_matrix_concatenates_embeddings_context_and_pitch():
+    from shadow.scoring.embed import DIM
+    sylls = [SylPitch(np.zeros(POINTS), 1.0, 0.2), SylPitch(None, 0.0, 0.1), SylPitch(np.ones(POINTS), 1.0, 0.2)]
+    pooled = np.stack([np.full(DIM, i + 1, np.float32) for i in range(3)])
+    X = feature_matrix(sylls, pooled)
+    assert X.shape == (3, N_FEATURES) and N_FEATURES == 3 * DIM + 2 + N_PITCH and FEATURE_VERSION == 2
+    own, prv, pflag = X[1, :DIM], X[1, DIM:2 * DIM], X[1, 2 * DIM]
+    nxt, nflag = X[1, 2 * DIM + 1:3 * DIM + 1], X[1, 3 * DIM + 1]
+    assert own[0] == 2 and prv[0] == 1 and pflag == 1 and nxt[0] == 3 and nflag == 1
+    assert X[0, 2 * DIM] == 0 and np.all(X[0, DIM:2 * DIM] == 0)          # no previous syllable
+    assert X[2, 3 * DIM + 1] == 0                                          # no next syllable
+    assert np.allclose(X[:, -N_PITCH:], pitch_matrix(sylls))
+```
+
+In `backend/tests/test_score.py`:
+- `ref_data` builds `RefData(p, spans, baseline_of(p.voiced()), wav, SR)`;
+- every `score_take(...)` call (in `run` and in `test_tiny_take_is_gated_before_pitch`) passes `embedder=FakeEmbedder()` (import it from `shadow.scoring.embed`);
+- add:
+```python
+def test_pitch_unvoiced_syllable_is_still_judged_without_contour():
+    import shadow.scoring.score as score
+    real = score.syllable_pitch
+    def no_pitch_on_third(norm, t0, start, end, min_voiced):          # pretend syllable 3 has no voiced frames
+        s = real(norm, t0, start, end, min_voiced)
+        return score.SylPitch(None, 0.0, s.duration) if 0.5 <= start < 0.75 else s
+    import pytest as _p
+    mp = _p.MonkeyPatch(); mp.setattr(score, "syllable_pitch", no_pitch_on_third)
+    try:
+        syl = run(voice(REF_CONTOURS)).json["syllables"][2]
+    finally:
+        mp.undo()
+    assert syl["status"] in ("ok", "close") and syl["contour"] is None and syl["tone_score"] == pytest.approx(syl["p_target"])
+```
+(`test_non_hanzi_syllable_is_unvoiced` stays as is: tone −1 is still `unvoiced`.)
+
+- [ ] **Step 3: Run to verify failure**
+
+Run: `cd backend && ~/.local/bin/uv run pytest tests/test_embed.py tests/test_features.py tests/test_score.py -q`
+Expected: FAIL (module `shadow.scoring.embed` missing, names missing).
+
+- [ ] **Step 4: Implement**
+
+`backend/shadow/scoring/embed.py`:
+```python
+"""Speech-model embeddings for the tone classifier (Phase 2 spec §10): one hidden layer of a pretrained Chinese
+wav2vec2, mean-pooled over each aligned syllable. Raw 16 kHz input, fp32, exactly as the model was trained."""
+from __future__ import annotations
+import threading
+from typing import Protocol
+import numpy as np
+
+FRAME_S = 0.02                           # wav2vec2 frame step at 16 kHz
+DIM = 768
+_CENTRE = 0.0125                         # frame i covers ~[i·20 ms, i·20 ms + 25 ms]
+
+
+class Embedder(Protocol):
+    def frames(self, wav: np.ndarray, sr: int) -> np.ndarray: ...
+
+
+class FakeEmbedder:
+    """Tests: every dimension of frame i holds the mean absolute amplitude of its 20 ms (no model)."""
+    def frames(self, wav: np.ndarray, sr: int) -> np.ndarray:
+        hop = int(FRAME_S * sr)
+        n = max(len(wav) // hop, 1)
+        e = np.abs(np.asarray(wav, np.float32)[: n * hop]).reshape(n, hop).mean(axis=1) if len(wav) >= hop else np.zeros(1)
+        return np.repeat(e[:, None], DIM, axis=1).astype(np.float32)
+
+
+class Wav2Vec2Embedder:
+    def __init__(self, name: str, revision: str, layer: int, device: str):
+        self.name, self.revision, self.layer, self.device = name, revision, layer, device
+        self._model = None
+        self._lock = threading.Lock()
+
+    def _load(self):
+        if self._model is None:
+            from transformers import Wav2Vec2Model
+            self._model = Wav2Vec2Model.from_pretrained(self.name, revision=self.revision).to(self.device).eval()
+        return self._model
+
+    def frames(self, wav: np.ndarray, sr: int) -> np.ndarray:
+        import torch
+        import torchaudio.functional as AF
+        with self._lock:
+            model = self._load()
+            x = torch.from_numpy(np.asarray(wav, np.float32))[None].to(self.device)
+            if sr != 16000:
+                x = AF.resample(x, sr, 16000)
+            with torch.inference_mode():
+                hs = model(x, output_hidden_states=True).hidden_states[self.layer]
+            return hs[0].float().cpu().numpy()
+
+
+def pool(frames: np.ndarray, spans: list[tuple[float, float]]) -> np.ndarray:
+    """Mean of the frames whose centre lies inside each [start, end]; the nearest frame when none does."""
+    centres = np.arange(len(frames)) * FRAME_S + _CENTRE
+    out = np.zeros((len(spans), frames.shape[1]), np.float32)
+    for i, (a, b) in enumerate(spans):
+        idx = np.flatnonzero((centres >= a) & (centres <= b))
+        out[i] = frames[idx].mean(axis=0) if len(idx) else frames[int(np.argmin(np.abs(centres - (a + b) / 2)))]
+    return out
+```
+
+`backend/shadow/scoring/features.py`:
+- `FEATURE_VERSION = 2`; rename `N_FEATURES` → `N_PITCH` and `feature_matrix` → `pitch_matrix` (body unchanged, it returns `(n, N_PITCH)`);
+- import `DIM` from `shadow.scoring.embed`; add:
+```python
+N_FEATURES = 3 * DIM + 2 + N_PITCH         # own, previous (+flag), next (+flag) embeddings, then the pitch features
+
+
+def feature_matrix(sylls: list[SylPitch], pooled: np.ndarray) -> np.ndarray:
+    """The classifier's rows (spec §10): each syllable's pooled embedding, its neighbours' with presence flags,
+    and its pitch features. Missing neighbours are zeros with flag 0."""
+    n = len(sylls)
+    zero = np.zeros(DIM, np.float32)
+    P = pitch_matrix(sylls)
+    rows = [np.concatenate([pooled[i], pooled[i - 1] if i > 0 else zero, [1.0 if i > 0 else 0.0],
+                            pooled[i + 1] if i < n - 1 else zero, [1.0 if i < n - 1 else 0.0], P[i]])
+            for i in range(n)]
+    return np.asarray(rows, dtype=np.float32).reshape(n, N_FEATURES)
+```
+Update every other user of the old names (`grep -rn "N_FEATURES\|feature_matrix" backend/shadow backend/scripts backend/tests`); `scripts/tone_model.py` is rewritten in Task 18 — for now make it import `pitch_matrix as feature_matrix, N_PITCH as N_FEATURES` so it still imports.
+
+`backend/shadow/scoring/score.py`:
+- `RefData` gains `wav: np.ndarray` and `sr: int` (after `baseline`);
+- `score_take` gains keyword `embedder: Embedder` (import from `shadow.scoring.embed`, with `pool`);
+- replace `P_r, P_u = model.proba(feature_matrix(syl_r)), model.proba(feature_matrix(syl_u))` with:
+```python
+    emb_r = pool(embedder.frames(ref.wav, ref.sr), ref.spans)
+    emb_u = pool(embedder.frames(trimmed, sr), [(s.start, s.end) for s in spans])
+    P_r, P_u = model.proba(feature_matrix(syl_r, emb_r)), model.proba(feature_matrix(syl_u, emb_u))
+```
+- in the per-syllable loop, replace the `unvoiced` branch and the judging branch with:
+```python
+        elif s["tone"] < 0:
+            js = _syl_json(s, "unvoiced", **common)
+            target = heard = None
+        else:
+            # a syllable without voiced pitch (either track) is still classified; it just has no contour term (§10)
+            target = target_tone(P_r[i], s["tone"], cfg.ref_confidence)
+            sim = (None if target == 0 or r.contour is None or u.contour is None
+                   else contour_similarity(r.contour, u.contour, cfg.dtw_band, model.dtw_norm))
+            v = judge(P_u[i], target, sim, cfg)
+            ...  (unchanged)
+```
+
+`backend/shadow/scoring/reference.py` — add:
+```python
+def reference_audio(seg: Segment) -> tuple[np.ndarray, int]:
+    return audio.read_wav(Path(seg.clip_wav_path))
+```
+`backend/shadow/scoring/__init__.py` — build `RefData(ref_pitch, reference_spans(segment), ref_base, *reference_audio(segment))` and pass `embedder=deps.embedder`; if `deps.embedder is None` the result is `failed_result(syllables, ["no_tone_model"])`.
+
+`backend/shadow/config.py` `ModelsCfg` — add after `gop_model`:
+```python
+    tone_embedder: str = "TencentGameMate/chinese-wav2vec2-base"      # Phase 2 spec §10 (MIT)
+    tone_embedder_revision: str = "3991242c806928916fff4a8c0e4f76acf661b743"
+    tone_layer: int = 6
+```
+and the same three keys under `[models]` in `config.toml`.
+
+`backend/shadow/deps.py` — `Deps` gains `embedder: Embedder | None = None`; `build_deps` passes `embedder=Wav2Vec2Embedder(settings.models.tone_embedder, settings.models.tone_embedder_revision, settings.models.tone_layer, device)`; `fake_deps` passes `embedder=FakeEmbedder()`; `loaded_models()` also checks `("embedder", self.embedder)` for a loaded `_model`.
+
+- [ ] **Step 5: Run all backend tests**
+
+Run: `cd backend && ~/.local/bin/uv run pytest -q`
+Expected: all pass. `FakeToneModel` ignores feature values, so API tests keep working. The current `tone_v1` model files (feature version 1, uncommitted) are now rejected by `load_tone_model` — expected until Task 19.
+
+- [ ] **Step 6: Real-model smoke check**
+
+```bash
+cd backend && ~/.local/bin/uv run python -c "
+import numpy as np
+from shadow.scoring.embed import Wav2Vec2Embedder
+from shadow.config import load_settings
+s = load_settings(); m = s.models
+e = Wav2Vec2Embedder(m.tone_embedder, m.tone_embedder_revision, m.tone_layer, s.resolved_device())
+f = e.frames(np.random.default_rng(0).normal(0, 0.1, 48000).astype('float32'), 16000)
+print(f.shape, f.dtype)"
+```
+Expected: `(149, 768) float32` (downloads ~360 MB on first use).
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add backend/shadow backend/tests backend/pyproject.toml backend/uv.lock config.toml
+git commit -m "feat(backend): tone features from chinese-wav2vec2 layer 6; pitch-unvoiced syllables still judged"
+```
+
+---
+
+### Task 18: Training tool v2
+
+**Files:**
+- Modify: `backend/scripts/tone_model.py`
+
+**Interfaces:**
+- Consumes: Task 17 (`Wav2Vec2Embedder`, `pool`, `feature_matrix(sylls, pooled)`, `N_FEATURES`, `POINTS`, `FEATURE_VERSION = 2`).
+- Produces: the same CLI; `--hours` default 15; per-speaker npz arrays `X (n, N_FEATURES)`, `y`, `ctx (n, 2)`, `contours (n, POINTS)` (zeros when unvoiced), `voiced (n,) bool`; cache dir `features_v2_<labels>`; the classifier is `make_pipeline(StandardScaler(), MLPClassifier(hidden_layer_sizes=(256,), early_stopping=True, random_state=0))`.
+
+- [ ] **Step 1: Rewrite the feature and train stages**
+
+In `speaker_features(aligner, embedder, cfg, utts, labels)`:
+- keep each aligned utterance's waveform and sample rate alongside its pitch and spans (`done.append((u, wav, sr, p, spans))`);
+- per utterance: `pooled = pool(embedder.frames(wav, sr), [(s.start, s.end) for s in spans])`, `F = feature_matrix(sylls, pooled)`;
+- keep **every** labelled syllable (`t is not None`), voiced or not; `contours` gets `s.contour` or `np.zeros(POINTS)`; add `voiced.append(s.contour is not None)`;
+- return `{"X", "y", "ctx", "contours", "voiced"}` with `X` reshaped to `(-1, N_FEATURES)` and `voiced` as bool.
+
+In `features(...)`: build `embedder = Wav2Vec2Embedder(m.tone_embedder, m.tone_embedder_revision, m.tone_layer, device)` from `load_settings().models` and pass it.
+
+In `dtw_norm(...)`: iterate only rows with `d["voiced"]` true.
+
+In `train(...)`: replace the `HistGradientBoostingClassifier` with the pipeline above (imports from `sklearn.pipeline`, `sklearn.preprocessing`, `sklearn.neural_network`); add `"embedder": f"{m.tone_embedder}@{m.tone_embedder_revision}", "layer": m.tone_layer` to the metadata. Change the `--hours` default to `15.0` and the docstring's time estimate ("~1 h for 15 h on the GPU").
+
+- [ ] **Step 2: Smoke-test the train stage on fake features**
+
+Same as Task 7 Step 6 but with 20 fake speakers, `X` of width `N_FEATURES`, and a `voiced` array (`rng.random(n) > 0.1`); it must print the metrics, `ACCEPT`/`BELOW…`, and a `(1, 5)` proba shape from `load_tone_model('smoke', …).proba(np.zeros((1, N_FEATURES)))`; then remove the scratch directory.
+
+- [ ] **Step 3: Run tests and commit**
+
+Run: `cd backend && ~/.local/bin/uv run pytest -q` (expected: all pass)
+```bash
+git add backend/scripts/tone_model.py
+git commit -m "feat(backend): train the tone model on speech-model features (MLP, every labelled syllable)"
+```
+
+---
+
+### Task 19: Train tone model v2 (operator task, long-running)
+
+Controller-run, like Task 8.
+
+- [ ] **Step 1:** `rm -f backend/shadow/scoring/models/tone_v1.*` (the uncommitted v1 files), then in the background: `cd backend && ~/.local/bin/uv run python scripts/tone_model.py --labels realised > ../data/corpora/tone_model_v2.log 2>&1`.
+- [ ] **Step 2:** If `BELOW 0.85`: stop and report to the user. If `ACCEPT`: record metrics in the Ledger, check the joblib size (< 50 MB; if larger, report), and commit:
+```bash
+git add backend/shadow/scoring/models/tone_v1.joblib backend/shadow/scoring/models/tone_v1.json docs/superpowers/plans/2026-10-09-phase2-tone-scoring.md
+git commit -m "feat(backend): tone model v1 on chinese-wav2vec2 features (metrics in the plan ledger)"
+```
+- [ ] **Step 3:** Continue with Task 15 Steps 5–7. Task 15's real-model test (`test_tone_model_real.py`) passes `embedder=` a `Wav2Vec2Embedder` built from `load_settings().models` and `RefData(..., ref_wav, SR)`. Task 16's docs: replace the training time and size lines with the v2 numbers (15 h, ~1 h, model download ~360 MB on first use) in Task 15's final commit.
+
+
+---
+
 ## Ledger
 
 Record here, with dates: Task 8 label check (counts and choice), the training metrics (accuracy, per tone, `dtw_norm`, train/test sizes, model file size); Task 15 probe percentiles, chosen `min_align_conf` / `min_rms_dbfs`, and the final rescore outcome line; any deviation from this plan and why.
