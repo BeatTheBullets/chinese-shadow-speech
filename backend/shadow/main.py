@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from shadow.config import Settings, load_settings
 from shadow.deps import Deps, build_deps
 from shadow.jobs import JobManager
+from shadow.scoring.embed import Wav2Vec2Embedder
 from sqlalchemy import Engine
 from sqlmodel import Session, select
 from shadow.store.db import make_engine, init_db
@@ -22,6 +23,8 @@ def create_app(settings: Settings | None = None, deps: Deps | None = None) -> Fa
     async def lifespan(app: FastAPI):
         recover_interrupted(app.state.engine)
         app.state.jobs.start()
+        if isinstance(app.state.deps.embedder, Wav2Vec2Embedder):     # real deps only: tests never download
+            app.state.deps.embedder.warm_up()
         yield
         await app.state.jobs.stop()
 

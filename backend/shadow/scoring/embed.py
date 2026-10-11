@@ -1,6 +1,7 @@
 """Speech-model embeddings for the tone classifier (Phase 2 spec §10): one hidden layer of a pretrained Chinese
 wav2vec2, mean-pooled over each aligned syllable. Raw 16 kHz input, fp32, exactly as the model was trained."""
 from __future__ import annotations
+import logging
 import threading
 from typing import Protocol
 import numpy as np
@@ -8,6 +9,7 @@ import numpy as np
 FRAME_S = 0.02                           # wav2vec2 frame step at 16 kHz
 DIM = 768
 _CENTRE = 0.0125                         # frame i covers ~[i·20 ms, i·20 ms + 25 ms]
+log = logging.getLogger(__name__)
 
 
 class Embedder(Protocol):
@@ -34,6 +36,20 @@ class Wav2Vec2Embedder:
             from transformers import Wav2Vec2Model
             self._model = Wav2Vec2Model.from_pretrained(self.name, revision=self.revision).to(self.device).eval()
         return self._model
+
+    def warm_up(self) -> threading.Thread:
+        """Load (on first run: download, ~380 MB) the model in a daemon thread, so the first scored take does not
+        wait for it. Under the lock, so a take arriving meanwhile waits for this load instead of starting another;
+        a failure is logged and the next take tries again."""
+        def run():
+            try:
+                with self._lock:
+                    self._load()
+            except Exception:
+                log.exception("warming up the speech model %s failed", self.name)
+        t = threading.Thread(target=run, name="embedder-warm-up", daemon=True)
+        t.start()
+        return t
 
     def frames(self, wav: np.ndarray, sr: int) -> np.ndarray:
         import torch

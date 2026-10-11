@@ -45,7 +45,11 @@ Updating yt-dlp: YouTube changes often. When a lesson fails with "extraction fai
     cd backend && uv lock --upgrade-package yt-dlp && uv sync --extra dev --extra models
 
 ## Tone scoring
-The tone model ships in `backend/shadow/scoring/models/` (`tone_v1.joblib` and `tone_v1.json`); nothing to download for normal use.
+The tone model ships in `backend/shadow/scoring/models/` (`tone_v1.joblib` and `tone_v1.json`). It scores on the speech
+model chinese-wav2vec2 (~380 MB from Hugging Face, MIT), which the backend loads in the background at start-up and
+downloads the first time (needs the models extra); a take scored before that finishes waits for it.
+If the download fails it is logged and the first scored take tries again. A missing or unreadable tone model file
+is logged too and takes are then saved unscored ("Tone model missing").
 `/health` reports `tone_model.loaded` and its version.
 
 Retraining: `make tone-model LABELS=realised`. It downloads ~17.7 GB (AISHELL-3, OpenSLR SLR93, Apache-2.0) into
