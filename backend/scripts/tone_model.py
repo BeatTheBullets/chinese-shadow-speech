@@ -32,6 +32,7 @@ TEST_SHARE = 0.15
 MAX_PAIRS = 20000
 NATIVE, ALTERED, FLAT = 0, 1, 2           # row kinds; flat copies exist only for test speakers
 ALTERED_COPIES = 2                        # per training utterance (test speakers get one)
+MAX_TRAIN_ROWS = 120_000                  # a uniform sample, ≈ 1.1 GB of float32: fit + early stopping fit 8 GB
 
 
 def download(root: Path) -> None:
@@ -174,22 +175,27 @@ def train(root: Path, name: str, hours: float, labels: str) -> None:
     files = sorted(features_dir(root, labels).glob("*.npz"))
     test_spk = held_out([f.stem for f in files])
     tr = [f for f in files if f.stem not in test_spk]
-    # Native + altered rows of the training speakers, read speaker by speaker into one float32 array (≈ 2 GB at 10 h)
-    n = 0
+    # Native + altered rows of the training speakers: count them, draw a uniform sample of at most MAX_TRAIN_ROWS,
+    # then copy only the sampled rows speaker by speaker into one float32 array
+    counts = []
     for f in tr:
         with np.load(f) as d:
             if np.any(d["kind"] == FLAT):
                 raise SystemExit(f"{f.name} has a flat copy but is a training speaker: cache built for another speaker set")
-            n += len(d["kind"])
-    Xtr, ytr, i, n_alt = np.empty((n, N_FEATURES), np.float32), np.empty(n, np.int64), 0, 0
-    for f in tr:
-        with np.load(f) as d:
-            k = len(d["y"])
-            Xtr[i: i + k], ytr[i: i + k] = d["X"], d["y"]
-            i, n_alt = i + k, n_alt + int(np.sum(d["kind"] == ALTERED))
+            counts.append(len(d["kind"]))
+    total = int(sum(counts))
+    sel = np.sort(np.random.default_rng(0).choice(total, size=min(total, MAX_TRAIN_ROWS), replace=False))
+    n = len(sel)
+    Xtr, ytr, i, n_alt, off = np.empty((n, N_FEATURES), np.float32), np.empty(n, np.int64), 0, 0, 0
+    for f, k in zip(tr, counts):
+        local = sel[(sel >= off) & (sel < off + k)] - off
+        off += k
+        if len(local):
+            with np.load(f) as d:
+                Xtr[i: i + len(local)], ytr[i: i + len(local)] = d["X"][local], d["y"][local]
+                i, n_alt = i + len(local), n_alt + int(np.sum(d["kind"][local] == ALTERED))
     clf = make_pipeline(StandardScaler(), MLPClassifier(hidden_layer_sizes=(256,), early_stopping=True, random_state=0))
-    clf.set_params(standardscaler__copy=False)      # scale Xtr in place: with early stopping's split, a scaled copy
-                                                    # as well would not fit in 8 GB
+    clf.set_params(standardscaler__copy=False)      # scale Xtr in place: no second copy next to early stopping's split
     clf.fit(Xtr, ytr)
     clf.set_params(standardscaler__copy=True)       # the app's rows must not be rewritten by proba
     del Xtr
@@ -198,6 +204,8 @@ def train(root: Path, name: str, hours: float, labels: str) -> None:
     P = clf.predict_proba(T["X"])
     classes = np.asarray([int(c) for c in clf.classes_])
     pred, y, kind = classes[P.argmax(axis=1)], T["y"], T["kind"]
+    if not np.isin(y, classes).all():
+        raise SystemExit(f"test labels {sorted(set(y.tolist()) - set(classes.tolist()))} never seen in training")
     p_true = P[np.arange(len(y)), np.searchsorted(classes, y)]
     nat, alt = kind == NATIVE, kind == ALTERED
     flat = (kind == FLAT) & np.isin(T["orig"], (2, 3, 4))
@@ -214,7 +222,7 @@ def train(root: Path, name: str, hours: float, labels: str) -> None:
                                  for t in TONES if np.any(alt & (y == t))},
             "false_wrong_native": float(np.mean((P.max(axis=1) - p_true)[nat] >= cfg.wrong_margin)),
             "flat_still_original": float(np.mean(pred[flat] == T["orig"][flat])),
-            "n_train": n, "n_train_altered": n_alt,
+            "n_train": n, "n_train_altered": n_alt, "train_rows_total": total, "train_rows_used": n,
             "n_test": int(nat.sum()), "n_test_altered": int(alt.sum()), "n_test_flat": int(flat.sum()),
             "test_speakers": sorted(test_spk), "hours": hours, "labels": labels,
             "embedder": m.tone_embedder, "embedder_revision": m.tone_embedder_revision, "layer": m.tone_layer,
@@ -222,12 +230,13 @@ def train(root: Path, name: str, hours: float, labels: str) -> None:
                              "altered_copies_train": ALTERED_COPIES, "altered_copies_test": 1, "flat_copy_test": 1},
             "corpus": "AISHELL-3 (OpenSLR SLR93, Apache-2.0)", "sklearn": sklearn.__version__,
             "date": date.today().isoformat()}
+    text = json.dumps(meta, indent=1, allow_nan=False)      # a NaN metric fails here, before any file is written
     MODELS_DIR.mkdir(exist_ok=True)
     joblib.dump(clf, MODELS_DIR / f"{name}.joblib", compress=3)
-    (MODELS_DIR / f"{name}.json").write_text(json.dumps(meta, indent=1, allow_nan=False))
+    (MODELS_DIR / f"{name}.json").write_text(text)
     print(json.dumps({k: meta[k] for k in ("accuracy", "per_tone", "accuracy_altered", "per_tone_altered",
-                                           "false_wrong_native", "flat_still_original", "dtw_norm", "n_train",
-                                           "n_test")}, indent=1))
+                                           "false_wrong_native", "flat_still_original", "dtw_norm",
+                                           "train_rows_total", "train_rows_used", "n_test")}, indent=1))
     print("ACCEPT" if acc >= 0.85 and acc_alt >= 0.85 else "BELOW 0.85 — stop and decide (spec §10.1)")
 
 
