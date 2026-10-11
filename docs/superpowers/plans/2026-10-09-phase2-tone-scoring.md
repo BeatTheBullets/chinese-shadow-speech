@@ -3489,3 +3489,10 @@ git commit -m "feat(backend): tone model v1 on chinese-wav2vec2 features (metric
 ## Ledger
 
 Record here, with dates: Task 8 label check (counts and choice), the training metrics (accuracy, per tone, `dtw_norm`, train/test sizes, model file size); Task 15 probe percentiles, chosen `min_align_conf` / `min_rms_dbfs`, and the final rescore outcome line; any deviation from this plan and why.
+
+### Ledger entries
+
+- 2026-10-11 Task 8 (pitch-only, feature v1): AISHELL-3 labels are realised ('一 yi2 个 ge4' 1338 vs 'yi1' 66; '不 bu2 是 shi4' 585; '你 ni2 好 hao3' 21). 30 h, 218 speakers: held-out accuracy 0.751 (0: 0.51, 1: 0.75, 2: 0.77, 3: 0.68, 4: 0.82), false 'wrong' on native 16.1 % → BELOW 0.85; the user chose speech-model features (spec §10).
+- 2026-10-11 spikes: chinese-wav2vec2-base layer 6 best; trained on native only it leaned on character identity (altered 47 %); with pitch-altered copies native 94.0 % / altered 95.1 % (spec §10.1). MMS spans cover ~half a syllable → windows (Task 20).
+- 2026-10-11 Task 19 (feature v2): 10 h, 10349 utterances, 218 speakers, labels realised; rows native 114257 / altered 198863 / flat 15561; first train stage OOM-killed → 120k-row cap (R12). Result: native 0.944 (0: 0.92, 1: 0.954, 2: 0.925, 3: 0.939, 4: 0.960), altered 0.953 (1: 0.956, 2: 0.919, 3: 0.976, 4: 0.951), false 'wrong' on native 5.3 %, flat still-original 9.4 %, dtw_norm 4.374, train rows 120000 of 280948, n_test 16611, joblib 6.8 MB → ACCEPT.
+
