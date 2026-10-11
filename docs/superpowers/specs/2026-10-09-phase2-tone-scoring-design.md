@@ -53,10 +53,14 @@ Each Flow slice is already its own attempt.
    - its RMS level is below `min_rms_dbfs` → `too_quiet`;
    - more than 1 % of samples are clipped → `clipped`;
    - mean alignment confidence (step 3) is below `min_align_conf` →
-     `wrong_or_unclear` (a wrong or garbled sentence lands here).
+     `wrong_or_unclear` (a garbled or very poorly matching take lands here).
    `min_align_conf` and `min_rms_dbfs` are set from the user's existing takes
    during implementation (all genuine takes pass; a take aligned to another
-   sentence's text fails) and recorded in the plan ledger.
+   sentence's text fails) and recorded in the plan ledger. Measured
+   limitation (plan ledger, Task 15 probe): genuine and wrong-text
+   confidences overlap (wrong-text p5 0.043, p50 0.197), so the chosen 0.05
+   passes ~95 % of wrong-sentence takes; a different sentence is usually
+   still scored and shows mostly red/orange cells.
 3. **Align** the learner WAV to the segment text with `deps.aligner`
    (MMS_FA), the same aligner as the reference. Calls are serialised with a
    lock shared with ingest.

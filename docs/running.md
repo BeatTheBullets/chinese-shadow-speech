@@ -70,7 +70,8 @@ Gate warnings (the take is always saved, it is just not scored):
 - "Too short — not scored. Say the whole sentence." Speak the full sentence.
 - "Too quiet — not scored. Move closer to the mic." Raise the mic level or move closer.
 - "Too loud — not scored. Lower the mic gain." The recording clips; lower the gain.
-- "Could not match this to the sentence — not scored." You said something else, or the audio is too noisy to align.
+- "Could not match this to the sentence — not scored." The take is too garbled or noisy to align. A different sentence
+  is usually not caught here: it is scored and shows mostly red and orange cells.
 - "No voice found — not scored." Check that the right microphone is selected.
 - "Tone model missing — not scored. See docs/running.md." Restore `backend/shadow/scoring/models/tone_v1.*` or retrain.
 - "This sentence has no reference timing — not scored." Re-align or edit the sentence in the drawer.

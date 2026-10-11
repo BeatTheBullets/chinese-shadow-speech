@@ -56,8 +56,9 @@ reference and your take on the same time scale, with a cell per syllable. Click 
 After a take, the cells on your track show how each tone went: **green** is ok, **orange** is close, **red** is wrong and
 shows the target and the tone heard (for example `3→2`), **grey ∅** is unvoiced, and a **dashed outline** is a syllable
 that was missing. Pitch lines are drawn over both tracks: your curve with the speaker's warped faintly behind it, and
-the reference curve on the reference track. A score appears in the header. Takes that are too quiet, clipped or the
-wrong sentence are saved but not scored, and say why.
+the reference curve on the reference track. A score appears in the header. Takes that are silent, too quiet, clipped
+or too garbled to match the sentence are saved but not scored, and say why. A different sentence is usually still
+scored: it shows mostly red and orange cells.
 
 ![Echo mode: the cue line says what to do, the reference is wiping](docs/screenshots/echo-listen.png)
 
