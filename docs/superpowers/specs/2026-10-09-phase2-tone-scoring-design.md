@@ -348,3 +348,49 @@ This section replaces §4.2–§4.4 where they differ, and one rule of §3.
 - **Memory.** About 0.45 GB of GPU memory in addition to the aligner. On a
   CPU-only machine scoring a take takes about 0.4 s longer.
 - `/health` lists `embedder` among loaded models once it has been used.
+
+### 10.1 Revision 2026-10-11 (second spike): wrong-tone robustness and syllable windows
+
+The speech-model classifier trained on native speech alone leaned on character
+identity: on held-out speech whose pitch was replaced (PSOLA) with another
+tone's contour it scored 47 %, and with flat pitch it still named the
+original tone 2/3/4 for 59 % of syllables. A learner's wrong tone on the right
+syllable would often have been passed. Trained with pitch-altered copies it
+holds up (10 held-out speakers):
+
+| classifier | native | false "wrong" on native | altered | flat: still says original |
+|---|---|---|---|---|
+| embedding MLP, native only | 95.7 % | 3.9 % | 47.0 % | 59.4 % |
+| **embedding MLP, native + altered** | **94.0 %** | **5.7 %** | **95.1 %** | **14.5 %** |
+| pitch-only, native only | 76.2 % | 16.7 % | 73.7 % | 10.9 % |
+
+The same spike found that MMS spans cover only about the first half of each
+syllable (CTC peaks); widening them lifted pitch-only accuracy 71.5 → 76.5 %.
+
+Binding changes:
+
+- **Syllable windows.** Pitch slicing, embedding pooling and the contour
+  spans in the score JSON use each syllable's *window*, not its raw aligner
+  span: from the span's start to the next span's start, unless that lies
+  more than 0.5 s after the span's start (then: span end + 0.15 s, never
+  past the next start); the last syllable runs to span end + 0.15 s, never
+  past the audio's end; a window never ends before its span's end. The
+  `missing` check (span shorter than 30 ms) still uses the raw span.
+- **Training data.** Per training utterance: the native recording plus two
+  pitch-altered copies. In an altered copy every syllable's window gets a
+  contour drawn from {1, 2, 3, 4, flat} other than its own tone, imposed with
+  parselmouth (Manipulation, PitchTier, overlap-add resynthesis) as five
+  points at 5/27/50/73/95 % of the window. Contours are Chao-style levels
+  relative to the speaker's baseline: one level = 0.6 × the speaker's spread
+  (semitones), centred on level 3, templates 1: 55555, 2: 3·2.7·3·4·5,
+  3: 2·1.3·1·1·(random 1–3), 4: 5·4.5·3.5·2·1, each scaled by a random
+  0.7–1.3 and shifted by a random ±0.3 spread units; flat = the speaker's
+  median, labelled tone 1. An altered syllable is labelled with the imposed
+  tone; altered syllables whose own tone is neutral or unlabelled are not
+  used. The original alignment is reused for the altered copies.
+- **Acceptance.** On held-out speakers: native accuracy ≥ 85 % **and**
+  accuracy on one altered copy per held-out utterance ≥ 85 %; the training
+  run also reports the false-"wrong" rate on native speech and, on an
+  all-flat copy, the share still classified as the original tone 2/3/4.
+- **Size.** 10 h of native recordings (≈ 3× that in rows with the altered
+  copies) to stay within 8 GB RAM.
