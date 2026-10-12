@@ -5,7 +5,7 @@ import numpy as np
 from rapidfuzz.distance import Levenshtein
 from shadow.config import ScoringCfg
 from shadow.ingest.align import Span, toneless_pinyin
-from shadow.ingest.text import is_hanzi
+from shadow.ingest.text import is_hanzi, is_punct
 
 
 def level_dbfs(wav: np.ndarray) -> float:
@@ -35,11 +35,15 @@ def _is_latin(c: str) -> bool:
 def text_similarity(syllables: list[dict], heard: str) -> float:
     """How closely what the recogniser heard matches the sentence, 0..1, over toneless syllables (non-hanzi skipped
     on both sides). Toneless on purpose: a wrong tone can make the recogniser write a homophone, and that is the
-    tone scorer's business, not other words."""
+    tone scorer's business, not other words. The sentence's pinyin comes from ingest (jieba word context), the heard
+    side's from pypinyin over the heard hanzi alone, so a rare polyphone or a digit can differ between the two.
+    A mostly Latin transcript (a name the recogniser spelt in English: 丽丽 heard as "lily") is also compared letter
+    by letter, and the higher similarity counts."""
     expected = [s["pinyin_toneless"].lower() for s in syllables if s["tone"] >= 0]
     got = toneless_pinyin("".join(c for c in heard if is_hanzi(c)))
     sim = float(Levenshtein.normalized_similarity(expected, got))
-    if any(_is_latin(c) for c in heard):  # a name spelt in English ("丽丽" heard as "lily"): compare letter by letter too
+    chars = [c for c in heard if not is_punct(c) and not c.isspace()]
+    if chars and 2 * sum(map(_is_latin, chars)) >= len(chars):
         runs = itertools.groupby(heard, key=lambda c: "han" if is_hanzi(c) else "latin" if _is_latin(c) else None)
         letters = "".join("".join(toneless_pinyin("".join(r))) if k == "han" else "".join(r).lower()
                           for k, r in runs if k)

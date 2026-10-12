@@ -9,6 +9,7 @@ from shadow.ingest.transcript import (
 )
 
 log = logging.getLogger(__name__)
+HEAR_WAIT_S = 2.0          # a take waits at most this long for the recogniser (an ingest job holds it for a whole video)
 
 
 class ASR(Protocol):
@@ -79,26 +80,39 @@ class ParaformerASR:
 
     def transcribe(self, wav_path: Path) -> Transcript:
         with self._lock:
-            res = self._load().generate(input=str(wav_path), sentence_timestamp=True, batch_size_s=300)
+            return self._run(wav_path)
+
+    def try_transcribe(self, wav_path: Path, timeout: float) -> Transcript | None:
+        """None when the recogniser stays busy (another call holds it) for `timeout` seconds."""
+        if not self._lock.acquire(timeout=timeout):
+            return None
+        try:
+            return self._run(wav_path)
+        finally:
+            self._lock.release()
+
+    def _run(self, wav_path: Path) -> Transcript:
+        res = self._load().generate(input=str(wav_path), sentence_timestamp=True, batch_size_s=300)
         return transcript_from_funasr(res[0] if res else {"text": ""})
 
 
 class Hearer(Protocol):
-    """What a take says, as text (Phase 2 spec §1): the words check of attempt scoring."""
-    def hear(self, wav_path: Path) -> str: ...
+    """What a take says, as text (Phase 2 spec §1): the words check of attempt scoring. None: not heard (busy)."""
+    def hear(self, wav_path: Path) -> str | None: ...
 
 
 class AsrHearer:
-    def __init__(self, asr: ASR):
+    def __init__(self, asr: ParaformerASR):
         self.asr = asr
 
-    def hear(self, wav_path: Path) -> str:
-        return self.asr.transcribe(wav_path).text
+    def hear(self, wav_path: Path) -> str | None:
+        tr = self.asr.try_transcribe(wav_path, HEAR_WAIT_S)
+        return None if tr is None else tr.text.strip()
 
 
 class FakeHearer:
     def __init__(self, text: str):
         self.text = text
 
-    def hear(self, wav_path: Path) -> str:
+    def hear(self, wav_path: Path) -> str | None:
         return self.text

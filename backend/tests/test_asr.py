@@ -51,9 +51,11 @@ def test_paraformer_real(tmp_path):
 
 
 def test_asr_hearer_returns_the_recognised_text_with_punctuation(tmp_path):
-    from shadow.ingest.asr import AsrHearer, FakeHearer
-    tr = transcript_from_funasr({"text": "我是学生。", "timestamp": [[0, 100], [100, 200], [200, 300], [300, 400]]})
-    assert AsrHearer(FakeASR(tr)).hear(tmp_path / "x.wav") == "我是学生。"
+    from shadow.ingest.asr import AsrHearer, FakeHearer, ParaformerASR
+    class Gen:
+        def generate(self, **kw): return [{"text": "我是学生。", "timestamp": [[0, 100], [100, 200], [200, 300], [300, 400]]}]
+    asr = ParaformerASR("none", "cpu"); asr._model = Gen()
+    assert AsrHearer(asr).hear(tmp_path / "x.wav") == "我是学生。"
     assert FakeHearer("你好").hear(tmp_path / "x.wav") == "你好"
 
 
@@ -122,3 +124,25 @@ def test_real_deps_hear_takes_with_the_ingest_recogniser_and_fake_deps_do_not(tm
     real = build_deps(s)
     assert isinstance(real.hearer, AsrHearer) and real.hearer.asr is real.asr
     assert fake_deps(s, Transcript()).hearer is None
+
+
+class _Gen:
+    def generate(self, **kw): return [{"text": " lily。"}]
+
+
+def test_asr_hearer_trims_the_heard_text(tmp_path):
+    from shadow.ingest.asr import AsrHearer, ParaformerASR
+    asr = ParaformerASR("none", "cpu"); asr._model = _Gen()
+    assert AsrHearer(asr).hear(tmp_path / "x.wav") == "lily。"
+
+
+def test_a_busy_recogniser_is_not_waited_for(tmp_path, monkeypatch):
+    """An ingest job holds the recogniser for a whole video: a take does not wait for it, its words go unchecked."""
+    import shadow.ingest.asr as asr_mod
+    from shadow.ingest.asr import AsrHearer, ParaformerASR
+    asr = ParaformerASR("none", "cpu"); asr._model = _Gen()
+    assert asr.try_transcribe(tmp_path / "x.wav", 0.01).text == " lily。"
+    monkeypatch.setattr(asr_mod, "HEAR_WAIT_S", 0.01)
+    with asr._lock:
+        assert asr.try_transcribe(tmp_path / "x.wav", 0.01) is None
+        assert AsrHearer(asr).hear(tmp_path / "x.wav") is None

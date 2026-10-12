@@ -59,8 +59,9 @@ def _r(x: float | None, nd: int = 3) -> float | None:
 
 def score_take(*, ref: RefData, syllables: list[dict], text: str, wav: np.ndarray, sr: int, aligner: Aligner,
                embedder: Embedder, model: ToneModel | None, profile: Baseline | None, profile_voiced_s: float, cfg: ScoringCfg,
-               hear: Callable[[], str] | None = None) -> TakeResult:
-    """`hear` returns what the take says (the recogniser); None skips the words check."""
+               hear: Callable[[], str | None] | None = None) -> TakeResult:
+    """`hear` returns what the take says (the recogniser); without it, or when it returns None, the words check is
+    skipped."""
     trimmed, off = trim_silence(wav, sr)
     ref_speech_s = ref.spans[-1][1] - ref.spans[0][0] if ref.spans else 0.0
     quality = {"dbfs": round(level_dbfs(trimmed), 1), "clipped": round(clipped_ratio(trimmed), 4), "align_conf": None,

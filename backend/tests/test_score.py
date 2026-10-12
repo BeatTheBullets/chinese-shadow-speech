@@ -155,3 +155,9 @@ def test_silence_is_never_transcribed():
 def test_without_a_hearer_the_words_are_not_checked():
     r = run(voice(REF_CONTOURS))
     assert r.json["warnings"] == [] and r.json["heard_text"] is None and r.json["quality"]["text_sim"] is None
+
+
+def test_a_busy_recogniser_skips_the_words_check():
+    r = run(voice(REF_CONTOURS), hear=lambda: None)
+    assert r.json["warnings"] == [] and r.json["overall"] is not None
+    assert r.json["heard_text"] is None and r.json["quality"]["text_sim"] is None

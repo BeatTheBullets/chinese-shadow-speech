@@ -135,3 +135,17 @@ def test_a_take_of_other_words_is_saved_but_not_scored(client, tmp_path):
     assert client.get(f"/attempts/{r.json()['id']}/audio").status_code == 200
     with Session(client.app.state.engine) as db:
         assert db.exec(select(SyllableScore)).all() == []
+
+
+def test_a_take_during_an_import_is_scored_without_the_words_check(client, tmp_path, monkeypatch, caplog):
+    import logging
+    import shadow.ingest.asr as asr_mod
+    from shadow.ingest.asr import AsrHearer, ParaformerASR
+    monkeypatch.setattr(asr_mod, "HEAR_WAIT_S", 0.01)
+    asr = ParaformerASR("none", "cpu")
+    client.app.state.deps.hearer = AsrHearer(asr)
+    lid, seg = _first_segment(client, tmp_path)
+    with asr._lock, caplog.at_level(logging.INFO):                    # an ingest job is transcribing a video
+        sj = _post(client, make_tone_wav(tmp_path / "t.wav", 2.6), seg["id"]).json()["score_json"]
+    assert sj["warnings"] == [] and sj["overall"] is not None and sj["heard_text"] is None
+    assert "words check skipped" in caplog.text

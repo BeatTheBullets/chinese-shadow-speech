@@ -53,3 +53,8 @@ def test_latin_letters_in_what_was_heard_also_compare_letter_by_letter():
     assert text_similarity(syls("丽丽，"), " lily。") >= 0.55              # a name the recogniser spelt in English
     assert text_similarity(syls("我的朋友"), " hello hello") < 0.55
     assert text_similarity(syls("我是学生"), "我是") == 0.5                # no Latin letters: syllables only
+
+
+def test_the_letter_fallback_needs_a_mostly_latin_transcript():
+    assert text_similarity(syls("现在几点了"), "下次见 ok") == text_similarity(syls("现在几点了"), "下次见") < 0.55
+    assert text_similarity(syls("丽丽，"), " lily。") >= 0.55
