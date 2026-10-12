@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 from shadow.ingest.passages import PassagePlan, passage_views, plan_for
 from shadow.ingest.pipeline import ingest_upload, ingest_youtube
+from shadow.ingest.rebuild import rebuild_lesson
 from shadow.ingest.text import to_simplified
 from shadow.ingest.youtube import parse_video_id, source_ref, watch_url
 from shadow.schemas import LessonDetail, LessonOut, PassageOut, SegmentOut
@@ -20,6 +21,7 @@ from shadow.store.models import Attempt, Lesson, Passage, PracticeSession, Segme
 
 router = APIRouter()
 _youtube_add_lock = threading.Lock()      # single-process app: makes check, replace and create one step
+_rebuild_lock = threading.Lock()          # makes the status check and the switch to processing one step
 
 
 def _save_upload(file: UploadFile, dest: Path) -> None:
@@ -193,3 +195,22 @@ def delete_lesson(lesson_id: int, request: Request, db: Session = Depends(get_se
     """Deletes the lesson, its segments, their attempts and the lesson's files. An ingest job still running
     for it ends cleanly: its status updates become no-ops and it writes no segment rows."""
     _delete_lesson(db, request.app.state.files, _get_lesson(db, lesson_id))
+
+
+@router.post("/lessons/{lesson_id}/rebuild", status_code=202)
+def rebuild(lesson_id: int, request: Request, db: Session = Depends(get_session)):
+    """Re-transcribe the lesson and rebuild its sentences and clips, keeping its takes (moved to the new sentence
+    they overlap most, then re-scored). The lesson is `processing` from now on, so a second request is refused."""
+    deps, engine, jobs = request.app.state.deps, request.app.state.engine, request.app.state.jobs
+    with _rebuild_lock:
+        lesson = _get_lesson(db, lesson_id)
+        if lesson.status in ("queued", "processing"):
+            raise HTTPException(409, "this lesson is being processed; try again when it is ready")
+        if lesson.source_type == "anki":
+            raise HTTPException(400, "an Anki lesson is cut from its notes' audio: there is no transcript to rebuild")
+        if not deps.files.source_wav(lesson_id).exists():
+            raise HTTPException(400, "this lesson has no audio to transcribe")
+        lesson.status = "processing"
+        db.add(lesson); db.commit()
+    job_id = jobs.submit(lambda progress: rebuild_lesson(deps, engine, lesson_id, progress), lesson_id)
+    return {"job_id": job_id, "lesson_id": lesson_id}
