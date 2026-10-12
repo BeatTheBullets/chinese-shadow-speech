@@ -1,12 +1,13 @@
 """Score one take against its reference (Phase 2 spec §1, §3). Pure: no database, no files."""
 from __future__ import annotations
 from dataclasses import dataclass, field
+from typing import Callable
 import numpy as np
 from shadow.config import ScoringCfg
 from shadow.ingest.align import Aligner
 from shadow.scoring.embed import Embedder, pool
 from shadow.scoring.features import FEATURE_VERSION, SylPitch, feature_matrix, syllable_pitch
-from shadow.scoring.gate import align_gate, clipped_ratio, level_dbfs, pre_gate
+from shadow.scoring.gate import align_gate, clipped_ratio, level_dbfs, pre_gate, text_similarity
 from shadow.scoring.pitch import Baseline, Pitch, baseline_of, blend, normalise, track_pitch, trim_silence
 from shadow.scoring.windows import windows
 from shadow.scoring.tone import ToneModel, contour_similarity, judge, sentence_overall, target_tone
@@ -38,10 +39,10 @@ def _syl_json(s: dict, status: str, **kw) -> dict:
 
 
 def failed_result(syllables: list[dict], warnings: list[str], quality: dict | None = None,
-                  model_version: str | None = None) -> TakeResult:
+                  model_version: str | None = None, heard_text: str | None = None) -> TakeResult:
     """No score: every syllable missing, no rows, so stats and the voice profile ignore the take."""
     return TakeResult({"overall": None, "tone_overall": None, "segmental_overall": None, "rate_ratio": None,
-                       "ref_contour": None, "usr_contour": None, "syllables": [_syl_json(s, "missing") for s in syllables],
+                       "heard_text": heard_text, "ref_contour": None, "usr_contour": None, "syllables": [_syl_json(s, "missing") for s in syllables],
                        "pitch_range_st": None, "warnings": warnings, "quality": quality,
                        "model_version": model_version, "feature_version": FEATURE_VERSION})
 
@@ -57,28 +58,36 @@ def _r(x: float | None, nd: int = 3) -> float | None:
 
 
 def score_take(*, ref: RefData, syllables: list[dict], text: str, wav: np.ndarray, sr: int, aligner: Aligner,
-               embedder: Embedder, model: ToneModel | None, profile: Baseline | None, profile_voiced_s: float, cfg: ScoringCfg) -> TakeResult:
+               embedder: Embedder, model: ToneModel | None, profile: Baseline | None, profile_voiced_s: float, cfg: ScoringCfg,
+               hear: Callable[[], str] | None = None) -> TakeResult:
+    """`hear` returns what the take says (the recogniser); None skips the words check."""
     trimmed, off = trim_silence(wav, sr)
     ref_speech_s = ref.spans[-1][1] - ref.spans[0][0] if ref.spans else 0.0
-    quality = {"dbfs": round(level_dbfs(trimmed), 1), "clipped": round(clipped_ratio(trimmed), 4), "align_conf": None}
+    quality = {"dbfs": round(level_dbfs(trimmed), 1), "clipped": round(clipped_ratio(trimmed), 4), "align_conf": None,
+               "text_sim": None}
     if warnings := pre_gate(trimmed, sr, ref_speech_s, cfg):
         return failed_result(syllables, warnings, quality)
     if model is None:
         return failed_result(syllables, ["no_tone_model"], quality)
+    heard_text = hear() if hear is not None else None
+    if heard_text is not None:
+        quality["text_sim"] = round(text_similarity(syllables, heard_text), 3)
+        if quality["text_sim"] < cfg.min_text_similarity:
+            return failed_result(syllables, ["different_words"], quality, model.version, heard_text)
     spans = aligner.align(trimmed, sr, text)
     if len(spans) != len(syllables) or len(ref.spans) != len(syllables):
-        return failed_result(syllables, ["align_failed"], quality, model.version)
+        return failed_result(syllables, ["align_failed"], quality, model.version, heard_text)
     ref_win = windows(ref.spans, len(ref.wav) / ref.sr)
     usr_win = windows([(s.start, s.end) for s in spans], len(trimmed) / sr)
     quality["align_conf"] = round(float(np.mean([s.conf for s in spans])), 3) if spans else None
     if warnings := align_gate(spans, cfg):
-        return failed_result(syllables, warnings, quality, model.version)
+        return failed_result(syllables, warnings, quality, model.version, heard_text)
 
     pitch = track_pitch(trimmed, sr, cfg.f0_floor, cfg.f0_ceiling)
     w_take = max(0.0, 1.0 - profile_voiced_s / cfg.profile_seconds)
     base = blend(profile, baseline_of(pitch.voiced()), w_take)
     if base is None:
-        return failed_result(syllables, ["no_voice"], quality, model.version)
+        return failed_result(syllables, ["no_voice"], quality, model.version, heard_text)
     norm_r = normalise(ref.pitch.f0, ref.baseline, cfg.normalise_span)
     norm_u = normalise(pitch.f0, base, cfg.normalise_span)
     syl_r = [syllable_pitch(norm_r, ref.pitch.t0, a, b, cfg.min_voiced_frames) for a, b in ref_win]
@@ -116,7 +125,7 @@ def score_take(*, ref: RefData, syllables: list[dict], text: str, wav: np.ndarra
     overall = sentence_overall([(x["status"], x["tone_score"]) for x in out_syl])
     usr_spans = [(a + off, b + off) for a, b in usr_win]
     return TakeResult({
-        "overall": _r(overall), "tone_overall": _r(overall), "segmental_overall": None,
+        "overall": _r(overall), "heard_text": heard_text, "tone_overall": _r(overall), "segmental_overall": None,
         "rate_ratio": _r((spans[-1].end - spans[0].start) / ref_speech_s) if ref_speech_s > 0 else None,
         "ref_contour": _contour_json(ref.pitch.t0, norm_r, ref_win),
         "usr_contour": _contour_json(pitch.t0 + off, norm_u, usr_spans),

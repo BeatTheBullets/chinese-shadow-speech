@@ -3,7 +3,7 @@ import os
 from dataclasses import dataclass
 from shadow.config import Settings
 from shadow.ingest.align import Aligner, FakeAligner, LockedAligner, make_aligner
-from shadow.ingest.asr import ASR, FakeASR, ParaformerASR
+from shadow.ingest.asr import ASR, AsrHearer, FakeASR, Hearer, ParaformerASR
 from shadow.ingest.llm import LLM, AnthropicLLM, FakeLLM, RectifyOutput
 from shadow.ingest.transcript import Transcript
 from shadow.ingest.youtube import Downloader, YtDlpDownloader
@@ -22,6 +22,7 @@ class Deps:
     downloader: Downloader | None = None       # YouTube (addendum §2); None in fake_deps until a test sets one
     tone_model: ToneModel | None = None
     embedder: Embedder | None = None
+    hearer: Hearer | None = None               # the words check of attempt scoring; None in fake_deps (FakeASR is the lesson)
 
     def loaded_models(self) -> list[str]:
         out = []
@@ -43,7 +44,8 @@ def build_deps(settings: Settings) -> Deps:
     if os.environ.get("ANTHROPIC_API_KEY") and (settings.llm.rectify or settings.llm.translate):
         llm = AnthropicLLM(settings.llm.model, settings.llm.effort, files.cache_dir("llm"),
                            settings.segmentation.min_chars, settings.segmentation.max_chars)
-    return Deps(asr=ParaformerASR(settings.models.asr, device), llm=llm,
+    asr = ParaformerASR(settings.models.asr, device)
+    return Deps(asr=asr, llm=llm, hearer=AsrHearer(asr),
                 aligner=LockedAligner(make_aligner(settings.resolved_aligner(), device)), files=files, settings=settings,
                 downloader=YtDlpDownloader(settings.youtube.cookies_file),
                 tone_model=load_tone_model(settings.scoring.tone_model),

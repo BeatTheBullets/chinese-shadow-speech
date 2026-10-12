@@ -122,3 +122,16 @@ def test_a_failing_score_write_still_saves_the_take(client, tmp_path, monkeypatc
         att = db.exec(select(Attempt)).one()
         assert att.audio_path and att.duration_s > 0 and att.score_json["overall"] is None
         assert db.exec(select(SyllableScore)).all() == [] and db.exec(select(VoiceProfile)).all() == []
+
+
+def test_a_take_of_other_words_is_saved_but_not_scored(client, tmp_path):
+    from shadow.ingest.asr import FakeHearer
+    client.app.state.deps.hearer = FakeHearer("我是学生。")
+    lid, seg = _first_segment(client, tmp_path)
+    r = _post(client, make_tone_wav(tmp_path / "t.wav", 2.6), seg["id"])
+    assert r.status_code == 201
+    sj = r.json()["score_json"]
+    assert sj["warnings"] == ["different_words"] and sj["overall"] is None and sj["heard_text"] == "我是学生。"
+    assert client.get(f"/attempts/{r.json()['id']}/audio").status_code == 200
+    with Session(client.app.state.engine) as db:
+        assert db.exec(select(SyllableScore)).all() == []

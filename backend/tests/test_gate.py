@@ -1,7 +1,7 @@
 import numpy as np
 from shadow.config import ScoringCfg
 from shadow.ingest.align import Span
-from shadow.scoring.gate import align_gate, clipped_ratio, level_dbfs, pre_gate
+from shadow.scoring.gate import align_gate, clipped_ratio, level_dbfs, pre_gate, text_similarity
 from tests.helpers import voice
 
 SR, CFG = 16000, ScoringCfg(min_rms_dbfs=-45.0, min_align_conf=0.2)   # explicit: the defaults are tuned to the user's takes
@@ -28,3 +28,22 @@ def test_align_gate_on_mean_confidence():
     good = [Span("我", 0, 0.2, 0.8), Span("们", 0.2, 0.4, 0.6)]
     bad = [Span("我", 0, 0.2, 0.1), Span("们", 0.2, 0.4, 0.1)]
     assert align_gate(good, CFG) == [] and align_gate(bad, CFG) == ["wrong_or_unclear"]
+
+
+def syls(text):
+    from shadow.ingest.enrich import words_for
+    return [s for w in words_for(text) for s in w["syllables"]]
+
+
+def test_text_similarity_compares_toneless_syllables():
+    assert text_similarity(syls("我是学生。"), "我是学生。") == 1.0
+    assert text_similarity([{"ch": "马", "pinyin_toneless": "ma", "tone": 3}], "妈") == 1.0   # a tone slip, not other words
+    assert text_similarity(syls("我是学生"), "今天天气很好") < 0.2
+    assert text_similarity(syls("我是学生"), "我是") == 0.5
+    assert text_similarity(syls("绿色"), "绿色") == 1.0                                  # ü on both sides
+
+
+def test_text_similarity_skips_non_hanzi_and_scores_silence_zero():
+    assert text_similarity(syls("我有2个A"), "我有个") == 1.0
+    assert text_similarity(syls("我有个"), "我有，A个") == 1.0
+    assert text_similarity(syls("我是学生"), "") == 0.0

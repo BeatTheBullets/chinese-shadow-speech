@@ -38,6 +38,7 @@ def test_phase2_scoring_defaults():
     s = Settings().scoring
     assert (s.green_at, s.wrong_margin, s.ref_confidence) == (0.7, 0.25, 0.6)
     assert (s.min_rms_dbfs, s.min_align_conf, s.max_clipped, s.profile_seconds) == (-55.0, 0.05, 0.01, 60.0)
+    assert s.min_text_similarity == 0.5
     assert s.tone_model == "tone_v1"
 
 
@@ -46,3 +47,5 @@ def test_repo_config_toml_has_phase2_scoring_keys():
     from shadow.config import load_settings
     s = load_settings(Path(__file__).resolve().parents[2] / "config.toml")
     assert s.scoring.tone_model == "tone_v1" and s.scoring.green_at == 0.7
+    from shadow.config import ScoringCfg
+    assert s.scoring.min_text_similarity == ScoringCfg().min_text_similarity     # the words check's threshold is set

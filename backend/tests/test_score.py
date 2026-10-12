@@ -21,9 +21,10 @@ def ref_data(contours=REF_CONTOURS):
     return RefData(p, spans, baseline_of(p.voiced()), wav, SR)
 
 
-def run(take, *, syllables=SYLS, text=TEXT, model=FakeToneModel(tone=1, p=0.9), aligner=FakeAligner(), **kw):
+def run(take, *, syllables=SYLS, text=TEXT, model=FakeToneModel(tone=1, p=0.9), aligner=FakeAligner(), hear=None, **kw):
     return score_take(ref=ref_data(), syllables=syllables, text=text, wav=take, sr=SR, aligner=aligner, model=model,
-                      embedder=FakeEmbedder(), profile=kw.get("profile"), profile_voiced_s=kw.get("voiced_s", 0.0), cfg=CFG)
+                      embedder=FakeEmbedder(), profile=kw.get("profile"), profile_voiced_s=kw.get("voiced_s", 0.0), cfg=CFG,
+                      hear=hear)
 
 
 def test_matching_take_is_all_ok():
@@ -130,3 +131,27 @@ def test_pitch_unvoiced_syllable_is_still_judged_without_contour(monkeypatch):
     monkeypatch.setattr(score, "syllable_pitch", no_pitch_on_third)
     syl = run(voice(REF_CONTOURS)).json["syllables"][2]
     assert syl["status"] in ("ok", "close") and syl["contour"] is None and syl["tone_score"] == pytest.approx(syl["p_target"])
+
+
+def test_a_take_of_the_sentence_is_scored_with_what_was_heard():
+    r = run(voice(REF_CONTOURS), hear=lambda: "今天中心。")
+    assert r.json["warnings"] == [] and r.json["overall"] is not None and r.rows
+    assert r.json["heard_text"] == "今天中心。" and r.json["quality"]["text_sim"] == 1.0
+
+
+def test_a_take_of_other_words_is_not_scored():
+    r = run(voice(REF_CONTOURS), hear=lambda: "我是学生。")
+    assert r.json["warnings"] == ["different_words"] and r.json["overall"] is None and r.rows == []
+    assert r.json["heard_text"] == "我是学生。" and r.json["quality"]["text_sim"] == 0.0
+    assert r.json["model_version"] == "fake"
+
+
+def test_silence_is_never_transcribed():
+    def hear(): raise AssertionError("hear called")
+    r = run(np.zeros(SR, dtype="float32"), hear=hear)
+    assert "too_quiet" in r.json["warnings"] and r.json["heard_text"] is None and r.json["quality"]["text_sim"] is None
+
+
+def test_without_a_hearer_the_words_are_not_checked():
+    r = run(voice(REF_CONTOURS))
+    assert r.json["warnings"] == [] and r.json["heard_text"] is None and r.json["quality"]["text_sim"] is None

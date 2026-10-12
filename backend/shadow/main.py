@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from shadow.config import Settings, load_settings
 from shadow.deps import Deps, build_deps
 from shadow.jobs import JobManager
+from shadow.ingest.asr import ParaformerASR
 from shadow.scoring.embed import Wav2Vec2Embedder
 from sqlalchemy import Engine
 from sqlmodel import Session, select
@@ -25,6 +26,8 @@ def create_app(settings: Settings | None = None, deps: Deps | None = None) -> Fa
         app.state.jobs.start()
         if isinstance(app.state.deps.embedder, Wav2Vec2Embedder):     # real deps only: tests never download
             app.state.deps.embedder.warm_up()
+        if isinstance(app.state.deps.asr, ParaformerASR):          # the words check of every take uses it
+            app.state.deps.asr.warm_up()
         yield
         await app.state.jobs.stop()
 

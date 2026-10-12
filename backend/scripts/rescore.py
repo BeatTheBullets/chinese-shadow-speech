@@ -3,7 +3,8 @@
     cd backend && ~/.local/bin/uv run python scripts/rescore.py [--probe]
 Clears all SyllableScore rows and the voice profile, then scores takes oldest first (the profile rebuilds as it
 goes). --probe also aligns each take to the *next* sentence's text and prints level and alignment-confidence
-percentiles for genuine and wrong-text takes, to set the gate thresholds (plan Task 15)."""
+percentiles for genuine and wrong-text takes, to set the gate thresholds (plan Task 15), and the same for the words
+check: what the recogniser heard against the take's own sentence and against the next one."""
 from __future__ import annotations
 import argparse
 from collections import Counter
@@ -16,7 +17,9 @@ from shadow.deps import build_deps
 from shadow.ingest import audio
 from shadow.scoring import score_attempt
 from shadow.scoring.pitch import trim_silence
+from shadow.scoring.gate import text_similarity
 from shadow.scoring.profile import reset_profile
+from shadow.scoring.reference import segment_syllables
 from shadow.scoring.report import ReportItem, render_report
 from shadow.store.db import init_db, make_engine
 from shadow.store.models import Attempt, Lesson, Segment, SyllableScore
@@ -32,7 +35,7 @@ def main() -> None:
     deps = build_deps(settings)
     if deps.tone_model is None:
         raise SystemExit("no tone model: train it first (make tone-model)")
-    items, warn, dbfs, conf, wrong_conf = [], Counter(), [], [], []
+    items, warn, dbfs, conf, wrong_conf, sim, wrong_sim = [], Counter(), [], [], [], [], []
     with Session(engine) as db:
         db.exec(delete(SyllableScore)); reset_profile(db); db.commit()
         atts = db.exec(select(Attempt).where(Attempt.audio_path != "").order_by(Attempt.created_at, Attempt.id)).all()
@@ -47,12 +50,15 @@ def main() -> None:
             q = sj.get("quality") or {}
             if q.get("dbfs") is not None: dbfs.append(q["dbfs"])
             if q.get("align_conf") is not None: conf.append(q["align_conf"])
+            if q.get("text_sim") is not None: sim.append(q["text_sim"])
             if a.probe:
                 other = db.exec(select(Segment).where(Segment.lesson_id == seg.lesson_id, Segment.idx == seg.idx + 1)).first()
                 if other is not None:
                     wav, sr = audio.read_wav(Path(att.audio_path))
                     spans = deps.aligner.align(trim_silence(wav, sr)[0], sr, other.text)
                     if spans: wrong_conf.append(float(np.mean([s.conf for s in spans])))
+                    if sj.get("heard_text") is not None:
+                        wrong_sim.append(text_similarity(segment_syllables(other), sj["heard_text"]))
             items.append(ReportItem(att.id, seg.id, db.get(Lesson, seg.lesson_id).title, seg.text, str(att.created_at)[:16], sj))
     out = settings.data_dir / "reports" / f"rescore-{date.today().isoformat()}.html"
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -63,6 +69,8 @@ def main() -> None:
     print(f"dbfs p0/5/50/95/100: {pc(dbfs)}\nalign_conf (genuine): {pc(conf)}")
     if a.probe:
         print(f"align_conf (next sentence's text): {pc(wrong_conf)}")
+        pc7 = lambda xs: np.round(np.percentile(xs, [0, 2, 5, 50, 95, 98, 100]), 3).tolist() if xs else []
+        print(f"text_sim p0/2/5/50/95/98/100 (own sentence): {pc7(sim)}\ntext_sim (next sentence's text): {pc7(wrong_sim)}")
     print(f"report: {out}")
 
 

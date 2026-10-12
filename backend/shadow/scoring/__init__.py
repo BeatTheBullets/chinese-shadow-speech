@@ -43,7 +43,8 @@ def score_attempt(deps: Deps, db: Session, segment: Segment, attempt: Attempt) -
                 ref = RefData(ref_pitch, reference_spans(segment), ref_base, *reference_audio(segment))
                 result = score_take(ref=ref, syllables=syllables, text=segment.text, wav=wav, sr=sr,
                                     aligner=deps.aligner, embedder=deps.embedder, model=deps.tone_model,
-                                    profile=profile_baseline(prof), profile_voiced_s=prof.voiced_s or 0.0, cfg=cfg)
+                                    profile=profile_baseline(prof), profile_voiced_s=prof.voiced_s or 0.0, cfg=cfg,
+                                    hear=(lambda: deps.hearer.hear(Path(attempt.audio_path))) if deps.hearer else None)
             attempt.score_json = result.json
             for row in result.rows:
                 db.add(SyllableScore(attempt_id=attempt.id, segment_id=segment.id, **row))

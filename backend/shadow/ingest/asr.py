@@ -1,10 +1,14 @@
 from __future__ import annotations
+import logging
+import threading
 from pathlib import Path
 from typing import Any, Protocol
 from shadow.ingest.text import is_punct, to_simplified
 from shadow.ingest.transcript import (
     Transcript, TimedChar, append_segment, chars_with_interpolated_times, chars_with_speech_times,
 )
+
+log = logging.getLogger(__name__)
 
 
 class ASR(Protocol):
@@ -47,9 +51,11 @@ def transcript_from_funasr(result: dict[str, Any]) -> Transcript:
 
 
 class ParaformerASR:
+    """One recogniser shared by ingest jobs and attempt scoring: calls run one at a time."""
     def __init__(self, model_id: str, device: str):
         self.model_id, self.device = model_id, device
         self._model = None
+        self._lock = threading.Lock()
 
     def _load(self):
         if self._model is None:
@@ -58,6 +64,41 @@ class ParaformerASR:
                                     device=self.device, disable_update=True)
         return self._model
 
+    def warm_up(self) -> threading.Thread:
+        """Load (on first run: download) the model in a daemon thread, so the first take's words check does not
+        wait for it; under the lock, like the embedder's warm-up. A failure is logged and the next call tries again."""
+        def run():
+            try:
+                with self._lock:
+                    self._load()
+            except Exception:
+                log.exception("warming up the recogniser %s failed", self.model_id)
+        t = threading.Thread(target=run, name="asr-warm-up", daemon=True)
+        t.start()
+        return t
+
     def transcribe(self, wav_path: Path) -> Transcript:
-        res = self._load().generate(input=str(wav_path), sentence_timestamp=True, batch_size_s=300)
+        with self._lock:
+            res = self._load().generate(input=str(wav_path), sentence_timestamp=True, batch_size_s=300)
         return transcript_from_funasr(res[0] if res else {"text": ""})
+
+
+class Hearer(Protocol):
+    """What a take says, as text (Phase 2 spec §1): the words check of attempt scoring."""
+    def hear(self, wav_path: Path) -> str: ...
+
+
+class AsrHearer:
+    def __init__(self, asr: ASR):
+        self.asr = asr
+
+    def hear(self, wav_path: Path) -> str:
+        return self.asr.transcribe(wav_path).text
+
+
+class FakeHearer:
+    def __init__(self, text: str):
+        self.text = text
+
+    def hear(self, wav_path: Path) -> str:
+        return self.text

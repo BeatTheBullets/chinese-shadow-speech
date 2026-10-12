@@ -8,12 +8,11 @@ import jieba
 from pypinyin import lazy_pinyin, Style
 from shadow.ingest import audio
 from shadow.ingest.llm import LLM
-from shadow.ingest.text import is_punct, strip_punct
+from shadow.ingest.text import is_hanzi, is_punct, strip_punct
 from shadow.store.files import FileLayout
 
 jieba.setLogLevel(60)
 _DIGIT = re.compile(r"\d")
-_HANZI = re.compile("[㐀-䶿一-鿿豈-﫿\U00020000-\U0002ebef]")
 NON_HANZI_TONE = -1
 
 
@@ -28,7 +27,7 @@ def _syllables_of_word(word: str) -> list[dict]:
     (so polyphones and tone sandhi see word context); any other character (digit, Latin letter, symbol)
     becomes its own entry with pinyin = the character and tone = -1."""
     out: list[dict] = []
-    for is_han, grp in itertools.groupby((c for c in word if not is_punct(c)), key=lambda c: bool(_HANZI.match(c))):
+    for is_han, grp in itertools.groupby((c for c in word if not is_punct(c)), key=is_hanzi):
         run = "".join(grp)
         if not is_han:
             out.extend({"ch": c, "pinyin": c, "pinyin_toneless": c, "tone": NON_HANZI_TONE} for c in run)

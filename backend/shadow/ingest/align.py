@@ -41,12 +41,15 @@ def speech_chars(text: str) -> list[str]:
     return [c for c in text if not is_punct(c)]
 
 
+def toneless_pinyin(hans: str | list[str]) -> list[str]:
+    """Toneless pinyin, lower case, ü written v (as in a syllable's `pinyin_toneless`). A string is romanised with
+    word context; a list, item by item."""
+    return [p.lower().replace("ü", "v") for p in lazy_pinyin(hans, style=Style.NORMAL)]
+
+
 def romanise_for_mms(text: str) -> list[str]:
-    out = []
-    for p in lazy_pinyin(speech_chars(text), style=Style.NORMAL):
-        p = p.replace("ü", "u").replace("v", "u")
-        out.append("".join(ch for ch in p.lower() if "a" <= ch <= "z") or "a")
-    return out
+    return ["".join(ch for ch in p.replace("v", "u") if "a" <= ch <= "z") or "a"
+            for p in toneless_pinyin(speech_chars(text))]
 
 
 class FakeAligner:
