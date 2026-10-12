@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { deleteConfirmText, groupBySpeaker, needsPolling, renamePatch } from './library'
+import { canRebuild, deleteConfirmText, groupBySpeaker, needsPolling, rebuildConfirmText, renamePatch } from './library'
 import type { Lesson } from '../api/types'
 
 const L = (id: number, speaker: string, created: string): Lesson => ({ id, title: `t${id}`, speaker, source_type: 'upload', source_ref: '', duration_s: 0, created_at: created, status: 'ready', error: null, segment_count: 1, practised_count: 0, mean_last_score: null })
@@ -34,6 +34,21 @@ describe('deleteConfirmText', () => {
   it('says so when the lesson is still processing', () => {
     expect(deleteConfirmText({ ...L(1, 'A', '2026-01-01'), status: 'processing' })).toMatch(/still processing/)
     expect(deleteConfirmText({ ...L(1, 'A', '2026-01-01'), status: 'error' })).not.toMatch(/still processing/)
+  })
+})
+
+describe('rebuild text', () => {
+  it('the question names the lesson and says the takes are kept, moved and re-scored', () => {
+    const t = rebuildConfirmText({ ...L(1, 'A', '2026-01-01'), title: '春天的茶' })
+    expect(t).toMatch(/春天的茶/); expect(t).toMatch(/transcribes the lesson.s audio again/); expect(t).toMatch(/sentences and clips/)
+    expect(t).toMatch(/keeps your takes/); expect(t).toMatch(/matching sentence/); expect(t).toMatch(/scores them again/)
+  })
+  it('is offered for a ready lesson with audio of its own, not an Anki one or one still processing', () => {
+    expect(canRebuild(L(1, 'A', '2026-01-01'))).toBe(true)
+    expect(canRebuild({ ...L(1, 'A', '2026-01-01'), source_type: 'youtube' })).toBe(true)
+    expect(canRebuild({ ...L(1, 'A', '2026-01-01'), source_type: 'anki' })).toBe(false)
+    expect(canRebuild({ ...L(1, 'A', '2026-01-01'), status: 'processing' })).toBe(false)
+    expect(canRebuild({ ...L(1, 'A', '2026-01-01'), status: 'error' })).toBe(false)
   })
 })
 

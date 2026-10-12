@@ -50,6 +50,7 @@ export const api = {
     ankiImport: (query_name: string, notes: AnkiNotePayload[]) =>
       req<{ jobs: { job_id: string; lesson_id: number; title: string }[] }>('/lessons/anki', json('POST', { query_name, notes })),
     youtube: (url: string) => req<{ job_id: string | null; lesson_id: number }>('/lessons/youtube', json('POST', { url })),
+    rebuild: (id: number) => req<{ job_id: string; lesson_id: number }>(`/lessons/${id}/rebuild`, { method: 'POST' }),
     takes: (id: number) => req<{ takes: Take[] }>(`/lessons/${id}/takes`).then((r) => r.takes),
     flowRuns: (id: number) => req<{ runs: FlowRun[] }>(`/lessons/${id}/flow-runs`).then((r) => r.runs),
   },
