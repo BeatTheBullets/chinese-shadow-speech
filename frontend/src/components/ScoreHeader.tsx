@@ -1,11 +1,15 @@
 import type { Score } from '../api/types'
 import { pct, warningText } from '../lib/score'
 
+const HEARD_MAX = 24
+
 // The You track's header (main spec §7.2): overall large, then tone, segmental (Phase 3), best so far, attempts.
 export default function ScoreHeader({ score, best, attempts }: { score: Score | null | undefined; best: number | null; attempts: number }) {
   const chip = 'normal-case tracking-normal rounded bg-panel2 px-1.5 py-0.5 text-fgdim'
   if (!score) return <span className="normal-case tracking-normal text-fgdim">no score yet</span>
-  const warning = warningText(score)
+  const heard = Array.from(score.heard_text ?? '')
+  // The header has one line: a long heard text is shortened here (the hint line keeps it whole).
+  const warning = warningText(heard.length > HEARD_MAX ? { ...score, heard_text: `${heard.slice(0, HEARD_MAX).join('')}…` } : score)
   if (warning) return <span className="normal-case tracking-normal text-warn">{warning}</span>
   return (
     <span className="flex items-center gap-1.5">

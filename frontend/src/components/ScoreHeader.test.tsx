@@ -19,6 +19,11 @@ describe('<ScoreHeader>', () => {
     expect(screen.getByText(/Too short — not scored/)).toBeInTheDocument()
     expect(screen.queryByTestId('overall')).toBeNull()
   })
+  it('shortens a long heard text in the header', () => {
+    const heard = '一二三四五六七八九十一二三四五六七八九十一二三四五六七八九十'
+    render(<ScoreHeader score={s({ overall: null, tone_overall: null, warnings: ['different_words'], heard_text: heard })} best={null} attempts={1} />)
+    expect(screen.getByText(`Heard different words — not scored. Heard: ${heard.slice(0, 24)}…`)).toBeInTheDocument()
+  })
   it('says nothing is scored yet without a take', () => {
     render(<ScoreHeader score={undefined} best={null} attempts={0} />)
     expect(screen.getByText('no score yet')).toBeInTheDocument()
