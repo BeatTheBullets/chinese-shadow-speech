@@ -23,6 +23,12 @@ describe('score', () => {
     expect(warningText(score({ overall: null, warnings: ['odd_code'] }))).toBe('Not scored (odd_code).')
     expect(warningText(score())).toBeNull()
   })
+  it('says what it heard when the words were different', () => {
+    expect(warningText(score({ overall: null, warnings: ['different_words'], heard_text: '我是学生' })))
+      .toBe('Heard different words — not scored. Heard: 我是学生')
+    expect(warningText(score({ overall: null, warnings: ['different_words'], heard_text: null }))).toBe('Heard different words — not scored.')
+    expect(isWarningText('Heard different words — not scored. Heard: 我是学生')).toBe(true)
+  })
   it('recognises its own warning texts, and only those', () => {
     expect(isWarningText('Too quiet — not scored. Move closer to the mic.')).toBe(true)
     expect(isWarningText('Not scored (odd_code).')).toBe(true)

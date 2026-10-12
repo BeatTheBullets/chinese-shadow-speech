@@ -7,6 +7,7 @@ const WARNINGS: Record<string, string> = {
   too_quiet: 'Too quiet — not scored. Move closer to the mic.',
   clipped: 'Too loud — not scored. Lower the mic gain.',
   wrong_or_unclear: 'Could not match this to the sentence — not scored.',
+  different_words: 'Heard different words — not scored.',
   no_voice: 'No voice found — not scored.',
   no_tone_model: 'Tone model missing — not scored. See docs/running.md.',
   no_reference: 'This sentence has no reference timing — not scored.',
@@ -23,12 +24,15 @@ export function withScore(cells: Cell[], score: Score | null | undefined): Cell[
 
 export function warningText(score: Score | null | undefined): string | null {
   const w = score?.overall == null ? score?.warnings?.[0] : undefined
-  return w ? WARNINGS[w] ?? `Not scored (${w}).` : null
+  if (!w) return null
+  const text = WARNINGS[w] ?? `Not scored (${w}).`
+  return w === 'different_words' && score?.heard_text ? `${text} Heard: ${score.heard_text}` : text
 }
 
 // A hint warningText produced: a later scored take clears it (other hints, e.g. move-on, stay).
 export function isWarningText(hint: string): boolean {
-  return Object.values(WARNINGS).includes(hint) || /^Not scored \(.*\)\.$/.test(hint)
+  return Object.values(WARNINGS).includes(hint) || hint.startsWith(`${WARNINGS.different_words} Heard: `)
+    || /^Not scored \(.*\)\.$/.test(hint)
 }
 
 export const pct = (x: number | null | undefined): string => (x == null ? '—' : String(Math.round(x * 100)))

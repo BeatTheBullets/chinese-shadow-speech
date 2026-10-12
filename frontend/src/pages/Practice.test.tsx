@@ -92,6 +92,16 @@ describe('<Practice>', () => {
     expect(await screen.findByText('Too quiet — not scored. Move closer to the mic.')).toBeInTheDocument()
   })
 
+  it('a take of other words shows what was heard in the hint line', async () => {
+    const score = { overall: null, tone_overall: null, segmental_overall: null, rate_ratio: null, ref_contour: null, usr_contour: null, syllables: [], warnings: ['different_words'], heard_text: '我是学生' }
+    h.api.segments.postAttempt.mockResolvedValue({ id: 99, score_json: score })
+    renderPractice()
+    await screen.findByText('你好', { selector: 'p.sentence' })
+    press('Enter'); await screen.findByRole('button', { name: '■ stop' }); await flush()
+    press('Enter'); await flush()
+    expect(await screen.findByText('Heard different words — not scored. Heard: 我是学生')).toBeInTheDocument()
+  })
+
   const gated = { overall: null, tone_overall: null, segmental_overall: null, rate_ratio: null, ref_contour: null, usr_contour: null, syllables: [], warnings: ['too_quiet'] }
   const scored = { ...gated, overall: 0.8, tone_overall: 0.8, warnings: [] }
   const QUIET = 'Too quiet — not scored. Move closer to the mic.'

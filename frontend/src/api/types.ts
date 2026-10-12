@@ -24,6 +24,7 @@ export interface ScoredSyllable {
 export interface Score {
   overall: number | null; tone_overall: number | null; segmental_overall: number | null; rate_ratio: number | null
   ref_contour: Contour | null; usr_contour: Contour | null; syllables: ScoredSyllable[]; warnings: string[]
+  heard_text?: string | null  // what the recogniser heard (null when the words check did not run)
 }
 export interface Attempt { id: number; segment_id: number; session_id: number | null; created_at: string; mode: string; duration_s: number; score_json: Score | null }
 // A sentence's newest stored attempt (GET /lessons/{id}/takes), and a past Flow run's takes in sentence order.
