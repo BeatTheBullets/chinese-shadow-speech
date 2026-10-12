@@ -52,15 +52,28 @@ Each Flow slice is already its own attempt.
      reference speech span → `too_short`;
    - its RMS level is below `min_rms_dbfs` → `too_quiet`;
    - more than 1 % of samples are clipped → `clipped`;
+   - **words check** (after the checks above, before alignment): the take is
+     transcribed with the ingest recogniser (Paraformer; the instance is
+     shared with ingest jobs and calls are serialised with a lock) and
+     compared with the sentence in toneless pinyin: Levenshtein normalised
+     similarity over syllable lists, non-hanzi skipped on both sides. When
+     the transcript contains Latin letters (a name written in English, e.g.
+     丽丽 heard as "lily"), a letter-level similarity of the concatenated
+     toneless pinyin (Latin words kept, lower-cased) is also computed and the
+     higher one counts. Below `min_text_similarity` (0.55) →
+     `different_words`. Toneless on purpose: a wrong tone can make the
+     recogniser write a homophone, which is a tone error, not other words.
+     The threshold comes from the user's takes (`rescore.py --probe`) on the
+     clean takes (attempts 1–34): own-sentence similarity p50 1.0, the next
+     sentence's text p95 0.5 (max 0.75). Lesson 2's later takes were left out
+     of the calibration because its stored segment text had drifted from the
+     clips (a separate ingest bug).
    - mean alignment confidence (step 3) is below `min_align_conf` →
-     `wrong_or_unclear` (a garbled or very poorly matching take lands here).
+     `wrong_or_unclear` (a garbled take lands here; the words check catches
+     different sentences, whose confidence overlaps genuine takes: Task 15
+     probe, wrong-text p5 0.043, p50 0.197).
    `min_align_conf` and `min_rms_dbfs` are set from the user's existing takes
-   during implementation (all genuine takes pass; a take aligned to another
-   sentence's text fails) and recorded in the plan ledger. Measured
-   limitation (plan ledger, Task 15 probe): genuine and wrong-text
-   confidences overlap (wrong-text p5 0.043, p50 0.197), so the chosen 0.05
-   passes ~95 % of wrong-sentence takes; a different sentence is usually
-   still scored and shows mostly red/orange cells.
+   during implementation and recorded in the plan ledger.
 3. **Align** the learner WAV to the segment text with `deps.aligner`
    (MMS_FA), the same aligner as the reference. Calls are serialised with a
    lock shared with ingest.
@@ -211,7 +224,9 @@ time axis (the trim offset already added back). Plus `model_version` and
 gate codes of §1 plus `no_tone_model`, `align_failed` (span count does not
 fit), `no_voice`, `no_reference` (no clip or alignment) and `score_failed`
 (any exception). Each score also carries `quality: {dbfs, clipped,
-align_conf}` for setting the gate thresholds.
+align_conf, text_sim}` for setting the gate thresholds, and `heard_text`, what
+the recogniser heard (punctuation kept); `heard_text` and `text_sim` are null
+when the words check did not run.
 
 ### 5.2 Tables
 

@@ -57,8 +57,8 @@ After a take, the cells on your track show how each tone went: **green** is ok, 
 shows the target and the tone heard (for example `3→2`), **grey ∅** is unvoiced, and a **dashed outline** is a syllable
 that was missing. Pitch lines are drawn over both tracks: your curve with the speaker's warped faintly behind it, and
 the reference curve on the reference track. A score appears in the header. Takes that are silent, too quiet, clipped
-or too garbled to match the sentence are saved but not scored, and say why. A different sentence is usually still
-scored: it shows mostly red and orange cells.
+or too garbled to match the sentence are saved but not scored, and say why. A take of a different sentence is not
+scored either: the hint line says "Heard different words — not scored. Heard: …" with what the recogniser heard.
 
 ![Echo mode: the cue line says what to do, the reference is wiping](docs/screenshots/echo-listen.png)
 

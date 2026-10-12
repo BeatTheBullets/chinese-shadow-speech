@@ -48,6 +48,7 @@ Updating yt-dlp: YouTube changes often. When a lesson fails with "extraction fai
 The tone model ships in `backend/shadow/scoring/models/` (`tone_v1.joblib` and `tone_v1.json`). It scores on the speech
 model chinese-wav2vec2 (~380 MB from Hugging Face, MIT), which the backend loads in the background at start-up and
 downloads the first time (needs the models extra); a take scored before that finishes waits for it.
+Paraformer (the ingest recogniser, which also checks each take's words) loads in the background at start-up the same way.
 If the download fails it is logged and the first scored take tries again. A missing or unreadable tone model file
 is logged too and takes are then saved unscored ("Tone model missing").
 `/health` reports `tone_model.loaded` and its version.
@@ -60,7 +61,7 @@ pitch-altered copies per utterance, takes ~1.5 h on the GPU and needs the models
 
 After a model or feature change run `make rescore`: it re-scores every stored take and writes
 `data/reports/rescore-<date>.html`. `--probe` (run `cd backend && uv run python scripts/rescore.py --probe` directly; the make target takes no args) prints the percentiles used to pick the gate thresholds
-(`min_rms_dbfs`, `min_align_conf`).
+(`min_rms_dbfs`, `min_align_conf`, `min_text_similarity`).
 
 Voice profile: tones are judged against your own pitch range, which is learned from your most recent minute or so of voiced speech and keeps adapting as you practise.
 Settings -> Voice profile shows it; **Reset voice profile** empties it (for a new mic or after a bad take) and the next
@@ -70,8 +71,10 @@ Gate warnings (the take is always saved, it is just not scored):
 - "Too short — not scored. Say the whole sentence." Speak the full sentence.
 - "Too quiet — not scored. Move closer to the mic." Raise the mic level or move closer.
 - "Too loud — not scored. Lower the mic gain." The recording clips; lower the gain.
-- "Could not match this to the sentence — not scored." The take is too garbled or noisy to align. A different sentence
-  is usually not caught here: it is scored and shows mostly red and orange cells.
+- "Heard different words — not scored. Heard: …" The speech recogniser (the Paraformer model ingest uses) heard
+  other words than the sentence shown (toneless pinyin similarity below `min_text_similarity`, 0.55). Say the sentence
+  shown. A wrong tone alone does not trigger this.
+- "Could not match this to the sentence — not scored." The take is too garbled or noisy to align.
 - "No voice found — not scored." Check that the right microphone is selected.
 - "Tone model missing — not scored. See docs/running.md." Restore `backend/shadow/scoring/models/tone_v1.*` or retrain.
 - "This sentence has no reference timing — not scored." Re-align or edit the sentence in the drawer.
