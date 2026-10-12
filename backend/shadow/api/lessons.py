@@ -135,6 +135,17 @@ def _get_lesson(db: Session, lesson_id: int) -> Lesson:
     return lesson
 
 
+BUSY = "this lesson is being rebuilt — try again in a moment"
+
+
+def ensure_idle(db: Session, lesson_id: int) -> None:
+    """409 while a job rebuilds (or imports into) the lesson: a take or an edit on a sentence that is about to be
+    replaced would be lost or would undo the rebuild's swap of sentences."""
+    lesson = db.get(Lesson, lesson_id)
+    if lesson is not None and lesson.status in ("queued", "processing"):
+        raise HTTPException(409, BUSY)
+
+
 def _delete_lesson(db: Session, files: FileLayout, lesson: Lesson) -> None:
     """Delete the lesson, its segments, their attempts and scores, its sessions, its passages and its files."""
     lesson_id = lesson.id

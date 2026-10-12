@@ -166,3 +166,130 @@ def test_a_rebuild_failing_after_its_new_sentences_are_cut_discards_them(client,
     assert detail["status"] == "ready" and [s["id"] for s in detail["segments"]] == [s["id"] for s in old]
     clips = client.app.state.files.lesson_dir(lid) / "clips"
     assert sorted(p.name for p in clips.iterdir()) == sorted(f"{i}.{x}" for i in range(3) for x in ("wav", "opus"))
+
+
+# --- a lesson being rebuilt takes no takes and no edits ---------------------------------------------------------
+
+def _set_lesson_status(client, lid, status):
+    with Session(client.app.state.engine) as db:
+        lesson = db.get(Lesson, lid); lesson.status = status; db.add(lesson); db.commit()
+
+
+def test_takes_and_edits_are_refused_while_the_lesson_is_rebuilt(client, tmp_path):
+    lid = _upload(client, tmp_path)
+    old = client.get(f"/lessons/{lid}").json()["segments"]
+    for status in ("queued", "processing"):
+        _set_lesson_status(client, lid, status)
+        with open(make_tone_wav(tmp_path / "a.wav", 2.6), "rb") as f:
+            r = client.post(f"/segments/{old[0]['id']}/attempts", files={"audio": ("a.wav", f, "audio/wav")},
+                            data={"mode": "echo"})
+        refused = [r,
+                   client.patch(f"/segments/{old[0]['id']}", json={"difficulty_flag": True}),
+                   client.patch(f"/segments/{old[0]['id']}", json={"text": "我今天想。"}),
+                   client.post(f"/segments/{old[0]['id']}/resplit", json={"at_char_index": 4}),
+                   client.post(f"/segments/{old[0]['id']}/merge-next")]
+        assert [x.status_code for x in refused] == [409] * 5
+        assert refused[0].json()["detail"].startswith("this lesson is being rebuilt")
+    with Session(client.app.state.engine) as db:
+        assert db.exec(select(Attempt)).all() == []
+    _set_lesson_status(client, lid, "ready")
+    assert [s["text"] for s in client.get(f"/lessons/{lid}").json()["segments"]] == [s["text"] for s in old]
+    assert not client.get(f"/lessons/{lid}").json()["segments"][0]["difficulty_flag"]
+
+
+# --- a rebuild interrupted by a restart ---------------------------------------------------------------------------
+
+def _interrupt_at(monkeypatch, name):
+    """Make the rebuild stop dead at `name` (a restart: no except branch runs), leaving the database as it was."""
+    import shadow.ingest.rebuild as rebuild
+
+    class Killed(BaseException):
+        pass
+
+    def die(*a, **k):
+        raise Killed()
+    monkeypatch.setattr(rebuild, name, die)
+    return Killed
+
+
+def _restart(data_dir, fake_transcript):
+    from fastapi.testclient import TestClient
+    from shadow.config import Settings
+    from shadow.deps import fake_deps
+    from shadow.main import create_app
+    settings = Settings(data_dir=data_dir)
+    return TestClient(create_app(settings, deps=fake_deps(settings, fake_transcript)))
+
+
+def _run_rebuild_until_killed(client, lid, killed, monkeypatch):
+    import pytest
+    from shadow.ingest.rebuild import rebuild_lesson
+    app = client.app.state
+    _set_lesson_status(client, lid, "processing")
+    with pytest.raises(killed):
+        rebuild_lesson(app.deps, app.engine, lid, lambda s, f: None)
+    monkeypatch.undo()                       # the restarted server runs the real code
+
+
+def test_a_restart_before_the_swap_drops_the_new_sentences_and_keeps_the_old(client, data_dir, fake_transcript,
+                                                                               tmp_path, monkeypatch):
+    lid = _upload(client, tmp_path)
+    old = client.get(f"/lessons/{lid}").json()["segments"]
+    client.app.state.deps.asr._tr = transcript_from_cues([Cue(a, b, t) for a, b, t in NEW_TEXT])
+    _run_rebuild_until_killed(client, lid, _interrupt_at(monkeypatch, "_swap"), monkeypatch)
+    assert len(_segment_rows(client.app.state.engine, lid)) == 7          # old and new side by side
+    with _restart(data_dir, fake_transcript) as c:
+        detail = c.get(f"/lessons/{lid}").json()
+        assert detail["status"] == "ready" and [s["id"] for s in detail["segments"]] == [s["id"] for s in old]
+        clips = c.app.state.files.lesson_dir(lid) / "clips"
+        assert sorted(p.name for p in clips.glob("*.wav")) == [f"{i}.wav" for i in range(3)]
+        with Session(c.app.state.engine) as db:
+            assert "rebuild" not in (db.get(Lesson, lid).meta_json or {})
+
+
+def test_a_restart_after_the_swap_keeps_the_new_sentences_numbered_densely(client, data_dir, fake_transcript,
+                                                                            tmp_path, monkeypatch):
+    lid = _upload(client, tmp_path)
+    client.app.state.deps.asr._tr = transcript_from_cues([Cue(a, b, t) for a, b, t in NEW_TEXT])
+    _run_rebuild_until_killed(client, lid, _interrupt_at(monkeypatch, "renumber"), monkeypatch)
+    with _restart(data_dir, fake_transcript) as c:
+        detail = c.get(f"/lessons/{lid}").json()
+        assert detail["status"] == "ready" and [s["text"] for s in detail["segments"]] == [t for _, _, t in NEW_TEXT]
+        files = c.app.state.files
+        rows = _segment_rows(c.app.state.engine, lid)
+        assert [(s.idx, s.clip_wav_path) for s in rows] == [(i, str(files.clip_wav(lid, i))) for i in range(4)]
+        assert all(files.clip_wav(lid, i).exists() for i in range(4))
+
+
+def _segment_rows(engine, lid):
+    with Session(engine) as db:
+        return db.exec(select(Segment).where(Segment.lesson_id == lid).order_by(Segment.idx)).all()
+
+
+# --- small follow-ups -----------------------------------------------------------------------------------------------
+
+def test_a_rebuild_whose_subtitles_no_longer_match_drops_the_subtitle_match(data_dir, tmp_path):
+    from shadow.ingest.pipeline import ingest_upload
+    from shadow.ingest.rebuild import rebuild_lesson
+    deps, engine, lid = _setup(data_dir, transcript_from_cues([Cue(a, b, t) for a, b, t in LESSON_TEXT]))
+    ingest_upload(deps, engine, lid, make_tone_wav(tmp_path / "t.wav", 8.0), ("a.srt", _srt(LESSON_TEXT)),
+                  lambda s, f: None)
+    deps.asr._tr = transcript_from_cues([Cue(0.0, 7.5, "完全不一样的话。")])
+    rebuild_lesson(deps, engine, lid, lambda s, f: None)
+    with Session(engine) as db:
+        meta = db.get(Lesson, lid).meta_json
+    assert "subtitle_match" not in meta and meta["subtitle_ignored"].startswith("subtitles don't match")
+
+
+def test_a_failing_cleanup_still_puts_the_lesson_back_to_ready(client, tmp_path, monkeypatch, caplog):
+    import shadow.ingest.rebuild as rebuild
+    lid = _upload(client, tmp_path)
+    client.app.state.deps.asr._tr = Transcript()
+
+    def broken(*a, **k):
+        raise OSError("disk gone")
+    monkeypatch.setattr(rebuild, "_discard_new", broken)
+    job = wait_job(client, client.post(f"/lessons/{lid}/rebuild").json()["job_id"])
+    assert job["status"] == "error" and "no speech" in job["error"]
+    assert client.get(f"/lessons/{lid}").json()["status"] == "ready"
+    assert "disk gone" in caplog.text

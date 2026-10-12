@@ -1,3 +1,4 @@
+import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -9,12 +10,15 @@ from shadow.config import Settings, load_settings
 from shadow.deps import Deps, build_deps
 from shadow.jobs import JobManager
 from shadow.ingest.asr import ParaformerASR
+from shadow.ingest.rebuild import recover_rebuild
 from shadow.scoring.embed import Wav2Vec2Embedder
 from sqlalchemy import Engine
 from sqlmodel import Session, select
 from shadow.store.db import make_engine, init_db
-from shadow.store.models import Lesson
+from shadow.store.models import Lesson, Segment
 from shadow.api import anki, attempts, health, jobs, lessons, review, segments, sessions, stats, voice
+
+log = logging.getLogger(__name__)
 
 
 def create_app(settings: Settings | None = None, deps: Deps | None = None) -> FastAPI:
@@ -22,7 +26,7 @@ def create_app(settings: Settings | None = None, deps: Deps | None = None) -> Fa
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        recover_interrupted(app.state.engine)
+        recover_interrupted(app.state.engine, app.state.deps)
         app.state.jobs.start()
         if isinstance(app.state.deps.embedder, Wav2Vec2Embedder):     # real deps only: tests never download
             app.state.deps.embedder.warm_up()
@@ -49,14 +53,25 @@ def create_app(settings: Settings | None = None, deps: Deps | None = None) -> Fa
 INTERRUPTED = "interrupted — the server restarted during processing; delete and re-upload"
 
 
-def recover_interrupted(engine: Engine) -> None:
-    """Jobs live in memory, so after a restart no job runs for a queued/processing lesson: mark it as failed
-    (once the app serves, not on import, so importing this module never touches a live server's lessons)."""
+def recover_interrupted(engine: Engine, deps: Deps | None = None) -> None:
+    """Jobs live in memory, so after a restart no job runs for a queued/processing lesson (once the app serves, not
+    on import, so importing this module never touches a live server's lessons). A lesson without segments failed its
+    ingest: `error`. One with segments was being rebuilt or updated by an Anki import: ingest writes a lesson's
+    segments in one commit, a rebuild interrupted midway is put back together (`recover_rebuild`), so its segments
+    are consistent and it goes back to `ready` with its takes rather than to an error whose advice is to delete it."""
     with Session(engine) as db:
-        for lesson in db.exec(select(Lesson).where(Lesson.status.in_(("queued", "processing")))).all():
-            lesson.status, lesson.error = "error", INTERRUPTED
-            db.add(lesson)
-        db.commit()
+        ids = db.exec(select(Lesson.id).where(Lesson.status.in_(("queued", "processing")))).all()
+    for lesson_id in ids:
+        if deps is not None:
+            try:
+                recover_rebuild(deps, engine, lesson_id)
+            except Exception:  # noqa: BLE001
+                log.exception("lesson %d: recovering an interrupted rebuild failed", lesson_id)
+        with Session(engine) as db:
+            lesson = db.get(Lesson, lesson_id)
+            has_segments = db.exec(select(Segment.id).where(Segment.lesson_id == lesson_id)).first() is not None
+            lesson.status, lesson.error = ("ready", None) if has_segments else ("error", INTERRUPTED)
+            db.add(lesson); db.commit()
 
 
 def _mount_spa(app: FastAPI) -> None:

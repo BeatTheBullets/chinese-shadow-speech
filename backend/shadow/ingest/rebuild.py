@@ -18,6 +18,9 @@ from shadow.scoring.profile import get_profile
 from shadow.store.models import Attempt, Lesson, Segment, SyllableScore
 
 log = logging.getLogger(__name__)
+# meta_json key while a rebuild runs: {"offset": idx of the first new segment, "swapped": bool}, so that a restart
+# mid-rebuild (no job survives one) can put the lesson back together (`recover_rebuild`)
+REBUILD = "rebuild"
 
 
 def match_segment(start: float, end: float, new: list[tuple[int, float, float]]) -> int:
@@ -51,7 +54,8 @@ def _unlink_clips(deps: Deps, lesson_id: int, idxs: list[int]) -> None:
 def _swap(deps: Deps, engine: Engine, lesson_id: int, offset: int, tr: Transcript) -> list[int]:
     """One transaction: every old segment (idx < `offset`) hands its takes, difficulty flag and Anki note to the new
     segment (idx >= `offset`) it matches in time, the old segments and their syllable rows go, the lesson gets the new
-    transcript and loses its cached pitch baseline (the clips changed). Returns the moved attempts' ids; the old clip
+    transcript and loses its cached pitch baseline (the clips changed), and its rebuild marker says the swap is done.
+    Returns the moved attempts' ids; the old clip
     files are removed after the commit."""
     with Session(engine) as db:
         lesson = db.get(Lesson, lesson_id)
@@ -81,11 +85,22 @@ def _swap(deps: Deps, engine: Engine, lesson_id: int, offset: int, tr: Transcrip
         db.flush()
         for s in olds:
             db.delete(s)
+        old_idxs = [s.idx for s in olds]          # read before the commit expires the deleted rows
         lesson.transcript_json = tr.to_json()
-        lesson.meta_json = {k: v for k, v in (lesson.meta_json or {}).items() if k != "pitch"}
+        meta = {k: v for k, v in (lesson.meta_json or {}).items() if k != "pitch"}
+        lesson.meta_json = {**meta, REBUILD: {"offset": offset, "swapped": True}}
         db.add(lesson); db.commit()
-    _unlink_clips(deps, lesson_id, [s.idx for s in olds])
+    _unlink_clips(deps, lesson_id, old_idxs)
     return moved
+
+
+def _drop_meta(engine: Engine, lesson_id: int, *keys: str) -> None:
+    with Session(engine) as db:
+        lesson = db.get(Lesson, lesson_id)
+        if lesson is None:
+            return
+        lesson.meta_json = {k: v for k, v in (lesson.meta_json or {}).items() if k not in keys}
+        db.add(lesson); db.commit()
 
 
 def _discard_new(deps: Deps, engine: Engine, lesson_id: int, offset: int) -> None:
@@ -147,6 +162,7 @@ def rebuild_lesson(deps: Deps, engine: Engine, lesson_id: int, progress: Progres
             idxs = db.exec(select(Segment.idx).where(Segment.lesson_id == lesson_id)).all()
             offset = max(idxs, default=-1) + 1
         _set_status(engine, lesson_id, "processing")
+        _merge_meta(engine, lesson_id, **{REBUILD: {"offset": offset, "swapped": False}})
         source_wav = deps.files.source_wav(lesson_id)
         progress("transcribe", 0.0)
         tr = deps.asr.transcribe(source_wav)
@@ -158,6 +174,8 @@ def rebuild_lesson(deps: Deps, engine: Engine, lesson_id: int, progress: Progres
             _merge_meta(engine, lesson_id, **meta)
             if sub_tr is not None:
                 tr, from_subtitles = sub_tr, True
+            else:                                  # the ASR text replaces the subtitles' from now on
+                _drop_meta(engine, lesson_id, "subtitle_match")
         progress("transcribe", 1.0)
 
         progress("rectify", 0.0)
@@ -172,13 +190,40 @@ def rebuild_lesson(deps: Deps, engine: Engine, lesson_id: int, progress: Progres
         rebuild_passages(engine, lesson_id)
         progress("clips", 1.0)
         _rescore(deps, engine, moved, progress)
+        _drop_meta(engine, lesson_id, REBUILD)
         _set_status(engine, lesson_id, "ready", duration_s=audio.duration_s(source_wav))
         progress("done", 1.0)
     except Exception as e:  # noqa: BLE001
-        if not swapped:
-            _discard_new(deps, engine, lesson_id, offset)
-        with Session(engine) as db:
-            has_segments = db.exec(select(Segment.id).where(Segment.lesson_id == lesson_id)).first() is not None
-        _set_status(engine, lesson_id, "ready" if has_segments else "error",
-                    None if has_segments else str(e) or type(e).__name__)
+        try:
+            if not swapped:
+                _discard_new(deps, engine, lesson_id, offset)
+            _drop_meta(engine, lesson_id, REBUILD)
+        except Exception:  # noqa: BLE001  the lesson must not stay `processing`; the job reports the first error
+            log.exception("lesson %d: cleaning up after a failed rebuild failed", lesson_id)
+        _finish(engine, lesson_id, str(e) or type(e).__name__)
         raise
+
+
+def _finish(engine: Engine, lesson_id: int, error: str) -> None:
+    """`ready` when the lesson has segments (old or new, each set consistent on its own), else `error`."""
+    with Session(engine) as db:
+        has_segments = db.exec(select(Segment.id).where(Segment.lesson_id == lesson_id)).first() is not None
+    _set_status(engine, lesson_id, "ready" if has_segments else "error", None if has_segments else error)
+
+
+def recover_rebuild(deps: Deps, engine: Engine, lesson_id: int) -> None:
+    """After a restart killed a rebuild of this lesson (its meta still holds the REBUILD marker): before the swap the
+    new segments (idx >= offset) sit beside the old ones and are dropped with their clips; after it only renumbering
+    and passages may be missing, so they are redone. The moved takes keep the scores they had (`make rescore`
+    re-scores them)."""
+    with Session(engine) as db:
+        lesson = db.get(Lesson, lesson_id)
+        mark = (lesson.meta_json or {}).get(REBUILD) if lesson is not None else None
+    if not mark:
+        return
+    if mark.get("swapped"):
+        renumber(deps, engine, lesson_id)
+        rebuild_passages(engine, lesson_id)
+    else:
+        _discard_new(deps, engine, lesson_id, int(mark["offset"]))
+    _drop_meta(engine, lesson_id, REBUILD)

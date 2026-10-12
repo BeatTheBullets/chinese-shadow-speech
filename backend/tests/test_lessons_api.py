@@ -131,15 +131,20 @@ def test_startup_marks_interrupted_ingests_as_error(data_dir, fake_transcript):
     from shadow.store.models import Lesson
     engine = make_engine(data_dir)
     init_db(engine)
+    from shadow.store.models import Segment
     with Session(engine) as db:
         for status in ("queued", "processing", "ready", "error"):
             db.add(Lesson(title=status, source_type="upload", status=status, error="boom" if status == "error" else None))
-        db.commit()
+        # a rebuild or an Anki update interrupted: the lesson already has (consistent) segments, so it stays usable
+        busy = Lesson(title="processing with segments", source_type="anki", status="processing")
+        db.add(busy); db.commit(); db.refresh(busy)
+        db.add(Segment(lesson_id=busy.id, idx=0, start_s=0, end_s=1, text="你好")); db.commit()
     settings = Settings(data_dir=data_dir)
     with TestClient(create_app(settings, deps=fake_deps(settings, fake_transcript))) as c:
         got = {l["title"]: (l["status"], l["error"]) for l in c.get("/lessons").json()}
     msg = "interrupted — the server restarted during processing; delete and re-upload"
-    assert got == {"queued": ("error", msg), "processing": ("error", msg), "ready": ("ready", None), "error": ("error", "boom")}
+    assert got == {"queued": ("error", msg), "processing": ("error", msg), "ready": ("ready", None), "error": ("error", "boom"),
+                   "processing with segments": ("ready", None)}
 
 
 def _lesson_with_scored_attempts(engine) -> tuple[int, list[int]]:

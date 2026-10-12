@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from sqlmodel import Session, select
-from shadow.api.lessons import _get_lesson
+from shadow.api.lessons import _get_lesson, ensure_idle
 from shadow.api.sessions import MODES
 from shadow.ingest import audio
 from shadow.schemas import AttemptOut, FlowRunItem, FlowRunOut, FlowRunsOut, TakeOut, TakesOut
@@ -29,6 +29,7 @@ def create_attempt(segment_id: int, request: Request, audio_file: UploadFile = F
     seg = db.get(Segment, segment_id)
     if seg is None:
         raise HTTPException(404, "segment not found")
+    ensure_idle(db, seg.lesson_id)
     if mode not in MODES:
         raise HTTPException(400, "bad mode")
     sess = None
