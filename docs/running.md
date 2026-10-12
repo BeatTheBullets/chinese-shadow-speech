@@ -63,6 +63,14 @@ After a model or feature change run `make rescore`: it re-scores every stored ta
 `data/reports/rescore-<date>.html`. `--probe` (run `cd backend && uv run python scripts/rescore.py --probe` directly; the make target takes no args) prints the percentiles used to pick the gate thresholds
 (`min_rms_dbfs`, `min_align_conf`, `min_text_similarity`).
 
+To check that each sentence's clip says its text, run `cd backend && ~/.local/bin/uv run python scripts/clipcheck.py
+--lesson N` (or `--all` for every ready lesson). Read only: the recogniser hears each clip and the words check
+(toneless pinyin similarity) compares it with the sentence; it prints the sentences below 0.8 and per lesson n, how
+many match and the mean. A lesson whose text runs ahead of its audio (lessons transcribed before the FunASR
+`sentence_info` fix of 2026-10-12, one character more after each pause) scores far lower: **⟲ Rebuild text** on its
+library tile transcribes it again and rebuilds its sentences and clips; your takes move to the sentence at the same
+time and are scored again (difficulty flags and Anki notes move with them).
+
 Voice profile: tones are judged against your own pitch range, which is learned from your most recent minute or so of voiced speech and keeps adapting as you practise.
 Settings -> Voice profile shows it; **Reset voice profile** empties it (for a new mic or after a bad take) and the next
 takes rebuild it.
