@@ -1,0 +1,6 @@
+{
+ "_comment": "Excerpt of the FunASR 1.4.16 result for lesson 2 (54-62 s): the top-level text and its timestamps, and the sentence_info FunASR built from them, pushed one character ahead of its timestamps at the VAD boundary between 视 and 那 (视那 became one token).",
+ "text": "她们看电视，那是我的朋友、小王，",
+ "timestamp": [[54230, 54470], [54610, 54850], [55270, 55510], [55590, 55830], [55870, 56375], [58470, 58710], [58790, 59030], [59570, 59810], [59850, 60070], [60070, 60310], [60430, 60670], [60930, 61170], [61310, 61725]],
+ "sentence_info": [{"text": "她们看电视那，", "start": 54230, "end": 56375, "timestamp": [[54230, 54470], [54610, 54850], [55270, 55510], [55590, 55830], [55870, 56375]]}, {"text": "是我的朋友小、", "start": 58470, "end": 60670, "timestamp": [[58470, 58710], [58790, 59030], [59570, 59810], [59850, 60070], [60070, 60310], [60430, 60670]]}, {"text": "王他在，", "start": 60930, "end": 61725, "timestamp": [[60930, 61170], [61310, 61725]]}]
+}

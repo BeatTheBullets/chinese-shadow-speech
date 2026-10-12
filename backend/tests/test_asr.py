@@ -1,6 +1,7 @@
 import pytest
 
 from shadow.ingest.asr import transcript_from_funasr, FakeASR
+from shadow.ingest.text import is_punct
 from shadow.ingest.transcript import Transcript
 
 
@@ -29,6 +30,63 @@ def test_funasr_timestamp_count_mismatch_falls_back_to_interpolation():
 def test_funasr_without_sentence_info_uses_whole_text():
     tr = transcript_from_funasr({"text": "大家好", "timestamp": [[0, 300], [300, 600], [600, 900]]})
     assert tr.text == "大家好" and tr.chars[2].end == 0.9 and tr.segments == [(0, 2)]
+
+
+# FunASR 1.4.16 glues the last char of one VAD chunk to the first of the next ("视那"), so its sentence_info runs
+# one char ahead of its timestamps after each chunk boundary; the top-level text + timestamp pair up 1:1.
+_GLUED = {
+    "text": "他在看电视，那是小王。",
+    "timestamp": [[i * 100, i * 100 + 80] for i in range(5)] + [[1000 + i * 100, 1080 + i * 100] for i in range(4)],
+    "sentence_info": [
+        {"text": "他在看电视那，", "start": 0, "end": 480,
+         "timestamp": [[i * 100, i * 100 + 80] for i in range(5)]},
+        {"text": "是小王。", "start": 1000, "end": 1380,
+         "timestamp": [[1000 + i * 100, 1080 + i * 100] for i in range(4)]},
+    ],
+}
+
+
+def test_funasr_chars_are_timed_by_the_top_level_text_not_the_drifted_sentence_info():
+    tr = transcript_from_funasr(_GLUED)
+    speech = [c for c in tr.chars if not is_punct(c.c)]
+    assert "".join(c.c for c in speech) == "他在看电视那是小王"
+    assert speech[5].c == "那" and speech[5].start == 1.0
+    assert [(c.start, c.end) for c in speech] == [(a / 1000, b / 1000) for a, b in _GLUED["timestamp"]]
+    comma, period = tr.chars[5], tr.chars[10]
+    assert (comma.c, comma.start, comma.end) == ("，", 0.48, 0.48)      # zero-length at the previous char's end
+    assert (period.c, period.start, period.end) == ("。", 1.38, 1.38)
+    assert tr.segments == [(0, 10)]                  # sentence ranges: a comma does not end one
+
+
+def test_funasr_segments_split_at_sentence_final_punctuation():
+    tr = transcript_from_funasr({"text": "你好。再见！”好", "timestamp": [[i * 100, i * 100 + 90] for i in range(5)]})
+    assert tr.segments == [(0, 2), (3, 6), (7, 7)]   # a closing quote stays with its sentence
+
+
+def test_funasr_real_excerpt_at_a_vad_boundary_is_timed_by_the_top_level_timestamps():
+    import json
+    from pathlib import Path
+    r = json.loads(Path(__file__).parents[1].joinpath("fixtures/funasr_lesson2_excerpt.json").read_text())
+    tr = transcript_from_funasr(r)
+    speech = [c for c in tr.chars if not is_punct(c.c)]
+    assert "".join(c.c for c in speech) == "她们看电视那是我的朋友小王"
+    assert [(c.start, c.end) for c in speech] == [(a / 1000, b / 1000) for a, b in r["timestamp"]]
+    assert speech[5].c == "那" and speech[5].start == 58.47
+
+
+def test_funasr_top_level_count_mismatch_falls_back_to_sentence_info_with_a_warning(caplog):
+    r = {**_GLUED, "timestamp": _GLUED["timestamp"][:8]}
+    with caplog.at_level("WARNING"):
+        tr = transcript_from_funasr(r)
+    assert "9 speech characters" in caplog.text and "8 timestamps" in caplog.text
+    assert tr.segments == [(0, 6), (7, 10)]          # the sentence_info path
+
+
+def test_funasr_interpolated_sentence_times_are_logged(caplog):
+    with caplog.at_level("WARNING"):
+        transcript_from_funasr({"text": "你好世界", "sentence_info": [
+            {"text": "你好世界", "start": 0, "end": 2000, "timestamp": [[0, 500]]}]})
+    assert "interpolat" in caplog.text
 
 
 def test_funasr_empty_text_gives_empty_transcript():
