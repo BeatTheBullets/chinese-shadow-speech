@@ -67,7 +67,13 @@ Each Flow slice is already its own attempt.
      clean takes (attempts 1–34): own-sentence similarity p50 1.0, the next
      sentence's text p95 0.5 (max 0.75). Lesson 2's later takes were left out
      of the calibration because its stored segment text had drifted from the
-     clips (a separate ingest bug).
+     clips (a separate ingest bug). Limits: a neighbouring sentence sharing
+     most of its words can pass (up to ~0.75 seen); genuine takes have a low
+     tail (misreads, empty or stray transcripts) that is rejected. The
+     letter-level fallback applies only when Latin letters are at least half
+     of the transcript's characters. When the recogniser is busy (an ingest
+     job holds it for a whole video) a take waits at most 2 s, then skips the
+     check (`heard_text`/`text_sim` null, logged) and is tone-scored.
    - mean alignment confidence (step 3) is below `min_align_conf` →
      `wrong_or_unclear` (a garbled take lands here; the words check catches
      different sentences, whose confidence overlaps genuine takes: Task 15
@@ -286,7 +292,9 @@ The feedback block keeps its shape (main spec §7.2).
 ## 7. Error handling
 
 A take is always saved and replayable. If the model file is missing or
-mismatched, pitch extraction fails, or alignment raises, the score JSON is
+mismatched, pitch extraction fails, alignment raises, or the recogniser of
+the words check (§1) raises (the most likely failure when offline with
+Paraformer not yet cached → `score_failed`), the score JSON is
 `{overall: null, warnings: [...]}` with no `SyllableScore` rows, and the UI
 shows the warning where the score would be. `/health` shows whether the tone
 model loaded. Scoring errors are logged with the attempt id.

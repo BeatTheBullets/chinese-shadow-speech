@@ -73,7 +73,9 @@ Gate warnings (the take is always saved, it is just not scored):
 - "Too loud — not scored. Lower the mic gain." The recording clips; lower the gain.
 - "Heard different words — not scored. Heard: …" The speech recogniser (the Paraformer model ingest uses) heard
   other words than the sentence shown (toneless pinyin similarity below `min_text_similarity`, 0.55). Say the sentence
-  shown. A wrong tone alone does not trigger this.
+  shown. A wrong tone alone does not trigger this; a sentence sharing most of its words with the one shown can pass.
+  While a video is being imported the recogniser is busy: a take then waits at most 2 s and is tone-scored without
+  the check.
 - "Could not match this to the sentence — not scored." The take is too garbled or noisy to align.
 - "No voice found — not scored." Check that the right microphone is selected.
 - "Tone model missing — not scored. See docs/running.md." Restore `backend/shadow/scoring/models/tone_v1.*` or retrain.

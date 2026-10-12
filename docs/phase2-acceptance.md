@@ -3,7 +3,7 @@
 - [ ] `/health` shows `tone_model.loaded: true` and the version from the ledger.
 - [ ] Echo a sentence you know well: most cells green, a score in the header, two pitch lines on the You track.
 - [ ] Echo the same sentence with one tone deliberately wrong (e.g. say 好 rising): that cell turns red and shows `3→2` (or orange), the others stay green.
-- [ ] Say a different sentence than the one shown: "Heard different words — not scored. Heard: …" with what you said, and no cell colours.
+- [ ] Say a different sentence than the one shown (one that shares few words with it): "Heard different words — not scored. Heard: …" with what you said, and no cell colours. A sentence sharing most of its words can still pass and be scored.
 - [ ] Whisper or record from across the room: "Too quiet — not scored."
 - [ ] Reopen the lesson: the last take's colours and pitch lines come back.
 - [ ] Flow a passage: rows take a colour as their slices are scored; the summary shows a mean and the weakest lines.
