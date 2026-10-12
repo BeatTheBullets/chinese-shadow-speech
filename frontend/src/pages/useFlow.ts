@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { api } from '../api/client'
+import { api, ApiError } from '../api/client'
 import type { Segment } from '../api/types'
 import { sleep } from '../audio/abortable'
 import { sliceSamples } from '../audio/pcm'
@@ -15,6 +15,8 @@ import { useSettings } from '../store/settings'
 
 const TAIL_MS = 200 // keep recording briefly after the last clip so its slice's slack is captured
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
+// The backend's own explanation (FastAPI `detail`), e.g. why a take was refused while the lesson is rebuilt.
+const readable = (e: unknown) => (e instanceof ApiError ? e.detail : message(e))
 
 export interface FlowState {
   phase: 'setup' | 'running' | 'summary'
@@ -108,7 +110,7 @@ export function useFlow(deps: FlowDeps) {
         const now = ps.lesson?.segments.find((x) => x.id === t.rg.segmentId)
         if (now) ps.updateSegment(applyAttempt(now, a.score_json?.overall))
       }
-      catch (e) { mine(() => setError(`Upload failed: ${message(e)}`)) }
+      catch (e) { mine(() => setError(`Upload failed: ${readable(e)}`)) }
       mine(() => setState((f) => {
         const pending = new Set(f.pending); pending.delete(t.rg.segmentId)
         return { ...f, pending, results: f.results.map((x) => (x.segmentId === t.rg.segmentId ? { ...x, attemptId } : x)) }

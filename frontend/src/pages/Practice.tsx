@@ -307,7 +307,7 @@ export default function Practice() {
     if (currentSegment(ps)?.id !== s.id) {
       dispatch('CANCEL')
       api.segments.postAttempt(s.id, wav, { session_id: ps.sessionId ?? undefined, mode })
-        .then(uploaded).catch((e) => setError(`Upload failed: ${message(e)}`))
+        .then(uploaded).catch((e) => setError(`Upload failed: ${readable(e)}`))
       return
     }
     const url = URL.createObjectURL(wav)
@@ -316,7 +316,7 @@ export default function Practice() {
     if (usePractice.getState().attemptsThisSegment >= useSettings.getState().practice.moveOnAfter) ps.setHint(MOVE_ON)
     const upload = api.segments.postAttempt(s.id, wav, { session_id: ps.sessionId ?? undefined, mode })
       .then((a) => { uploaded(a); const cur = usePractice.getState(); if (cur.lastAttempt?.url === url) cur.setLastAttempt({ ...take, id: a.id, score: a.score_json }) })
-      .catch((e) => setError(`Upload failed: ${message(e)}`))
+      .catch((e) => setError(`Upload failed: ${readable(e)}`))
     dispatch('UPLOADED')
     const ctrl = new AbortController()
     seqCtrl.current = ctrl
@@ -477,7 +477,7 @@ export default function Practice() {
   function flagWeakest() {
     const scores = new Map((usePractice.getState().lesson?.segments ?? []).map((s) => [s.id, s.last_score]))
     for (const r of weakestResults(flow.state.results, scores, 3)) {
-      api.segments.patch(r.segmentId, { difficulty_flag: true }).then(usePractice.getState().updateSegment).catch((e) => setError(`Could not flag: ${message(e)}`))
+      api.segments.patch(r.segmentId, { difficulty_flag: true }).then(usePractice.getState().updateSegment).catch((e) => setError(`Could not flag: ${readable(e)}`))
     }
   }
   // Original then take, for one sentence of a Flow run.
@@ -538,7 +538,7 @@ export default function Practice() {
     if (!target) return
     setError('')
     changeSegments(() => api.segments.mergeNext(target.id).then(() => [target.id]), target.id)
-      .catch((e) => setError(e instanceof ApiError && e.status === 409 ? 'There is no next sentence to merge with.' : `Could not merge: ${readable(e)}`))
+      .catch((e) => setError(e instanceof ApiError && e.detail === 'no next segment' ? 'There is no next sentence to merge with.' : `Could not merge: ${readable(e)}`))
   }
 
   // Sends sentences to Anki one after another (a duplicate asks before it is added) and records each new note on
@@ -637,7 +637,7 @@ export default function Practice() {
       case 'replayYou': replayYou(); return
       case 'flag': {
         const s = currentSegment(ps)
-        if (s) api.segments.patch(s.id, { difficulty_flag: !s.difficulty_flag }).then(usePractice.getState().updateSegment).catch((e) => setError(`Could not flag: ${message(e)}`))
+        if (s) api.segments.patch(s.id, { difficulty_flag: !s.difficulty_flag }).then(usePractice.getState().updateSegment).catch((e) => setError(`Could not flag: ${readable(e)}`))
         return
       }
       case 'exportAnki': {

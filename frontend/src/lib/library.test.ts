@@ -42,13 +42,16 @@ describe('rebuild text', () => {
     const t = rebuildConfirmText({ ...L(1, 'A', '2026-01-01'), title: '春天的茶' })
     expect(t).toMatch(/春天的茶/); expect(t).toMatch(/transcribes the lesson.s audio again/); expect(t).toMatch(/sentences and clips/)
     expect(t).toMatch(/keeps your takes/); expect(t).toMatch(/matching sentence/); expect(t).toMatch(/scores them again/)
+    expect(t).toMatch(/AI/); expect(t).toMatch(/sentence repair and translation/); expect(t).toMatch(/small cost/)
+    expect(t).toMatch(/text corrections, splits, merges/); expect(t).toMatch(/translations are replaced/)
   })
   it('is offered for a ready lesson with audio of its own, not an Anki one or one still processing', () => {
     expect(canRebuild(L(1, 'A', '2026-01-01'))).toBe(true)
     expect(canRebuild({ ...L(1, 'A', '2026-01-01'), source_type: 'youtube' })).toBe(true)
     expect(canRebuild({ ...L(1, 'A', '2026-01-01'), source_type: 'anki' })).toBe(false)
     expect(canRebuild({ ...L(1, 'A', '2026-01-01'), status: 'processing' })).toBe(false)
-    expect(canRebuild({ ...L(1, 'A', '2026-01-01'), status: 'error' })).toBe(false)
+    expect(canRebuild({ ...L(1, 'A', '2026-01-01'), status: 'error', segment_count: 0 })).toBe(false)
+    expect(canRebuild({ ...L(1, 'A', '2026-01-01'), status: 'error', segment_count: 3 })).toBe(true)  // its sentences survived
   })
 })
 

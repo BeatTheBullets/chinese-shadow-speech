@@ -256,6 +256,19 @@ describe('<Practice>', () => {
     expect(screen.getByRole('button', { name: '● Enter' })).toBeInTheDocument()
   })
 
+  it('a take refused while the lesson is rebuilt says so and stays playable', async () => {
+    h.api.segments.postAttempt.mockRejectedValue(new ApiError(409, 'Conflict', '{"detail":"this lesson is being rebuilt — try again in a moment"}', 'this lesson is being rebuilt — try again in a moment'))
+    renderPractice()
+    await screen.findByText('你好', { selector: 'p.sentence' })
+    await waitFor(() => expect(usePractice.getState().sessionId).toBe(5))
+    press('Enter')
+    await screen.findByRole('button', { name: '■ stop' })
+    await flush()
+    press('Enter')
+    expect(await screen.findByRole('alert')).toHaveTextContent('Upload failed: this lesson is being rebuilt — try again in a moment')
+    expect(usePractice.getState().lastAttempt).toMatchObject({ id: 0, url: 'blob:take' })
+  })
+
   it('shows the move-on hint once attempts reach the setting', async () => {
     renderPractice()
     await screen.findByText('你好', { selector: 'p.sentence' })
@@ -536,6 +549,15 @@ describe('<Practice>', () => {
       fireEvent.click(screen.getAllByRole('button', { name: '▶ ref+you' })[1])
       const [, items] = h.playSequence.mock.calls.at(-1) as unknown as [unknown, { url: string; rate: number }[]]
       expect(items).toEqual([{ url: '/seg/12.opus', rate: 1 }, { url: 'blob:take', rate: 1 }])
+    })
+
+    it('a flow slice refused while the lesson is rebuilt says so', async () => {
+      h.api.segments.postAttempt.mockRejectedValue(new ApiError(409, 'Conflict', '{"detail":"this lesson is being rebuilt — try again in a moment"}', 'this lesson is being rebuilt — try again in a moment'))
+      clipsTake(2)
+      h.rec.stop.mockReturnValue(new Float32Array(44100 * 10))
+      await startFlow('along')
+      expect(await screen.findByText(/Flow finished · 2 sentences/)).toBeInTheDocument()
+      expect(await screen.findByRole('alert')).toHaveTextContent('Upload failed: this lesson is being rebuilt — try again in a moment')
     })
 
     it('stopping midway submits the finished sentences, each to its own sentence, and drops the unfinished one', async () => {
@@ -865,6 +887,14 @@ describe('<Practice>', () => {
       expect(h.api.segments.clipChanged).toHaveBeenCalledWith(11)
       expect(usePractice.getState().idx).toBe(0)
       expect(screen.getByText('你好再见', { selector: 'p.sentence' })).toBeInTheDocument()
+    })
+
+    it('a merge refused while the lesson is rebuilt shows why', async () => {
+      h.api.segments.mergeNext.mockRejectedValue(new ApiError(409, 'Conflict', '{"detail":"this lesson is being rebuilt — try again in a moment"}', 'this lesson is being rebuilt — try again in a moment'))
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      openMenu(1, 'Merge with next')
+      expect(await screen.findByRole('alert')).toHaveTextContent('Could not merge: this lesson is being rebuilt — try again in a moment')
     })
 
     it('a merge without a next sentence shows a readable message', async () => {
