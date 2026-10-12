@@ -1,5 +1,6 @@
 """Quality gate (Phase 2 spec §1 step 2): takes that cannot be scored meaningfully come back as warnings instead."""
 from __future__ import annotations
+import itertools
 import numpy as np
 from rapidfuzz.distance import Levenshtein
 from shadow.config import ScoringCfg
@@ -27,13 +28,23 @@ def pre_gate(wav: np.ndarray, sr: int, ref_speech_s: float, cfg: ScoringCfg) -> 
     return out
 
 
+def _is_latin(c: str) -> bool:
+    return c.isascii() and c.isalpha()
+
+
 def text_similarity(syllables: list[dict], heard: str) -> float:
     """How closely what the recogniser heard matches the sentence, 0..1, over toneless syllables (non-hanzi skipped
     on both sides). Toneless on purpose: a wrong tone can make the recogniser write a homophone, and that is the
     tone scorer's business, not other words."""
     expected = [s["pinyin_toneless"].lower() for s in syllables if s["tone"] >= 0]
     got = toneless_pinyin("".join(c for c in heard if is_hanzi(c)))
-    return float(Levenshtein.normalized_similarity(expected, got))
+    sim = float(Levenshtein.normalized_similarity(expected, got))
+    if any(_is_latin(c) for c in heard):  # a name spelt in English ("丽丽" heard as "lily"): compare letter by letter too
+        runs = itertools.groupby(heard, key=lambda c: "han" if is_hanzi(c) else "latin" if _is_latin(c) else None)
+        letters = "".join("".join(toneless_pinyin("".join(r))) if k == "han" else "".join(r).lower()
+                          for k, r in runs if k)
+        sim = max(sim, float(Levenshtein.normalized_similarity("".join(expected), letters)))
+    return sim
 
 
 def align_gate(spans: list[Span], cfg: ScoringCfg) -> list[str]:

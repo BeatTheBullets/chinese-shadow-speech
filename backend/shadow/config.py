@@ -46,7 +46,7 @@ class ScoringCfg(BaseModel):
     ref_confidence: float = 0.6       # the reference's own classification becomes the target from this probability
     min_rms_dbfs: float = -55.0       # gate (spec §1); re-set from the user's takes in the plan's Task 15
     min_align_conf: float = 0.05
-    min_text_similarity: float = 0.5  # words check (spec §1): toneless-syllable similarity of what was heard to the sentence
+    min_text_similarity: float = 0.55  # words check (spec §1, R14): toneless similarity of what was heard to the sentence
     max_clipped: float = 0.01
     profile_seconds: float = 60.0     # voiced seconds before the voice profile alone sets the learner's baseline
     tone_model: str = "tone_v1"       # backend/shadow/scoring/models/<name>.{joblib,json}

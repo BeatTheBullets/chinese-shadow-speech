@@ -47,3 +47,9 @@ def test_text_similarity_skips_non_hanzi_and_scores_silence_zero():
     assert text_similarity(syls("我有2个A"), "我有个") == 1.0
     assert text_similarity(syls("我有个"), "我有，A个") == 1.0
     assert text_similarity(syls("我是学生"), "") == 0.0
+
+
+def test_latin_letters_in_what_was_heard_also_compare_letter_by_letter():
+    assert text_similarity(syls("丽丽，"), " lily。") >= 0.55              # a name the recogniser spelt in English
+    assert text_similarity(syls("我的朋友"), " hello hello") < 0.55
+    assert text_similarity(syls("我是学生"), "我是") == 0.5                # no Latin letters: syllables only
