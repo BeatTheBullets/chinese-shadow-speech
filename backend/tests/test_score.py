@@ -173,3 +173,15 @@ def test_a_take_with_some_words_different_is_scored_with_a_notice():
 def test_a_take_without_a_words_check_has_no_notices():
     assert run(voice(REF_CONTOURS)).json["notices"] == []
     assert run(np.zeros(SR, dtype="float32")).json["notices"] == []
+
+
+@pytest.mark.parametrize("sim, warnings, notices", [(0.249, ["different_words"], []), (0.25, [], ["words_differ"]),
+                                                    (0.549, [], ["words_differ"]), (0.55, [], [])])
+def test_the_words_check_band_edges(monkeypatch, sim, warnings, notices):
+    import shadow.scoring.score as score
+    monkeypatch.setattr(score, "text_similarity", lambda syllables, heard: sim)
+    cfg = CFG.model_copy(update={"min_text_similarity": 0.25, "words_ok_at": 0.55})
+    r = score_take(ref=ref_data(), syllables=SYLS, text=TEXT, wav=voice(REF_CONTOURS), sr=SR, aligner=FakeAligner(),
+                   model=FakeToneModel(tone=1, p=0.9), embedder=FakeEmbedder(), profile=None, profile_voiced_s=0.0,
+                   cfg=cfg, hear=lambda: "…")
+    assert r.json["warnings"] == warnings and r.json["notices"] == notices
