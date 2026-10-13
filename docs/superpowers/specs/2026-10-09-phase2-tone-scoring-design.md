@@ -60,16 +60,23 @@ Each Flow slice is already its own attempt.
      the transcript contains Latin letters (a name written in English, e.g.
      丽丽 heard as "lily"), a letter-level similarity of the concatenated
      toneless pinyin (Latin words kept, lower-cased) is also computed and the
-     higher one counts. Below `min_text_similarity` (0.55) →
-     `different_words`. Toneless on purpose: a wrong tone can make the
-     recogniser write a homophone, which is a tone error, not other words.
-     The threshold comes from the user's takes (`rescore.py --probe`) on the
-     clean takes (attempts 1–34): own-sentence similarity p50 1.0, the next
-     sentence's text p95 0.5 (max 0.75). Lesson 2's later takes were left out
-     of the calibration because its stored segment text had drifted from the
-     clips (a separate ingest bug). Limits: a neighbouring sentence sharing
-     most of its words can pass (up to ~0.75 seen); genuine takes have a low
-     tail (misreads, empty or stray transcripts) that is rejected. The
+     higher one counts. Three bands: below `min_text_similarity` (0.25) →
+     `different_words`, not scored; from there to `words_ok_at` (0.55) the
+     take is tone-scored as usual and the score JSON gets
+     `notices: ["words_differ"]` (`warnings` stays empty, so "warnings ⇒ not
+     scored" holds); from `words_ok_at` on, no notice. Toneless on purpose: a
+     wrong tone can make the recogniser write a homophone, which is a tone
+     error, not other words. The thresholds come from the user's 73 takes
+     (`rescore.py --probe`) after the lessons were rebuilt with the ASR drift
+     fix (FunASR's sentence_info had drifted from the clips; the first
+     calibration had to leave lesson 2 out): own-sentence similarity
+     p0/2/5/50/95/98/100 = 0/0/0.151/0.792/1/1/1, the next sentence's text
+     0/0/0/0.134/0.5/0.5/1.0. Genuine takes with a few mispronounced words
+     land at 0.43–0.5 (他们在睡觉 heard 他们在次微笑: 0.5), hence the middle
+     band. Limits: a neighbouring sentence sharing most of its words can
+     pass (next-sentence p95 0.5 is only noticed, max 1.0); genuine takes
+     have a low tail (misreads, empty or stray transcripts) that is
+     rejected. The
      letter-level fallback applies only when Latin letters are at least half
      of the transcript's characters. When the recogniser is busy (an ingest
      job holds it for a whole video) a take waits at most 2 s, then skips the
@@ -232,7 +239,9 @@ fit), `no_voice`, `no_reference` (no clip or alignment) and `score_failed`
 (any exception). Each score also carries `quality: {dbfs, clipped,
 align_conf, text_sim}` for setting the gate thresholds, and `heard_text`, what
 the recogniser heard (punctuation kept); `heard_text` and `text_sim` are null
-when the words check did not run.
+when the words check did not run. `notices` lists remarks on a scored take
+(`words_differ`, §1) and is `[]` otherwise; older score JSON has no `notices`,
+so readers treat it as absent = `[]`.
 
 ### 5.2 Tables
 
