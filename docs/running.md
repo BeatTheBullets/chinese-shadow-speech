@@ -61,7 +61,7 @@ pitch-altered copies per utterance, takes ~1.5 h on the GPU and needs the models
 
 After a model or feature change run `make rescore`: it re-scores every stored take and writes
 `data/reports/rescore-<date>.html`. `--probe` (run `cd backend && uv run python scripts/rescore.py --probe` directly; the make target takes no args) prints the percentiles used to pick the gate thresholds
-(`min_rms_dbfs`, `min_align_conf`, `min_text_similarity`).
+(`min_rms_dbfs`, `min_align_conf`, `min_text_similarity`, `words_ok_at`).
 
 To check that each sentence's clip says its text, run `cd backend && ~/.local/bin/uv run python scripts/clipcheck.py
 --lesson N` (or `--all` for every ready lesson). Read only: the recogniser hears each clip and the words check
@@ -85,12 +85,12 @@ Gate warnings (the take is always saved, it is just not scored):
   While a video is being imported the recogniser is busy: a take then waits at most 2 s and is tone-scored without
   the check.
 - "Could not match this to the sentence — not scored." The take is too garbled or noisy to align.
-
-Notice on a scored take (the score stands):
-- "Some words sounded different — heard: …" The similarity was between `min_text_similarity` (0.25) and
-  `words_ok_at` (0.55): a few words were misheard or mispronounced. Compare what was heard with the sentence.
 - "No voice found — not scored." Check that the right microphone is selected.
 - "Tone model missing — not scored. See docs/running.md." Restore `backend/shadow/scoring/models/tone_v1.*` or retrain.
 - "This sentence has no reference timing — not scored." Re-align or edit the sentence in the drawer.
 - "Could not align this take — not scored." Record it again.
 - "Scoring failed — the take is saved." See the backend log; `make rescore` re-scores once fixed.
+
+Notice on a scored take (the score stands):
+- "Some words sounded different — heard: …" The similarity was between `min_text_similarity` (0.25) and
+  `words_ok_at` (0.55): a few words were misheard or mispronounced. Compare what was heard with the sentence.
