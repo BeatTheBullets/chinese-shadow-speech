@@ -46,7 +46,7 @@ def main() -> None:
             score_attempt(deps, db, seg, att)
             db.add(att); db.commit()
             sj = att.score_json or {}
-            warn.update(sj.get("warnings") or ["scored"])
+            warn.update(sj.get("warnings") or ["scored, words_differ" if "words_differ" in (sj.get("notices") or []) else "scored"])
             q = sj.get("quality") or {}
             if q.get("dbfs") is not None: dbfs.append(q["dbfs"])
             if q.get("align_conf") is not None: conf.append(q["align_conf"])

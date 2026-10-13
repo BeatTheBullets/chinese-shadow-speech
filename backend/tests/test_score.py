@@ -136,14 +136,14 @@ def test_pitch_unvoiced_syllable_is_still_judged_without_contour(monkeypatch):
 def test_a_take_of_the_sentence_is_scored_with_what_was_heard():
     r = run(voice(REF_CONTOURS), hear=lambda: "今天中心。")
     assert r.json["warnings"] == [] and r.json["overall"] is not None and r.rows
-    assert r.json["heard_text"] == "今天中心。" and r.json["quality"]["text_sim"] == 1.0
+    assert r.json["heard_text"] == "今天中心。" and r.json["quality"]["text_sim"] == 1.0 and r.json["notices"] == []
 
 
 def test_a_take_of_other_words_is_not_scored():
     r = run(voice(REF_CONTOURS), hear=lambda: "我是学生。")
     assert r.json["warnings"] == ["different_words"] and r.json["overall"] is None and r.rows == []
     assert r.json["heard_text"] == "我是学生。" and r.json["quality"]["text_sim"] == 0.0
-    assert r.json["model_version"] == "fake"
+    assert r.json["model_version"] == "fake" and r.json["notices"] == []
 
 
 def test_silence_is_never_transcribed():
@@ -161,3 +161,15 @@ def test_a_busy_recogniser_skips_the_words_check():
     r = run(voice(REF_CONTOURS), hear=lambda: None)
     assert r.json["warnings"] == [] and r.json["overall"] is not None
     assert r.json["heard_text"] is None and r.json["quality"]["text_sim"] is None
+
+
+def test_a_take_with_some_words_different_is_scored_with_a_notice():
+    """Between min_text_similarity and words_ok_at: a few misheard words, still the sentence (spec §1)."""
+    r = run(voice(REF_CONTOURS), hear=lambda: "今天。")                  # 2 of 4 syllables: 0.5
+    assert r.json["quality"]["text_sim"] == 0.5 and r.json["overall"] is not None and r.rows
+    assert r.json["warnings"] == [] and r.json["notices"] == ["words_differ"]
+
+
+def test_a_take_without_a_words_check_has_no_notices():
+    assert run(voice(REF_CONTOURS)).json["notices"] == []
+    assert run(np.zeros(SR, dtype="float32")).json["notices"] == []

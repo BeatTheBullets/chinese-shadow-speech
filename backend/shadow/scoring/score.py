@@ -43,7 +43,7 @@ def failed_result(syllables: list[dict], warnings: list[str], quality: dict | No
     """No score: every syllable missing, no rows, so stats and the voice profile ignore the take."""
     return TakeResult({"overall": None, "tone_overall": None, "segmental_overall": None, "rate_ratio": None,
                        "heard_text": heard_text, "ref_contour": None, "usr_contour": None, "syllables": [_syl_json(s, "missing") for s in syllables],
-                       "pitch_range_st": None, "warnings": warnings, "quality": quality,
+                       "pitch_range_st": None, "warnings": warnings, "notices": [], "quality": quality,
                        "model_version": model_version, "feature_version": FEATURE_VERSION})
 
 
@@ -132,4 +132,6 @@ def score_take(*, ref: RefData, syllables: list[dict], text: str, wav: np.ndarra
         "usr_contour": _contour_json(pitch.t0 + off, norm_u, usr_spans),
         "syllables": out_syl, "pitch_range_st": {"ref": _r(ref.baseline.spread_st), "usr": _r(base.spread_st)},
         "warnings": [], "quality": quality, "model_version": model.version, "feature_version": FEATURE_VERSION,
+        # scored, but some words sounded different (spec §1): `warnings` stays empty, as it does for every scored take
+        "notices": ["words_differ"] if quality["text_sim"] is not None and quality["text_sim"] < cfg.words_ok_at else [],
     }, rows, pitch.voiced())
