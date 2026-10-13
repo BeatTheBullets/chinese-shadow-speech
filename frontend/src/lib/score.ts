@@ -29,11 +29,12 @@ export function warningText(score: Score | null | undefined): string | null {
   return w === 'different_words' && score?.heard_text ? `${text} Heard: ${score.heard_text}` : text
 }
 
-const WORDS_DIFFER = 'Some words sounded different — heard: '
+const WORDS_DIFFER = 'Some words sounded different'
 
 // A scored take's notice (Phase 2 spec §1): some words sounded different, but the take was tone-scored.
 export function noticeText(score: Score | null | undefined): string | null {
-  return score?.overall != null && score.notices?.includes('words_differ') ? `${WORDS_DIFFER}${score.heard_text ?? ''}` : null
+  if (score?.overall == null || !score.notices?.includes('words_differ')) return null
+  return score.heard_text ? `${WORDS_DIFFER} — heard: ${score.heard_text}` : `${WORDS_DIFFER}.`
 }
 
 // A hint warningText or noticeText produced: a later clean take clears it (other hints, e.g. move-on, stay).

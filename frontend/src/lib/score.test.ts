@@ -37,6 +37,9 @@ describe('score', () => {
     expect(noticeText(score({ heard_text: '你好' }))).toBeNull()                         // old score JSON: no notices
     expect(noticeText(score({ overall: null, warnings: ['too_quiet'], notices: ['words_differ'] }))).toBeNull()
     expect(isWarningText('Some words sounded different — heard: 他们在次微笑')).toBe(true)
+    expect(noticeText(score({ notices: ['words_differ'], heard_text: null }))).toBe('Some words sounded different.')
+    expect(noticeText(score({ notices: ['words_differ'], heard_text: '' }))).toBe('Some words sounded different.')
+    expect(isWarningText('Some words sounded different.')).toBe(true)
   })
   it('recognises its own warning texts, and only those', () => {
     expect(isWarningText('Too quiet — not scored. Move closer to the mic.')).toBe(true)

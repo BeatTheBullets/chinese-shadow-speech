@@ -147,6 +147,18 @@ describe('<Practice>', () => {
     expect(screen.getByText(/Move on and come back later/)).toBeInTheDocument()
   })
 
+  it('a clean retake clears the words-differ notice', async () => {
+    const differ = { ...scored, notices: ['words_differ'], heard_text: '你号' }
+    h.api.segments.postAttempt.mockResolvedValueOnce({ id: 1, score_json: differ }).mockResolvedValueOnce({ id: 2, score_json: { ...scored, notices: [] } })
+    renderPractice()
+    await screen.findByText('你好', { selector: 'p.sentence' })
+    const take = async () => { press('Enter'); await flush(); press('Enter'); await flush() }
+    await take()
+    expect(await screen.findByText('Some words sounded different — heard: 你号')).toBeInTheDocument()
+    await take()
+    await waitFor(() => expect(screen.queryByText(/Some words sounded different/)).toBeNull())
+  })
+
   it('stored takes bring their score back when the lesson is reopened', async () => {
     const score = { overall: 0.6, tone_overall: 0.6, segmental_overall: null, rate_ratio: 1, ref_contour: null, usr_contour: null, syllables: [], warnings: [] }
     h.api.lessons.takes.mockResolvedValue([{ segment_id: 11, attempt_id: 7, mode: 'echo', created_at: '', duration_s: 1, score_json: score }])
