@@ -29,7 +29,7 @@ import { guidedText, nextGuidedStep, type GuidedStep } from '../lib/guided'
 import { clipSpans, stageWipe } from '../lib/karaoke'
 import { actionForKey, type Action } from '../lib/keys'
 import { passageIndexOf, passageSpan } from '../lib/passages'
-import { applyAttempt, isWarningText, warningText } from '../lib/score'
+import { applyAttempt, isWarningText, noticeText, warningText } from '../lib/score'
 import { sessionUnsent } from '../lib/sessionExport'
 import { useNow } from '../lib/useNow'
 import { clamp01, guideApplies, playbackVolume } from '../lib/volume'
@@ -299,7 +299,7 @@ export default function Practice() {
       if (now) cur.updateSegment(applyAttempt(now, a.score_json?.overall))
       // The take's warning, or clearing an earlier take's, belongs under its own sentence only (not the one moved to).
       if (currentSegment(cur)?.id !== s.id) return
-      const why = warningText(a.score_json)
+      const why = warningText(a.score_json) ?? noticeText(a.score_json)
       if (why) cur.setHint(why)
       else if (isWarningText(cur.hint)) cur.setHint('')
     }

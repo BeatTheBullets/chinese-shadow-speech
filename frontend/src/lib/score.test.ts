@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Score, ScoredSyllable, Segment } from '../api/types'
 import type { Cell } from './cells'
-import { applyAttempt, cellTitle, isWarningText, pct, warningText, withScore } from './score'
+import { applyAttempt, cellTitle, isWarningText, noticeText, pct, warningText, withScore } from './score'
 
 const cells: Cell[] = [{ ch: '你', pinyin: 'ní', tone: 3, status: 'neutral' }, { ch: '好', pinyin: 'hǎo', tone: 3, status: 'neutral' }]
 const syl = (o: Partial<ScoredSyllable>): ScoredSyllable => ({ ch: '你', pinyin: 'ní', tone: 3, target_tone: 2, heard_tone: 2, status: 'ok', tone_score: 0.9, p_target: 0.9, contour: 0.9, ...o })
@@ -28,6 +28,15 @@ describe('score', () => {
       .toBe('Heard different words — not scored. Heard: 我是学生')
     expect(warningText(score({ overall: null, warnings: ['different_words'], heard_text: null }))).toBe('Heard different words — not scored.')
     expect(isWarningText('Heard different words — not scored. Heard: 我是学生')).toBe(true)
+  })
+  it('a scored take whose words partly differed says what was heard', () => {
+    const differ = score({ notices: ['words_differ'], heard_text: '他们在次微笑' })
+    expect(noticeText(differ)).toBe('Some words sounded different — heard: 他们在次微笑')
+    expect(warningText(differ)).toBeNull()                                                // scored: the header shows the score
+    expect(noticeText(score({ notices: [], heard_text: '你好' }))).toBeNull()
+    expect(noticeText(score({ heard_text: '你好' }))).toBeNull()                         // old score JSON: no notices
+    expect(noticeText(score({ overall: null, warnings: ['too_quiet'], notices: ['words_differ'] }))).toBeNull()
+    expect(isWarningText('Some words sounded different — heard: 他们在次微笑')).toBe(true)
   })
   it('recognises its own warning texts, and only those', () => {
     expect(isWarningText('Too quiet — not scored. Move closer to the mic.')).toBe(true)

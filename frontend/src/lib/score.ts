@@ -29,10 +29,17 @@ export function warningText(score: Score | null | undefined): string | null {
   return w === 'different_words' && score?.heard_text ? `${text} Heard: ${score.heard_text}` : text
 }
 
-// A hint warningText produced: a later scored take clears it (other hints, e.g. move-on, stay).
+const WORDS_DIFFER = 'Some words sounded different — heard: '
+
+// A scored take's notice (Phase 2 spec §1): some words sounded different, but the take was tone-scored.
+export function noticeText(score: Score | null | undefined): string | null {
+  return score?.overall != null && score.notices?.includes('words_differ') ? `${WORDS_DIFFER}${score.heard_text ?? ''}` : null
+}
+
+// A hint warningText or noticeText produced: a later clean take clears it (other hints, e.g. move-on, stay).
 export function isWarningText(hint: string): boolean {
   return Object.values(WARNINGS).includes(hint) || hint.startsWith(`${WARNINGS.different_words} Heard: `)
-    || /^Not scored \(.*\)\.$/.test(hint)
+    || hint.startsWith(WORDS_DIFFER) || /^Not scored \(.*\)\.$/.test(hint)
 }
 
 export const pct = (x: number | null | undefined): string => (x == null ? '—' : String(Math.round(x * 100)))
