@@ -310,6 +310,19 @@ describe('<Drill> runner', () => {
     expect(h.drill.focuses).toHaveBeenCalledTimes(2) // the start screen reloads: the drill changed the means
   })
 
+  it('says "Scoring…" once the playback is over and the score has not come back', async () => {
+    let played!: () => void, scoredWith!: (v: unknown) => void
+    h.playSequence.mockImplementation(() => new Promise<void>((r) => { played = r }))
+    h.segments.postAttempt.mockImplementation(() => new Promise((r) => { scoredWith = r }))
+    await startRun()
+    await take()
+    expect(screen.getByText('Listen — the original, then you')).toBeInTheDocument()
+    await act(async () => { played() }); await flush()
+    expect(screen.getByText('Scoring…')).toBeInTheDocument()
+    await act(async () => { scoredWith({ id: 99, score_json: green }) }); await flush()
+    expect(screen.getByText('Green — Enter for the next sentence')).toBeInTheDocument()
+  })
+
   it('leaving the page mid-drill ends the session', async () => {
     const { unmount } = await startRun()
     unmount()

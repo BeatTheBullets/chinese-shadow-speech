@@ -25,15 +25,16 @@ const readable = (e: unknown) => (e instanceof ApiError ? e.detail : message(e))
 // This visit's take of the current sentence; `score` arrives with the upload (undefined until then).
 interface DrillTake { url: string; duration: number; peaks: Float32Array; score?: Score | null }
 
-// `pending`: a take is uploading or playing back (reference then you).
-function cueOf(st: DrillState, recording: boolean, pending: boolean, green: boolean): Cue {
+// `playback`: the take's reference-then-you playback is running; `scoring`: its upload has not answered yet.
+function cueOf(st: DrillState, recording: boolean, playback: boolean, scoring: boolean, green: boolean): Cue {
   if (st.step === 'listen') return { icon: '🎧', text: 'Listen and speak along', tone: 'ref' }
   if (recording) return { icon: '🗣', text: 'Your turn — speak now', tone: 'you' }
   if (st.step === 'review') {
     if (st.outcome === 'retry') return { icon: '↻', text: 'Not green yet — Enter to try again', tone: 'you' }
     return green ? { icon: '✓', text: 'Green — Enter for the next sentence', tone: 'ok' } : { icon: '→', text: 'Enter for the next sentence', tone: 'neutral' }
   }
-  if (pending) return { icon: '🎧', text: 'Listen — the original, then you', tone: 'ref' }
+  if (playback) return { icon: '🎧', text: 'Listen — the original, then you', tone: 'ref' }
+  if (scoring) return { icon: '⏳', text: 'Scoring…', tone: 'neutral' }
   return { icon: '🗣', text: 'Your turn — Enter to record', tone: 'you' }
 }
 
@@ -263,7 +264,7 @@ export default function DrillRunner({ session, onFinish }: { session: DrillSessi
         <span>{item.lesson_title}</span>
         <button className="btn ml-auto" onClick={finish}>Finish</button>
       </div>
-      <WithMicLevel mic={mic}>{(level) => <CueLine cue={cueOf(st, recording, uploading || playback, green)} level={level} />}</WithMicLevel>
+      <WithMicLevel mic={mic}>{(level) => <CueLine cue={cueOf(st, recording, playback, uploading, green)} level={level} />}</WithMicLevel>
       <KaraokeSentence wipe={wipe} text={seg.text} words={seg.words_json} showHanzi={defaultTextPrefs.hanzi && show} showPinyin={defaultTextPrefs.pinyin && show}
         translation={seg.translation} showTranslation={false} />
       <TwoTrack segment={seg} refPeaks={refPeaks} refDuration={seg.end_s - seg.start_s} refPlayhead={refHead}
