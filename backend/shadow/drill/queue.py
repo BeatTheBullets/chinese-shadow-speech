@@ -53,7 +53,10 @@ def _candidates(db: Session, cfg: DrillCfg, kind: str, key: str) -> list[tuple[S
 
 def build_queue(db: Session, cfg: DrillCfg, kind: str, key: str) -> list[tuple[Segment, list[int]]]:
     skip = _recent_green(db, kind, key)
-    cands = [(s, t) for s, t in _candidates(db, cfg, kind, key) if s.id not in skip]
+    every = _candidates(db, cfg, kind, key)
+    # All of them went green lately: drill them again rather than 404 a focus that has sentences (the auto pick
+    # would keep offering it, and no session means its rotation never moves on).
+    cands = [(s, t) for s, t in every if s.id not in skip] or every
     stats = _attempt_stats(db, Segment.id.in_([s.id for s, _ in cands])) if cands else {}
 
     def rank(item):

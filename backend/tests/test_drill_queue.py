@@ -75,6 +75,35 @@ def test_recently_green_sentences_are_skipped(db):
     assert [s.id for s, _ in build_queue(db, DrillCfg(), "tone", "3")] == [b.id]
 
 
+def test_a_focus_whose_sentences_all_went_green_lately_is_drilled_again(client, db):
+    l1 = lesson(db)
+    a = seg(db, l1, 0, [3, 1, 2, 4])
+    ds = DrillSession(kind="tone", key="3", label="x", items_json=[{"segment_id": a.id, "targets": [0]}])
+    db.add(ds); db.commit(); db.refresh(ds)
+    _drill_take(db, ds, a.id, [("ok", 0.9)])
+    assert [s.id for s, _ in build_queue(db, DrillCfg(), "tone", "3")] == [a.id]
+    assert client.post("/drill/sessions", json={"kind": "tone", "key": "3"}).status_code == 201
+
+
+def test_queue_ranking(db):
+    """2 × targets (max 3) + 2 × (1 − last score) if practised, + 1 if never: queue_size 1 shows the winner. Each
+    pair is its own tone (neutral fillers are never a target), the loser created first so the id tiebreak can't explain it."""
+    les = lesson(db)
+
+    def scored(idx, tones, overall):
+        s = seg(db, les, idx, tones)
+        db.add(Attempt(segment_id=s.id, mode="echo", audio_path="x.wav", duration_s=1, score_json={"overall": overall}))
+        db.commit(); return s
+
+    top = lambda key: [s.id for s, _ in build_queue(db, DrillCfg(queue_size=1, max_per_lesson=10), "tone", key)]
+    seg(db, les, 0, [1, 0, 0, 0]); more = scored(1, [1, 1, 0, 0], 1.0)           # 3 vs 4: more targets first
+    assert top("1") == [more.id]
+    scored(2, [2, 0, 0, 0], 0.8); lower = scored(3, [2, 0, 0, 0], 0.2)           # 2.4 vs 3.6: lower last score first
+    assert top("2") == [lower.id]
+    scored(4, [4, 0, 0, 0], 0.6); fresh = seg(db, les, 5, [4, 0, 0, 0])          # 2.8 vs 3: never practised +1
+    assert top("4") == [fresh.id]
+
+
 def test_session_from_segment_ids(client, db):
     l1 = lesson(db)
     a = seg(db, l1, 0, [3, 1, 2, 4])
