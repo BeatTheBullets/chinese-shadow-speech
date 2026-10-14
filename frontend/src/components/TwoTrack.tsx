@@ -14,6 +14,7 @@ interface Props {
   onPlayRef: () => void; onPlayYou: () => void; onPlaySyllable: (i: number) => void
   scoreHeader?: React.ReactNode
   score?: Score | null
+  highlight?: number[] // syllables to outline in both rows (a drill's targets)
 }
 export default function TwoTrack(p: Props) {
   const box = useRef<HTMLDivElement>(null)
@@ -39,7 +40,7 @@ export default function TwoTrack(p: Props) {
           <Waveform peaks={p.refPeaks} duration={p.refDuration} pxPerSec={pxPerSec} ticks={ticks} playhead={p.refPlayhead} color="#2f4a66" />
           {refPts.length > 0 && <PitchLine series={[{ points: refPts, className: 'stroke-ref' }]} pxPerSec={pxPerSec} duration={p.refDuration} height={44} range={range} />}
         </div>
-        <CellRow cells={cells} variant="ref" onCellClick={p.onPlaySyllable} />
+        <CellRow cells={cells} variant="ref" onCellClick={p.onPlaySyllable} highlight={p.highlight} />
       </div>
       <div className="bg-bg border border-line rounded p-2">
         <div className={cap}><span>You{p.youDuration && p.refDuration ? ` · ${p.youDuration.toFixed(1)} s · ${(p.youDuration / p.refDuration).toFixed(2)}×` : ''}</span>
@@ -50,7 +51,7 @@ export default function TwoTrack(p: Props) {
             {usrPts.length > 0 && <PitchLine series={[{ points: ghost, className: 'stroke-ref opacity-30' }, { points: usrPts, className: 'stroke-warn' }]} pxPerSec={pxPerSec} duration={p.youDuration} height={44} range={range} />}
           </div>
         ) : <div className="h-11 text-center text-fgdim text-sm leading-[44px]">record to compare</div>}
-        <CellRow cells={youCells} variant="you" />
+        <CellRow cells={youCells} variant="you" highlight={p.highlight} />
       </div>
     </div>
   )

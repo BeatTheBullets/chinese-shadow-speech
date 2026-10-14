@@ -17,4 +17,13 @@ describe('<CellRow>', () => {
     expect(missing).toHaveClass('cell-missing'); expect(missing).toHaveTextContent('–')
     expect(wrong).toHaveAttribute('title', 'hǎo · Speaker: tone 3 (low) · You: tone 2 (rising) · 31')
   })
+
+  it('outlines the highlighted cells only', () => {
+    render(<CellRow variant="ref" highlight={[1]} cells={[
+      { ch: '你', pinyin: 'nǐ', tone: 3 }, { ch: '好', pinyin: 'hǎo', tone: 3 }, { ch: '吗', pinyin: 'ma', tone: 0 },
+    ]} />)
+    const [a, b, c] = screen.getAllByRole('button')
+    expect(b).toHaveClass('ring-2', 'ring-accent')
+    expect(a).not.toHaveClass('ring-2'); expect(c).not.toHaveClass('ring-2')
+  })
 })
