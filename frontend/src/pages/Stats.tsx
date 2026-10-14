@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
-import type { ActivityStats, SentenceStats, SyllableStats, ToneStats } from '../api/types'
+import type { ActivityStats, DrillRecent, SentenceStats, SyllableStats, ToneStats } from '../api/types'
 import Shell from '../components/Shell'
 import ToneMatrix from '../components/ToneMatrix'
 import ToneTrend from '../components/ToneTrend'
@@ -56,14 +57,18 @@ export default function Stats() {
   const [sentences, setSentences] = useState<SentenceStats | null>(null)
   const [syllables, setSyllables] = useState<SyllableStats | null>(null)
   const [tones, setTones] = useState<ToneStats | null>(null)
+  const [drills, setDrills] = useState<DrillRecent[] | null>(null)
   const [error, setError] = useState('')
+  const navigate = useNavigate()
+  const drill = (kind: string, key: string) => navigate(`/drill?kind=${kind}&key=${encodeURIComponent(key)}`)
   useEffect(() => {
     let cancelled = false
     const run = <T,>(p: Promise<T>, set: (v: T) => void) => p.then((v) => { if (!cancelled) set(v) }).catch((e) => { if (!cancelled) setError(`Could not load stats: ${message(e)}`) })
     void run(api.stats.activity(30), setActivity); void run(api.stats.sentences(), setSentences)
-    void run(api.stats.syllables(), setSyllables); void run(api.stats.tones(), setTones)
+    void run(api.stats.syllables(), setSyllables); void run(api.stats.tones(), setTones); void run(api.drill.recent(10), setDrills)
     return () => { cancelled = true }
   }, [])
+  const small = 'text-xs text-accent ml-auto'
   const row = 'border-b border-line py-1 flex gap-4'
   return (
     <Shell><div className="max-w-4xl mx-auto p-6 space-y-4">
@@ -76,19 +81,28 @@ export default function Stats() {
           {sentences.by_last.length > 0 && <div><h3 className="text-sm text-fgdim">By last score</h3>{sentences.by_last.map((s) => <div key={s.segment_id} className={row}><span>#{s.segment_id}</span><span>last {Math.round(s.last * 100)}</span><span>best {Math.round(s.best * 100)}</span><span className="text-fgdim">{plural(s.attempts)}</span></div>)}</div>}
         </>) : <Empty />}
       </Panel>
+      <Panel title="Drills">
+        {drills?.length ? drills.map((d) => (
+          <div key={d.id} className={row}>
+            <span data-drill-label>{d.label}</span><span className="text-fgdim">{d.started_at.slice(0, 10)}</span>
+            {d.first_mean != null && d.best_mean != null && <span>{pct(d.first_mean)} → {pct(d.best_mean)}</span>}
+          </div>)) : drills ? <p className="text-sm text-fgdim">No drills yet.</p> : <p className="text-sm text-fgdim">Loading…</p>}
+      </Panel>
       <Panel title="Characters">
         {syllables?.syllables.length ? syllables.syllables.map((s) => (
           <div key={`${s.ch}${s.pinyin}${s.tone}`} className={row}>
             <span className="font-hanzi text-fghi">{s.ch}</span> <span>{s.pinyin}{s.tone}</span> <span>mean {pct(s.mean)}</span> <span className="text-fgdim">n {s.n}</span>
             {s.trend != null && <span className={s.trend >= 0 ? 'text-ok' : 'text-bad'}>{s.trend >= 0 ? '↑' : '↓'} {Math.abs(Math.round(s.trend * 100))}</span>}
+            <button type="button" className={small} aria-label={`Drill ${s.ch}`} onClick={() => drill('char', s.ch)}>Drill this</button>
           </div>)) : <Empty />}
       </Panel>
       <Panel title="Tones">
         {tones && (tones.tones.length || tones.pairs.length) ? (<>
           <ToneTrend weeks={tones.weeks} />
-          {tones.tones.map((t) => <div key={t.tone} className={row}><span>Tone {t.tone} ({TONE_NAMES[t.tone]})</span><span>mean {pct(t.mean)}</span><span className="text-fgdim">n {t.n}</span></div>)}
+          {tones.tones.map((t) => <div key={t.tone} className={row}><span>Tone {t.tone} ({TONE_NAMES[t.tone]})</span><span>mean {pct(t.mean)}</span><span className="text-fgdim">n {t.n}</span>
+            {t.tone >= 1 && t.tone <= 4 && <button type="button" className={small} aria-label={`Drill tone ${t.tone}`} onClick={() => drill('tone', String(t.tone))}>Drill this</button>}</div>)}
           <h3 className="text-sm text-fgdim">After tone × tone</h3>
-          <ToneMatrix pairs={tones.pairs} />
+          <ToneMatrix pairs={tones.pairs} onDrill={(k) => drill('pair', k)} />
         </>) : <Empty />}
       </Panel>
     </div></Shell>

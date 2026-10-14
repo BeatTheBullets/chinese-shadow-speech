@@ -64,11 +64,18 @@ const press = (key: string, init: KeyboardEventInit = {}) => fireEvent.keyDown(w
 // Entering Flow loads the lesson's stored runs: let that settle inside act().
 const enterFlow = async () => { fireEvent.click(screen.getByRole('button', { name: 'Flow' })); await flush() }
 
-function renderPractice() {
-  return render(<MemoryRouter initialEntries={['/practice/1']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><Routes><Route path="/practice/:id" element={<Practice />} /></Routes></MemoryRouter>)
+function renderPractice(url = '/practice/1') {
+  return render(<MemoryRouter initialEntries={[url]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><Routes><Route path="/practice/:id" element={<Practice />} /></Routes></MemoryRouter>)
 }
 
 describe('<Practice>', () => {
+  it('opens on the sentence named by ?idx= (0-based)', async () => {
+    h.api.lessons.get.mockResolvedValue(lesson)
+    renderPractice('/practice/1?idx=1')
+    await screen.findByText('再见', { selector: 'p.sentence' })
+    expect(usePractice.getState().idx).toBe(1)
+  })
+
 
   it('Echo: the uploaded take\u2019s score reaches the You track and the sentence\u2019s last score', async () => {
     const score = { overall: 0.8, tone_overall: 0.8, segmental_overall: null, rate_ratio: 1, ref_contour: null, usr_contour: null, syllables: [], warnings: [] }

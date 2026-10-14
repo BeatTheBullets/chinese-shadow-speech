@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { exportAndRecord, reexportQuestion } from '../anki/export'
 import { api, ApiError } from '../api/client'
 import type { Attempt, FlowRun, LessonDetail, Mode, Score, Segment, Take } from '../api/types'
@@ -63,6 +63,7 @@ type RunKind = 'chorus' | 'flow' | 'guided'
 export default function Practice() {
   const { id } = useParams()
   const lessonId = Number(id)
+  const idxParam = useRef(useSearchParams()[0].get('idx'))   // the drill and Stats link here; read once, when the lesson loads
   const st = usePractice()
   const settings = useSettings()
   const seg = usePractice(currentSegment)
@@ -133,6 +134,8 @@ export default function Practice() {
       ps.setLesson(l); ps.setTextPrefs(s.textPrefs[String(lessonId)] ?? defaultTextPrefs); ps.setRate(s.practice.defaultRate)
       const seg = new URLSearchParams(window.location.search).get('seg')   // Review links here with ?seg=idx
       if (seg != null && Number.isInteger(Number(seg)) && Number(seg) >= 0 && Number(seg) < l.segments.length) ps.setIdx(Number(seg))
+      const ix = idxParam.current
+      if (ix != null && Number.isInteger(Number(ix)) && Number(ix) >= 0 && Number(ix) < l.segments.length) ps.setIdx(Number(ix))
       loadTakes(lessonId, () => !cancelled)
     }).catch((e) => { if (!cancelled) setLoadError(`Could not load the lesson: ${message(e)}`) })
     return () => { cancelled = true }
