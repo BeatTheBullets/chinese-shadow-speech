@@ -13,7 +13,7 @@ from shadow.ingest import audio
 from shadow.schemas import AttemptOut, FlowRunItem, FlowRunOut, FlowRunsOut, TakeOut, TakesOut
 from shadow.scoring import score_attempt
 from shadow.store.db import get_session
-from shadow.store.models import Attempt, PracticeSession, Segment
+from shadow.store.models import Attempt, DrillSession, PracticeSession, Segment
 
 router = APIRouter()
 
@@ -25,7 +25,7 @@ MAX_RUNS = 10
 # Phase 2: VAD-trim the 150 ms slack from uploaded attempt slices here (spec §6.1); deferred, not done in Phase 1.
 @router.post("/segments/{segment_id}/attempts", response_model=AttemptOut, status_code=201)
 def create_attempt(segment_id: int, request: Request, audio_file: UploadFile = File(..., alias="audio"),
-                   session_id: int | None = Form(None), mode: str = Form("echo"), db: Session = Depends(get_session)):
+                   session_id: int | None = Form(None), drill_session_id: int | None = Form(None), mode: str = Form("echo"), db: Session = Depends(get_session)):
     seg = db.get(Segment, segment_id)
     if seg is None:
         raise HTTPException(404, "segment not found")
@@ -37,12 +37,14 @@ def create_attempt(segment_id: int, request: Request, audio_file: UploadFile = F
         sess = db.get(PracticeSession, session_id)
         if sess is None:
             raise HTTPException(404, "session not found")
+    if drill_session_id is not None and db.get(DrillSession, drill_session_id) is None:
+        raise HTTPException(404, "drill session not found")
     files, deps = request.app.state.files, request.app.state.deps
     tmp_dir = files.data_dir / "attempts" / "tmp"
     tmp_dir.mkdir(parents=True, exist_ok=True)
     raw = tmp_dir / f"{uuid.uuid4().hex}.bin"
     raw.write_bytes(audio_file.file.read())
-    att = Attempt(segment_id=segment_id, session_id=session_id, mode=mode, audio_path="", duration_s=0.0)
+    att = Attempt(segment_id=segment_id, session_id=session_id, drill_session_id=drill_session_id, mode=mode, audio_path="", duration_s=0.0)
     db.add(att); db.commit(); db.refresh(att)
     dst = files.attempt_wav(att.id)
     try:

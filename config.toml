@@ -55,3 +55,13 @@ cookies_file = ""                   # Netscape cookies.txt for age/bot-checked v
 
 [anki]
 default_url = "http://127.0.0.1:8765"
+
+[drill]
+window_days = 30
+min_rows = 8
+queue_size = 10
+max_tries = 3
+max_per_lesson = 4
+min_syllables = 4
+max_syllables = 15
+rotate_within = 0.05

@@ -50,3 +50,12 @@ def test_repo_config_toml_has_phase2_scoring_keys():
     from shadow.config import ScoringCfg
     assert s.scoring.min_text_similarity == ScoringCfg().min_text_similarity     # the words check's thresholds are set
     assert s.scoring.words_ok_at == ScoringCfg().words_ok_at
+
+
+def test_drill_defaults_and_config_toml():
+    from pathlib import Path
+    from shadow.config import Settings, load_settings
+    d = Settings().drill
+    assert (d.window_days, d.min_rows, d.queue_size, d.max_tries, d.max_per_lesson) == (30, 8, 10, 3, 4)
+    assert (d.min_syllables, d.max_syllables, d.rotate_within) == (4, 15, 0.05)
+    assert load_settings(Path(__file__).resolve().parents[2] / "config.toml").drill == d

@@ -70,6 +70,17 @@ class AnkiCfg(BaseModel):
     default_url: str = "http://127.0.0.1:8765"
 
 
+class DrillCfg(BaseModel):
+    window_days: int = 30             # weakness = mean tone_score over attempts this recent
+    min_rows: int = 8                 # a focus needs this many scored syllable rows to be ranked
+    queue_size: int = 10
+    max_tries: int = 3                # scored tries per queue item before it moves on
+    max_per_lesson: int = 4
+    min_syllables: int = 4
+    max_syllables: int = 15
+    rotate_within: float = 0.05       # foci this close to the weakest rotate instead of repeating
+
+
 class Settings(BaseModel):
     server: ServerCfg = Field(default_factory=ServerCfg)
     models: ModelsCfg = Field(default_factory=ModelsCfg)
@@ -79,6 +90,7 @@ class Settings(BaseModel):
     practice: PracticeCfg = Field(default_factory=PracticeCfg)
     youtube: YoutubeCfg = Field(default_factory=YoutubeCfg)
     anki: AnkiCfg = Field(default_factory=AnkiCfg)
+    drill: DrillCfg = Field(default_factory=DrillCfg)
     data_dir: Path = Path("data")
 
     def resolved_device(self) -> str:

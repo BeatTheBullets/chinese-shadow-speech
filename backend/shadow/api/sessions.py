@@ -8,7 +8,7 @@ from shadow.store.models import PracticeSession, Lesson
 
 router = APIRouter()
 
-MODES = {"echo", "chorus", "flow", "guided"}
+MODES = {"echo", "chorus", "flow", "guided", "drill"}
 
 
 class SessionIn(BaseModel):

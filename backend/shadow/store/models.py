@@ -54,11 +54,24 @@ class PracticeSession(SQLModel, table=True):
     attempts_count: int = 0
 
 
+class DrillSession(SQLModel, table=True):
+    """A drill (Phase 3b spec §3): the focus and the queue as built; its takes are attempts with drill_session_id."""
+    __table_args__ = {"sqlite_autoincrement": True}   # ids never reused after a delete (clip URLs, prefs, exports)
+    id: int | None = Field(default=None, primary_key=True)
+    kind: str
+    key: str
+    label: str
+    started_at: datetime = Field(default_factory=now)
+    ended_at: datetime | None = None
+    items_json: list[dict[str, Any]] = Field(default_factory=list, sa_column=Column(JSON))
+
+
 class Attempt(SQLModel, table=True):
     __table_args__ = {"sqlite_autoincrement": True}   # ids never reused after a delete (clip URLs, prefs, exports)
     id: int | None = Field(default=None, primary_key=True)
     segment_id: int = Field(foreign_key="segment.id", index=True)
     session_id: int | None = Field(default=None, foreign_key="session.id")
+    drill_session_id: int | None = Field(default=None, foreign_key="drillsession.id")
     created_at: datetime = Field(default_factory=now)
     mode: str
     audio_path: str
