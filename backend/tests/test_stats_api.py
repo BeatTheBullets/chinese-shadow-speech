@@ -74,6 +74,25 @@ def test_activity_window_edge_session_before_window(client):
     assert abs(total - 1.5) < 0.01
 
 
+def test_activity_ended_drill_counts_wall_time_once(client):
+    from datetime import timedelta
+    from sqlmodel import Session
+    from shadow.store.models import Attempt, DrillSession, Lesson, Segment
+    n = _now()
+    with Session(client.app.state.engine) as db:
+        les = Lesson(title="t", source_type="upload"); db.add(les); db.commit()
+        seg = Segment(lesson_id=les.id, idx=0, start_s=0, end_s=1, text="x"); db.add(seg); db.commit()
+        done = DrillSession(kind="tone", key="3", label="x", items_json=[], started_at=n - timedelta(minutes=10), ended_at=n)
+        running = DrillSession(kind="tone", key="4", label="y", items_json=[], started_at=n)
+        db.add(done); db.add(running); db.commit()
+        for ds in (done, done, running):
+            db.add(Attempt(segment_id=seg.id, drill_session_id=ds.id, mode="drill", audio_path="x", duration_s=30.0, created_at=n))
+        db.commit()
+    day = client.get("/stats/activity", params={"days": 2}).json()["days"]
+    # The ended drill's 10 minutes of wall time, plus the 30 s take of the one still running.
+    assert abs(sum(d["minutes"] for d in day) - 10.5) < 0.01 and sum(d["attempts"] for d in day) == 3
+
+
 def test_activity_days_validation(client):
     assert client.get("/stats/activity", params={"days": 0}).status_code == 422
     assert client.get("/stats/activity", params={"days": 400}).status_code == 422

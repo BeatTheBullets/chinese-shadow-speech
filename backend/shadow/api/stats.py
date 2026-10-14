@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func
 from sqlmodel import Session, select
 from shadow.store.db import get_session
-from shadow.store.models import Attempt, Lesson, PracticeSession, Segment, SyllableScore
+from shadow.store.models import Attempt, DrillSession, Lesson, PracticeSession, Segment, SyllableScore
 
 router = APIRouter()
 
@@ -49,14 +49,17 @@ def activity(days: int = Query(30, ge=1, le=366), db: Session = Depends(get_sess
     # A session's wall time is credited to its start day; only sessions credited inside the window suppress their attempts' durations.
     ended = db.exec(select(PracticeSession).where(PracticeSession.ended_at.is_not(None), PracticeSession.started_at >= since)).all()
     ended_ids = {ps.id for ps in ended}
+    # Drills the same way: their takes are attempts with drill_session_id instead of session_id.
+    drills = db.exec(select(DrillSession).where(DrillSession.ended_at.is_not(None), DrillSession.started_at >= since)).all()
+    drill_ids = {ds.id for ds in drills}
     for a in db.exec(select(Attempt).where(Attempt.created_at >= since)).all():
         key = _utc_day(a.created_at)
         if key in per_day:
             per_day[key]["attempts"] += 1
             # Ended sessions contribute wall time below instead of attempt durations.
-            if a.session_id not in ended_ids:
+            if a.session_id not in ended_ids and a.drill_session_id not in drill_ids:
                 per_day[key]["minutes"] += a.duration_s / 60
-    for ps in ended:
+    for ps in [*ended, *drills]:
         key = _utc_day(ps.started_at)
         if key in per_day:
             per_day[key]["minutes"] += (ps.ended_at - ps.started_at).total_seconds() / 60
