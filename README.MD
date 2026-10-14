@@ -256,12 +256,13 @@ fake implementation.
 | Path | What's there |
 |---|---|
 | `backend/shadow/ingest/` | download, ASR, subtitle alignment, rectification, forced alignment and repair, enrichment, passages |
-| `backend/shadow/api/` | FastAPI routes: lessons, segments, attempts, sessions, review, stats, Anki import |
+| `backend/shadow/api/` | FastAPI routes: lessons, segments, attempts, sessions, review, stats, drills (`/drill/focuses`, `/drill/sessions`), Anki import |
+| `backend/shadow/drill/` | drills: focus ranking and rotation, the cross-lesson queue, summaries |
 | `backend/shadow/store/` | SQLModel tables (SQLite) and the on-disk audio layout |
-| `frontend/src/pages/` | Library, Practice (with Flow), Review, Stats, Settings |
-| `frontend/src/lib/` | pure logic: cues, karaoke timing, flow scheduling, passages, keys |
+| `frontend/src/pages/` | Library, Practice (with Flow), Review, Drill, Stats, Settings |
+| `frontend/src/lib/` | pure logic: cues, karaoke timing, flow scheduling, passages, keys, the drill step machine |
 | `frontend/src/audio/` | clip player, AudioWorklet recorder (16 kHz PCM WAV), VAD |
-| `docs/superpowers/specs/` | the design: [main spec](docs/superpowers/specs/2026-10-03-shadowing-tool-design.md), [YouTube/passages/guidance addendum](docs/superpowers/specs/2026-10-07-youtube-passages-guidance-design.md) |
+| `docs/superpowers/specs/` | the design: [main spec](docs/superpowers/specs/2026-10-03-shadowing-tool-design.md), [YouTube/passages/guidance addendum](docs/superpowers/specs/2026-10-07-youtube-passages-guidance-design.md), [drills](docs/superpowers/specs/2026-10-14-phase3b-drills-design.md) |
 | `docs/superpowers/plans/` | the implementation plans each phase was built from |
 | `backend/shadow/scoring/` | pitch tracking, the tone model, syllable scoring, voice profile |
 | `docs/phase1-acceptance.md`, `docs/phase2-acceptance.md`, `docs/phase3b-acceptance.md` | the manual checklists for things only a real browser, mic and Anki can verify |
