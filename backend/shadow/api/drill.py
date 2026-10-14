@@ -2,12 +2,13 @@
 from __future__ import annotations
 from dataclasses import asdict
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlmodel import Session
 from shadow.api.lessons import _segment_out
 from shadow.drill.focus import auto_focus, focus_label, rank_focuses
 from shadow.drill.queue import build_queue, queue_from_ids
+from shadow.drill.summary import recent_sessions, session_summary
 from shadow.ingest.text import is_hanzi
 from shadow.scoring.reference import segment_syllables
 from shadow.store.db import get_session
@@ -69,3 +70,16 @@ def end_drill(session_id: int, body: SessionPatch, db: Session = Depends(get_ses
     if body.ended and ds.ended_at is None:
         ds.ended_at = datetime.now(timezone.utc); db.add(ds); db.commit(); db.refresh(ds)
     return {"id": ds.id, "kind": ds.kind, "key": ds.key, "label": ds.label, "started_at": ds.started_at, "ended_at": ds.ended_at}
+
+
+@router.get("/drill/sessions/{session_id}/summary")
+def drill_summary(session_id: int, db: Session = Depends(get_session)):
+    ds = db.get(DrillSession, session_id)
+    if ds is None:
+        raise HTTPException(404, "drill session not found")
+    return session_summary(db, ds)
+
+
+@router.get("/drill/sessions")
+def drill_sessions(limit: int = Query(10, ge=1, le=50), db: Session = Depends(get_session)):
+    return {"sessions": recent_sessions(db, limit)}

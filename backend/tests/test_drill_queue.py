@@ -96,3 +96,45 @@ def test_session_endpoints(client, db):
     ended = client.patch(f"/drill/sessions/{body['id']}", json={"ended": True}).json()
     assert ended["ended_at"] is not None
     assert client.patch("/drill/sessions/9999", json={"ended": True}).status_code == 404
+
+
+def _drill_take(db, ds, seg_id, statuses_scores, overall=0.5):
+    att = Attempt(segment_id=seg_id, mode="drill", audio_path="x.wav", duration_s=1, drill_session_id=ds.id,
+                  score_json={"overall": overall}); db.add(att); db.commit()
+    for i, (st, sc) in enumerate(statuses_scores):
+        db.add(SyllableScore(attempt_id=att.id, segment_id=seg_id, idx=i, ch="x", pinyin_toneless="x", tone=3,
+                             target_tone=3, tone_score=sc, status=st))
+    db.commit(); return att
+
+
+def test_target_mean():
+    from shadow.drill.summary import target_mean
+    rows = {0: ("ok", 0.9), 1: ("missing", None), 2: ("unvoiced", None), 3: ("close", 0.5)}
+    assert target_mean(rows, [0, 1, 2]) == (pytest.approx(0.45), 1)
+    assert target_mean(rows, [2]) == (None, 0)
+
+
+def test_summary_first_best_tries_and_history(client, db):
+    l1 = lesson(db)
+    a = seg(db, l1, 0, [3, 1, 3, 4])
+    ds = DrillSession(kind="tone", key="3", label="tone 3 (low)", items_json=[{"segment_id": a.id, "targets": [0, 2]}])
+    db.add(ds); db.commit(); db.refresh(ds)
+    _drill_take(db, ds, a.id, [("close", 0.4), ("ok", 0.9), ("close", 0.5), ("ok", 0.9)])
+    gated = Attempt(segment_id=a.id, mode="drill", audio_path="x.wav", duration_s=1, drill_session_id=ds.id,
+                    score_json={"overall": None, "warnings": ["too_quiet"]}); db.add(gated); db.commit()
+    best = _drill_take(db, ds, a.id, [("ok", 0.8), ("ok", 0.9), ("ok", 0.9), ("ok", 0.9)])
+    client.patch(f"/drill/sessions/{ds.id}", json={"ended": True})
+    s = client.get(f"/drill/sessions/{ds.id}/summary").json()
+    it = s["items"][0]
+    assert it["tries"] == 2 and it["went_green"] is True and it["best"]["attempt_id"] == best.id
+    assert it["first"]["mean"] == pytest.approx(0.45) and it["first"]["green"] == 0 and it["best"]["green"] == 2
+    assert s["first_mean"] == pytest.approx(0.45) and s["best_mean"] == pytest.approx(0.85) and s["n_targets"] == 2
+    assert [h["session_id"] for h in s["history"]] == [ds.id]
+    assert client.get("/drill/sessions").json()["sessions"][0]["best_mean"] == pytest.approx(0.85)
+
+
+def test_summary_skips_deleted_segments(client, db):
+    ds = DrillSession(kind="tone", key="3", label="x", items_json=[{"segment_id": 9999, "targets": [0]}])
+    db.add(ds); db.commit(); db.refresh(ds)
+    assert client.get(f"/drill/sessions/{ds.id}/summary").json()["items"] == []
+    assert client.get("/drill/sessions/9999/summary").status_code == 404
