@@ -204,6 +204,21 @@ describe('<Drill> runner', () => {
     await flush()
   })
 
+  it("follows the session's max_tries ([drill] max_tries)", async () => {
+    h.segments.postAttempt.mockResolvedValue({ id: 99, score_json: notGreen })
+    h.drill.start.mockResolvedValue({ ...run(twoItems), max_tries: 2 })
+    renderAt()
+    await screen.findByText("Today's focus")
+    fireEvent.click(screen.getAllByRole('button', { name: 'Start' })[0])
+    expect(await screen.findByText('Your turn — Enter to record')).toBeInTheDocument()
+    expect(screen.getByText('Try 1 / 2')).toBeInTheDocument()
+    await take()
+    expect(await screen.findByRole('button', { name: 'Again' })).toBeInTheDocument()
+    await take()
+    expect(await screen.findByText('Try 2 / 2')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Next' })).toBeInTheDocument()
+  })
+
   it('a gate-warning take shows the warning and does not count as a try', async () => {
     h.segments.postAttempt.mockResolvedValueOnce({ id: 98, score_json: gated }).mockResolvedValueOnce({ id: 99, score_json: green })
     await startRun()

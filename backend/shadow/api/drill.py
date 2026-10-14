@@ -57,7 +57,9 @@ def create_drill(body: SessionIn, request: Request, db: Session = Depends(get_se
     ds = DrillSession(kind=body.kind, key=body.key, label=focus_label(body.kind, body.key, pinyin if body.kind == "char" else None),
                       items_json=[{"segment_id": s.id, "targets": t} for s, t in items])
     db.add(ds); db.commit(); db.refresh(ds)
+    # max_tries rides along so the runner's retry rule follows [drill] max_tries.
     return {"id": ds.id, "kind": ds.kind, "key": ds.key, "label": ds.label, "short": len(items) < cfg.queue_size,
+            "max_tries": cfg.max_tries,
             "items": [{"segment": _segment_out(db, s), "lesson_id": s.lesson_id,
                        "lesson_title": db.get(Lesson, s.lesson_id).title, "targets": t} for s, t in items]}
 

@@ -120,6 +120,9 @@ def test_session_endpoints(client, db):
     body = r.json()
     assert body["label"] == "tone 3 (low)" and body["short"] is True and body["items"][0]["targets"] == [0]
     assert body["items"][0]["lesson_title"] == "L" and body["items"][0]["segment"]["id"]
+    assert body["max_tries"] == 3
+    client.app.state.settings.drill.max_tries = 2                    # [drill] max_tries reaches the runner
+    assert client.post("/drill/sessions", json={"kind": "tone", "key": "3"}).json()["max_tries"] == 2
     assert client.post("/drill/sessions", json={"kind": "tone", "key": "0"}).status_code == 400
     assert client.post("/drill/sessions", json={"kind": "char", "key": "龘"}).status_code == 404
     ended = client.patch(f"/drill/sessions/{body['id']}", json={"ended": True}).json()

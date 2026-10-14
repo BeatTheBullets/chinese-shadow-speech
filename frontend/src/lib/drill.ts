@@ -4,7 +4,7 @@ import type { Score } from '../api/types'
 // retry the same sentence or move on. Pure state transitions; the page owns the audio and the network.
 export type DrillStep = 'listen' | 'record' | 'review' | 'done'
 export type Outcome = 'retry' | 'next'
-// Scored tries per sentence before moving on; mirrors the backend's [drill] max_tries default.
+// Scored tries per sentence before moving on, when the session does not say ([drill] max_tries default).
 export const MAX_TRIES = 3
 
 export interface DrillState { i: number; n: number; step: DrillStep; tries: number; outcome: Outcome | null }

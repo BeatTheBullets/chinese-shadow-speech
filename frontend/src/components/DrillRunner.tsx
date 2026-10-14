@@ -44,6 +44,7 @@ export default function DrillRunner({ session, onFinish }: { session: DrillSessi
   const settings = useSettings()
   const player = useMemo(() => new ClipPlayer(), [])
   const mic = useMic()
+  const maxTries = session.max_tries ?? MAX_TRIES
   const stRef = useRef<DrillState>(startDrill(session.items.length))
   const [st, setStState] = useState(stRef.current)
   const setSt = (s: DrillState) => { stRef.current = s; setStState(s) }
@@ -177,7 +178,7 @@ export default function DrillRunner({ session, onFinish }: { session: DrillSessi
         if (takeRef.current?.url === url) setTake({ ...takeRef.current, score: sc })
         setSegs((ss) => ss.map((s) => (s.id === it.segment.id ? applyAttempt(s, sc?.overall) : s)))
         setHint(warningText(sc) ?? noticeText(sc) ?? '')
-        setSt(scored(stRef.current, { gated: sc?.overall == null, allGreen: targetsGreen(sc, it.targets) }, MAX_TRIES))
+        setSt(scored(stRef.current, { gated: sc?.overall == null, allGreen: targetsGreen(sc, it.targets) }, maxTries))
       })
       .catch((e) => { if (alive.current && stRef.current.i === i) setError(`Upload failed: ${readable(e)}`) })
       .finally(() => { if (alive.current && uploadRef.current === mine) setUploading(0) })
@@ -243,7 +244,7 @@ export default function DrillRunner({ session, onFinish }: { session: DrillSessi
 
   if (!item || !seg) return null
   const green = st.step === 'review' && targetsGreen(take?.score, item.targets)
-  const tryNo = Math.min(MAX_TRIES, st.step === 'review' && take?.score?.overall != null ? st.tries : st.tries + 1)
+  const tryNo = Math.min(maxTries, st.step === 'review' && take?.score?.overall != null ? st.tries : st.tries + 1)
   const show = !(recording && settings.practice.hideTextWhileRecording)
   const spans = clipSpans(seg.ref_alignment_json, seg.start_s)
   const { wipe } = stageWipe({ spans, refPlaying: st.step === 'listen' || playback, refHead, turnStart: null, now: 0, rate: 1 })
@@ -258,7 +259,7 @@ export default function DrillRunner({ session, onFinish }: { session: DrillSessi
       <div className="flex items-center gap-4 text-sm text-fgdim border-b border-line pb-2">
         <span className="text-fghi">{session.label}</span>
         <span>Sentence {st.i + 1} / {st.n}</span>
-        <span>Try {tryNo} / {MAX_TRIES}</span>
+        <span>Try {tryNo} / {maxTries}</span>
         <span>{item.lesson_title}</span>
         <button className="btn ml-auto" onClick={finish}>Finish</button>
       </div>

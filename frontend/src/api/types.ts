@@ -57,7 +57,8 @@ export interface UnexportedItem {
 
 export interface DrillFocus { kind: 'tone' | 'pair' | 'char'; key: string; label: string; mean: number; n: number }
 export interface DrillItem { segment: Segment; lesson_id: number; lesson_title: string; targets: number[] }
-export interface DrillSession { id: number; kind: string; key: string; label: string; short: boolean; items: DrillItem[] }
+// max_tries: the backend's [drill] max_tries (optional: the runner falls back to MAX_TRIES).
+export interface DrillSession { id: number; kind: string; key: string; label: string; short: boolean; max_tries?: number; items: DrillItem[] }
 export interface DrillTake { attempt_id: number; mean: number | null; green: number }
 export interface DrillSummaryItem {
   segment_id: number; lesson_id: number; lesson_title: string; idx: number; text: string; targets: number[]
