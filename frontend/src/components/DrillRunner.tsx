@@ -26,7 +26,8 @@ const readable = (e: unknown) => (e instanceof ApiError ? e.detail : message(e))
 interface DrillTake { url: string; duration: number; peaks: Float32Array; score?: Score | null }
 
 // `playback`: the take's reference-then-you playback is running; `scoring`: its upload has not answered yet.
-function cueOf(st: DrillState, recording: boolean, playback: boolean, scoring: boolean, green: boolean): Cue {
+function cueOf(st: DrillState, recording: boolean, playback: boolean, scoring: boolean, green: boolean, saving: boolean): Cue {
+  if (saving) return { icon: '⏳', text: 'Saving your take…', tone: 'neutral' }
   if (st.step === 'listen') return { icon: '🎧', text: 'Listen and speak along', tone: 'ref' }
   if (recording) return { icon: '🗣', text: 'Your turn — speak now', tone: 'you' }
   if (st.step === 'review') {
@@ -64,6 +65,9 @@ export default function DrillRunner({ session, onFinish }: { session: DrillSessi
   const setRecording = (v: boolean) => { recRef.current = v; setRecordingState(v) }
   const setUploading = (id: number) => { uploadRef.current = id; setUploadingState(id !== 0) }
   const takeNo = useRef(0)
+  // Uploads not answered yet, of any sentence: finishing waits for them so the summary has every take.
+  const inflight = useRef(new Set<Promise<unknown>>())
+  const [saving, setSaving] = useState(false)
   const seqCtrl = useRef<AbortController | null>(null)   // the playback in flight (listen clip, reference then take, replays)
   const [refPeaks, setRefPeaks] = useState<Float32Array | null>(null)
   const [refHead, setRefHead] = useState<number | null>(null)
@@ -134,7 +138,9 @@ export default function DrillRunner({ session, onFinish }: { session: DrillSessi
     if (finished.current) return
     finished.current = true
     cancelActivity()
-    api.drill.end(session.id).catch(() => {}).finally(() => { if (alive.current) onFinish() })
+    if (inflight.current.size) setSaving(true)
+    // The uploads never reject (they catch their own errors); a failed one still lets the drill end.
+    Promise.all([...inflight.current]).then(() => api.drill.end(session.id)).catch(() => {}).finally(() => { if (alive.current) onFinish() })
   }
 
   // To another sentence (or back to record for a retry): what belongs to the old one goes.
@@ -182,7 +188,8 @@ export default function DrillRunner({ session, onFinish }: { session: DrillSessi
         setSt(scored(stRef.current, { gated: sc?.overall == null, allGreen: targetsGreen(sc, it.targets) }, maxTries))
       })
       .catch((e) => { if (alive.current && stRef.current.i === i) setError(`Upload failed: ${readable(e)}`) })
-      .finally(() => { if (alive.current && uploadRef.current === mine) setUploading(0) })
+      .finally(() => { inflight.current.delete(upload); if (alive.current && uploadRef.current === mine) setUploading(0) })
+    inflight.current.add(upload)
     const ctrl = new AbortController()
     seqCtrl.current = ctrl
     setPlayback(true)
@@ -264,7 +271,7 @@ export default function DrillRunner({ session, onFinish }: { session: DrillSessi
         <span>{item.lesson_title}</span>
         <button className="btn ml-auto" onClick={finish}>Finish</button>
       </div>
-      <WithMicLevel mic={mic}>{(level) => <CueLine cue={cueOf(st, recording, playback, uploading, green)} level={level} />}</WithMicLevel>
+      <WithMicLevel mic={mic}>{(level) => <CueLine cue={cueOf(st, recording, playback, uploading, green, saving)} level={level} />}</WithMicLevel>
       <KaraokeSentence wipe={wipe} text={seg.text} words={seg.words_json} showHanzi={defaultTextPrefs.hanzi && show} showPinyin={defaultTextPrefs.pinyin && show}
         translation={seg.translation} showTranslation={false} />
       <TwoTrack segment={seg} refPeaks={refPeaks} refDuration={seg.end_s - seg.start_s} refPlayhead={refHead}

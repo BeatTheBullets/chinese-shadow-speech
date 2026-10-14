@@ -92,8 +92,10 @@ beforeEach(() => {
   URL.createObjectURL = vi.fn(() => 'blob:take')
   URL.revokeObjectURL = vi.fn()
 })
-afterEach(() => {
+afterEach(async () => {
   cleanup()
+  // The runner's unmount ends its session a tick later; let that happen before the next test resets the mocks.
+  await new Promise((r) => setTimeout(r, 0))
   globalThis.AudioContext = origAudioContext
   URL.createObjectURL = origCreate; URL.revokeObjectURL = origRevoke
 })
@@ -321,6 +323,34 @@ describe('<Drill> runner', () => {
     expect(screen.getByText('Scoring…')).toBeInTheDocument()
     await act(async () => { scoredWith({ id: 99, score_json: green }) }); await flush()
     expect(screen.getByText('Green — Enter for the next sentence')).toBeInTheDocument()
+  })
+
+  it('Finish while a take uploads waits for it before ending the drill', async () => {
+    let saved!: (v: unknown) => void
+    h.segments.postAttempt.mockImplementation(() => new Promise((r) => { saved = r }))
+    await startRun()
+    await take()
+    fireEvent.click(screen.getByRole('button', { name: 'Finish' }))
+    await flush()
+    expect(screen.getByText('Saving your take…')).toBeInTheDocument()
+    expect(h.drill.end).not.toHaveBeenCalled()
+    expect(h.drill.summary).not.toHaveBeenCalled()
+    await act(async () => { saved({ id: 99, score_json: notGreen }) })
+    expect(await screen.findByText(/target syllables first try 55 → best 72/)).toBeInTheDocument()
+    expect(h.drill.end).toHaveBeenCalledWith(7)
+  })
+
+  it('→ on the last sentence while its take uploads waits too, and a failed upload still ends the drill', async () => {
+    let failed!: (e: unknown) => void
+    h.segments.postAttempt.mockImplementation(() => new Promise((_, rej) => { failed = rej }))
+    await startRun([twoItems[0]])
+    await take()
+    press('ArrowRight'); await flush()
+    expect(screen.getByText('Saving your take…')).toBeInTheDocument()
+    expect(h.drill.end).not.toHaveBeenCalled()
+    await act(async () => { failed(new Error('network down')) })
+    expect(await screen.findByText(/target syllables first try 55 → best 72/)).toBeInTheDocument()
+    expect(h.drill.end).toHaveBeenCalledWith(7)
   })
 
   it('leaving the page mid-drill ends the session', async () => {
