@@ -39,8 +39,8 @@ function History({ label, history }: { label: string; history: Summary['history'
 }
 
 // The end of a drill (spec §4): how the target syllables went from first try to best, the focus's history, and the
-// sentences that never went green — to drill again, or to open in Practice.
-export default function DrillSummary({ summary: s, onAgain, onDone }: { summary: Summary; onAgain: (segmentIds: number[]) => void; onDone: () => void }) {
+// sentences that never went green — to drill again, or to open in Practice. `busy`: a run is starting (one click, one run).
+export default function DrillSummary({ summary: s, onAgain, onDone, busy = false }: { summary: Summary; onAgain: (segmentIds: number[]) => void; onDone: () => void; busy?: boolean }) {
   const notGreen = s.items.filter((it) => !it.went_green)
   return (
     <div className="space-y-4">
@@ -58,7 +58,7 @@ export default function DrillSummary({ summary: s, onAgain, onDone }: { summary:
         </ul>
       </>) : <p className="text-sm text-ok">Every sentence went green.</p>}
       <div className="flex gap-2">
-        {notGreen.length > 0 && <button className="btn" onClick={() => onAgain(notGreen.map((it) => it.segment_id))}>Drill these again</button>}
+        {notGreen.length > 0 && <button className="btn" disabled={busy} onClick={() => onAgain(notGreen.map((it) => it.segment_id))}>Drill these again</button>}
         <button className="btn" onClick={onDone}>Done</button>
       </div>
     </div>

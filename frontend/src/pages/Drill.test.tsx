@@ -293,7 +293,9 @@ describe('<Drill> runner', () => {
     expect(h.drill.end).toHaveBeenCalledTimes(1)
     expect(h.drill.summary).toHaveBeenCalledWith(7)
     h.drill.start.mockResolvedValue(run([twoItems[1]], 8))
-    fireEvent.click(screen.getByRole('button', { name: 'Drill these again' }))
+    const again = screen.getByRole('button', { name: 'Drill these again' })
+    fireEvent.click(again); fireEvent.click(again)                        // a double click starts one run
+    expect(h.drill.start).toHaveBeenCalledTimes(2)
     expect(h.drill.start).toHaveBeenLastCalledWith({ kind: 'tone', key: '3', segment_ids: [12] })
     expect(await screen.findByText('Sentence 1 / 1')).toBeInTheDocument()
     await flush()

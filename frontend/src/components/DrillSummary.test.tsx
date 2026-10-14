@@ -18,8 +18,8 @@ const summary: Summary = {
   ],
 }
 const future = { v7_startTransition: true, v7_relativeSplatPath: true }
-const renderSummary = (s = summary, onAgain = vi.fn(), onDone = vi.fn()) =>
-  render(<MemoryRouter future={future}><DrillSummary summary={s} onAgain={onAgain} onDone={onDone} /></MemoryRouter>)
+const renderSummary = (s = summary, onAgain = vi.fn(), onDone = vi.fn(), busy = false) =>
+  render(<MemoryRouter future={future}><DrillSummary summary={s} onAgain={onAgain} onDone={onDone} busy={busy} /></MemoryRouter>)
 
 describe('<DrillSummary>', () => {
   afterEach(cleanup)
@@ -47,6 +47,15 @@ describe('<DrillSummary>', () => {
     expect(onAgain).toHaveBeenCalledWith([12, 20])
     fireEvent.click(screen.getByRole('button', { name: 'Done' }))
     expect(onDone).toHaveBeenCalled()
+  })
+
+  it('"Drill these again" is disabled while a run is starting', () => {
+    const onAgain = vi.fn()
+    renderSummary(summary, onAgain, vi.fn(), true)
+    const again = screen.getByRole('button', { name: 'Drill these again' })
+    expect(again).toBeDisabled()
+    fireEvent.click(again)
+    expect(onAgain).not.toHaveBeenCalled()
   })
 
   it('draws the focus history, first and best per session', () => {

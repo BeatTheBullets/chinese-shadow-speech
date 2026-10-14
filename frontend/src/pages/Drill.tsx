@@ -85,7 +85,7 @@ export default function Drill() {
   if (summary) return (
     <Shell><div className="max-w-4xl mx-auto p-6 space-y-2">
       {error && <p className="text-sm text-bad">{error}</p>}
-      <DrillSummaryView summary={summary} onAgain={(ids) => start({ kind: summary.kind, key: summary.key, segment_ids: ids })} onDone={backToStart} />
+      <DrillSummaryView summary={summary} onAgain={(ids) => start({ kind: summary.kind, key: summary.key, segment_ids: ids })} onDone={backToStart} busy={starting} />
     </div></Shell>
   )
 
