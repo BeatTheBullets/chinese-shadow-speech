@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from sqlmodel import Session, select
 from shadow.config import DrillCfg
+from shadow.drill.summary import HAS_TAKES
 from shadow.ingest.text import is_hanzi
 from shadow.store.models import Attempt, DrillSession, SyllableScore
 
@@ -66,7 +67,7 @@ def auto_focus(db: Session, focuses: list[Focus], cfg: DrillCfg) -> Focus | None
     """The weakest focus — unless the last finished drill had it and the next one is about as weak (rotation)."""
     if not focuses:
         return None
-    last = db.exec(select(DrillSession).where(DrillSession.ended_at.is_not(None))
+    last = db.exec(select(DrillSession).where(DrillSession.ended_at.is_not(None), HAS_TAKES)
                    .order_by(DrillSession.ended_at.desc(), DrillSession.id.desc())).first()
     first = focuses[0]
     if (last is not None and (last.kind, last.key) == (first.kind, first.key) and len(focuses) > 1

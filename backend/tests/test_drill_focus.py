@@ -60,8 +60,12 @@ def test_weakest_first_and_rotation(db):
     fs = [f for f in rank_focuses(db, DrillCfg(), now=NOW) if f.kind == "tone"]
     assert [f.key for f in fs] == ["3", "4"]
     assert auto_focus(db, fs, DrillCfg()).key == "3"
-    db.add(DrillSession(kind="tone", key="3", label="tone 3 (low)", items_json=[], ended_at=NOW)); db.commit()
+    ds = DrillSession(kind="tone", key="3", label="tone 3 (low)", items_json=[], ended_at=NOW); db.add(ds); db.commit()
+    assert auto_focus(db, fs, DrillCfg()).key == "3"                      # no takes: not a drill that happened
+    db.add(Attempt(segment_id=1, mode="drill", audio_path="x.wav", duration_s=1.0, drill_session_id=ds.id)); db.commit()
     assert auto_focus(db, fs, DrillCfg()).key == "4"                      # last drill was tone 3, tone 4 within 0.05
+    db.add(DrillSession(kind="tone", key="4", label="tone 4", items_json=[], ended_at=NOW + timedelta(hours=1))); db.commit()
+    assert auto_focus(db, fs, DrillCfg()).key == "4"                      # a later empty drill does not hide it
     assert auto_focus(db, [], DrillCfg()) is None
 
 

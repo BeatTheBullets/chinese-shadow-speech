@@ -165,6 +165,18 @@ def test_summary_first_best_tries_and_history(client, db):
     assert client.get("/drill/sessions").json()["sessions"][0]["best_mean"] == pytest.approx(0.85)
 
 
+def test_drills_without_takes_are_left_out_of_recent_and_history(client, db):
+    a = seg(db, lesson(db), 0, [3, 1, 2, 4])
+    real = DrillSession(kind="tone", key="3", label="x", items_json=[{"segment_id": a.id, "targets": [0]}])
+    empty = DrillSession(kind="tone", key="3", label="x", items_json=[{"segment_id": a.id, "targets": [0]}])
+    db.add(real); db.add(empty); db.commit(); db.refresh(real); db.refresh(empty)
+    _drill_take(db, real, a.id, [("close", 0.5)])
+    for ds in (real, empty):
+        client.patch(f"/drill/sessions/{ds.id}", json={"ended": True})
+    assert [s["id"] for s in client.get("/drill/sessions").json()["sessions"]] == [real.id]
+    assert [h["session_id"] for h in client.get(f"/drill/sessions/{real.id}/summary").json()["history"]] == [real.id]
+
+
 def test_summary_skips_deleted_segments(client, db):
     ds = DrillSession(kind="tone", key="3", label="x", items_json=[{"segment_id": 9999, "targets": [0]}])
     db.add(ds); db.commit(); db.refresh(ds)

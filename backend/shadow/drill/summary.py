@@ -3,6 +3,10 @@ from __future__ import annotations
 from sqlmodel import Session, select
 from shadow.store.models import Attempt, DrillSession, Lesson, Segment, SyllableScore
 
+# A drill with at least one take. One opened and finished without any is not a drill that happened: it stays out of
+# the recent drills, a focus's history and the auto focus's rotation.
+HAS_TAKES = DrillSession.id.in_(select(Attempt.drill_session_id).where(Attempt.drill_session_id.is_not(None)))
+
 
 def target_mean(rows: dict[int, tuple[str, float | None]], targets: list[int]) -> tuple[float | None, int]:
     vals, green = [], 0
@@ -56,7 +60,7 @@ def _totals(db: Session, ds: DrillSession) -> dict:
 def session_summary(db: Session, ds: DrillSession) -> dict:
     tot = _totals(db, ds)
     past = db.exec(select(DrillSession).where(DrillSession.kind == ds.kind, DrillSession.key == ds.key,
-                                              DrillSession.ended_at.is_not(None))
+                                              DrillSession.ended_at.is_not(None), HAS_TAKES)
                    .order_by(DrillSession.started_at.desc(), DrillSession.id.desc()).limit(10)).all()
     history = []
     for p in reversed(past):
@@ -67,7 +71,7 @@ def session_summary(db: Session, ds: DrillSession) -> dict:
 
 def recent_sessions(db: Session, limit: int) -> list[dict]:
     out = []
-    for ds in db.exec(select(DrillSession).where(DrillSession.ended_at.is_not(None))
+    for ds in db.exec(select(DrillSession).where(DrillSession.ended_at.is_not(None), HAS_TAKES)
                       .order_by(DrillSession.ended_at.desc(), DrillSession.id.desc()).limit(limit)).all():
         t = _totals(db, ds)
         out.append({"id": ds.id, "kind": ds.kind, "key": ds.key, "label": ds.label, "started_at": ds.started_at,
