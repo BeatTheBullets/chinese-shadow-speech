@@ -1,5 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { LISTENING_DECK, LISTENING_MODEL, NoteTypeError, setupListeningDeck } from '../anki/listening'
+import { api, ApiError } from '../api/client'
+import type { VoiceProfile } from '../api/types'
 import { anki } from '../anki/client'
 import { bookmarkletCode } from '../lib/handoff'
 import { useSettings } from '../store/settings'
@@ -12,6 +14,19 @@ export default function Settings() {
   const [exportFields, setExportFields] = useState<string[]>([])
   const [decks, setDecks] = useState<string[]>([])
   const [draft, setDraft] = useState({ name: '', query: '', model: '', sentence: '', audio: '', translation: '', source: '', url: '' })
+
+  const [voice, setVoice] = useState<VoiceProfile | null>(null)
+  const [voiceStatus, setVoiceStatus] = useState('')
+  useEffect(() => { api.voiceProfile.get().then(setVoice).catch(() => setVoice(null)) }, [])
+  async function resetVoice() {
+    if (!window.confirm('Reset your voice profile? Your next takes rebuild it.')) return
+    setVoiceStatus('')
+    try {
+      await api.voiceProfile.reset(); setVoice(await api.voiceProfile.get())
+    } catch (e) {     // a failed reset (backend down, database busy) says so instead of failing silently
+      setVoiceStatus(`Could not reset the voice profile: ${e instanceof ApiError ? e.detail : (e as Error).message}`)
+    }
+  }
 
   const bookmarklet = useRef<HTMLAnchorElement>(null)
   // Set outside JSX: React warns about javascript: URLs in href props.
@@ -101,6 +116,15 @@ export default function Settings() {
         })}
         <label className="flex items-center gap-2 text-sm">Language parent (speaker name)
           <input className="inp" value={s.languageParent ?? ''} onChange={(e) => s.set({ languageParent: e.target.value || null })} /></label>
+      </section>
+      <section className="space-y-2">
+        <h2 className="text-fghi">Voice profile</h2>
+        <p className="text-sm text-fgdim">{voice?.baseline_hz != null
+          ? `Your baseline: ${Math.round(voice.baseline_hz)} Hz · range ${voice.spread_st!.toFixed(1)} st · from ${(voice.voiced_s / 60).toFixed(1)} min of speech`
+          : 'No voice profile yet: it builds from your first scored takes.'}</p>
+        <p className="text-xs text-fgdim">Tone scores compare your pitch movement to your own baseline, so a lower or narrower voice is not penalised. Reset it when someone else practises or your voice has changed.</p>
+        <button className="btn" onClick={() => void resetVoice()}>Reset voice profile</button>
+        {voiceStatus && <p role="alert" className="text-sm text-warn">{voiceStatus}</p>}
       </section>
       <section className="space-y-2">
         <h2 className="text-fghi">YouTube</h2>

@@ -17,6 +17,13 @@ def is_punct(ch: str) -> bool:
     return ch in PUNCT
 
 
+_HANZI = re.compile("[㐀-䶿一-鿿豈-﫿\U00020000-\U0002ebef]")
+
+
+def is_hanzi(ch: str) -> bool:
+    return bool(_HANZI.match(ch))
+
+
 def strip_punct(s: str) -> str:
     return "".join(ch for ch in s if not is_punct(ch))
 

@@ -23,6 +23,18 @@ export function deleteConfirmText(l: Lesson): string {
   return `Delete "${l.title}" with ${what}?${busy} This cannot be undone.`
 }
 
+// Rebuild text re-transcribes a lesson's own audio: an Anki lesson is cut from its notes' audio (nothing to
+// transcribe), and a lesson still processing is not offered it. A failed lesson is, when it has sentences to rebuild.
+export const canRebuild = (l: Lesson) =>
+  l.source_type !== 'anki' && (l.status === 'ready' || (l.status === 'error' && l.segment_count > 0))
+
+export function rebuildConfirmText(l: Lesson): string {
+  return `Rebuild the text of "${l.title}"? This transcribes the lesson's audio again and rebuilds its sentences and clips. ` +
+    'It keeps your takes: each moves to the matching sentence (the one at the same time), and the app scores them again. ' +
+    'Manual sentence edits (text corrections, splits, merges) and translations are replaced. ' +
+    'With an AI key set, it calls the AI for sentence repair and translation again (a small cost).'
+}
+
 // The PATCH body for a rename from the two prompts' answers (null = cancelled): only changed fields, trimmed.
 // An empty title keeps the old one; an empty speaker is allowed (the lesson moves to Unsorted).
 export function renamePatch(l: Lesson, title: string | null, speaker: string | null): { title?: string; speaker?: string } | null {

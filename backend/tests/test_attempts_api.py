@@ -19,7 +19,7 @@ def test_session_and_attempt_flow(client, tmp_path):
     r = _post(client, tmp_path, sid, session_id=sess["id"])
     assert r.status_code == 201
     att = r.json()
-    assert att["score_json"] is None and abs(att["duration_s"] - 1.2) < 0.05
+    assert att["score_json"] is not None and abs(att["duration_s"] - 1.2) < 0.05
     assert client.get(f"/attempts/{att['id']}/audio").headers["content-type"].startswith("audio/wav")
     hist = client.get(f"/segments/{sid}/attempts").json()
     assert [a["id"] for a in hist] == [att["id"]]

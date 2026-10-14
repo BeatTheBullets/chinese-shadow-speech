@@ -3,7 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { api, ApiError } from '../api/client'
 import type { Job, Lesson } from '../api/types'
 import { addQuestion } from '../lib/handoff'
-import { deleteConfirmText, groupBySpeaker, needsPolling, renamePatch } from '../lib/library'
+import { canRebuild, deleteConfirmText, groupBySpeaker, needsPolling, rebuildConfirmText, renamePatch } from '../lib/library'
 import { useSettings } from '../store/settings'
 import { runAnkiImport } from '../anki/runImport'
 import Shell from '../components/Shell'
@@ -39,8 +39,11 @@ export default function Library() {
   }, [polling, reload])
   useEffect(() => () => closers.current.forEach((c) => c()), [])
 
-  function watch(job_id: string, lesson_id: number) {
-    closers.current.push(api.jobs.events(job_id, (j) => { setJobs((m) => ({ ...m, [lesson_id]: j })); if (j.status === 'done' || j.status === 'error') reload() }, reload))
+  function watch(job_id: string, lesson_id: number, onEnd?: (j: Job) => void) {
+    closers.current.push(api.jobs.events(job_id, (j) => {
+      setJobs((m) => ({ ...m, [lesson_id]: j }))
+      if (j.status === 'done' || j.status === 'error') { reload(); onEnd?.(j) }
+    }, reload))
   }
   async function addYoutube(url: string) {
     const u = url.trim()
@@ -82,6 +85,17 @@ export default function Library() {
     try { await api.lessons.remove(l.id); setMsg(`Deleted "${l.title}".`) }
     catch (e) { setMsg(`Could not delete "${l.title}": ${readable(e, BACKEND_HINT)}`) }
     await reload()
+  }
+  // A failed rebuild leaves the lesson as it was (ready), so its error is told here, not on the tile.
+  async function rebuildLesson(l: Lesson) {
+    if (!window.confirm(rebuildConfirmText(l))) return
+    try {
+      const r = await api.lessons.rebuild(l.id)
+      await reload()
+      watch(r.job_id, l.id, (j) => setNote(j.status === 'error'
+        ? { text: `Could not rebuild the text of "${l.title}": ${j.error}` }
+        : { text: `Rebuilt the text of "${l.title}".`, lessonId: l.id }))
+    } catch (e) { setMsg(`Could not rebuild the text of "${l.title}": ${readable(e, BACKEND_HINT)}`) }
   }
   async function renameLesson(l: Lesson) {
     const title = window.prompt('Title', l.title)
@@ -129,7 +143,7 @@ export default function Library() {
                 const j = jobs[l.id]; const busy = l.status !== 'ready' && l.status !== 'error'
                 const frac = busy ? (j?.fraction ?? 0) : (l.segment_count ? l.practised_count / l.segment_count : 0)
                 const inner = (<>
-                    <div className="font-hanzi text-fghi truncate pr-12">{l.title}{l.source_type === 'anki' && <span className="ml-2 text-[10px] px-1 rounded bg-[#2b1f3a] text-[#d6c3f0]">anki</span>}</div>
+                    <div className="font-hanzi text-fghi truncate pr-16">{l.title}{l.source_type === 'anki' && <span className="ml-2 text-[10px] px-1 rounded bg-[#2b1f3a] text-[#d6c3f0]">anki</span>}</div>
                     <div className="text-xs text-fgdim mt-1">
                       {l.status === 'error' ? <span className="text-bad">error: {l.error}</span>
                         : busy ? `${j?.stage ?? l.status}… ${Math.round(frac * 100)} %`
@@ -145,6 +159,7 @@ export default function Library() {
                     {/* outside the link, so the actions never open the lesson; every status, a broken upload included */}
                     <div className="absolute top-2 right-2 flex gap-1 opacity-50 group-hover:opacity-100 focus-within:opacity-100">
                       <button className="text-xs text-fgdim hover:text-fghi px-1" title="Rename (title, speaker)" aria-label={`Rename ${l.title}`} onClick={() => renameLesson(l)}>✎</button>
+                      {canRebuild(l) && <button className="text-xs text-fgdim hover:text-fghi px-1" title="Rebuild text (transcribe again, keep your takes)" aria-label={`Rebuild the text of ${l.title}`} onClick={() => rebuildLesson(l)}>⟲</button>}
                       <button className="text-xs text-fgdim hover:text-bad px-1" title="Delete lesson" aria-label={`Delete ${l.title}`} onClick={() => removeLesson(l)}>✕</button>
                     </div>
                   </div>)

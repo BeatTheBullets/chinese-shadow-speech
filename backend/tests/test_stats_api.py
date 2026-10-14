@@ -15,7 +15,7 @@ def test_stats_shapes(client, tmp_path):
     assert len(act["days"]) == 7 and act["days"][-1]["attempts"] == 1 and act["days"][-1]["minutes"] > 0
     assert client.get("/stats/sentences").json() == {"regressed": [], "by_last": []}
     assert client.get("/stats/syllables").json() == {"syllables": []}
-    assert client.get("/stats/tones").json() == {"tones": [], "pairs": []}
+    assert client.get("/stats/tones").json() == {"tones": [], "pairs": [], "weeks": []}
 
 
 def test_lesson_stats_404(client):
@@ -77,3 +77,34 @@ def test_activity_window_edge_session_before_window(client):
 def test_activity_days_validation(client):
     assert client.get("/stats/activity", params={"days": 0}).status_code == 422
     assert client.get("/stats/activity", params={"days": 400}).status_code == 422
+
+
+def _scores(client, rows):
+    """rows: (tone, target_tone, prev_tone, tone_score, ch) on one attempt each, created now."""
+    from sqlmodel import Session
+    from shadow.store.models import Attempt, Lesson, Segment, SyllableScore
+    with Session(client.app.state.engine) as db:
+        les = Lesson(title="L", source_type="upload"); db.add(les); db.commit()
+        seg = Segment(lesson_id=les.id, idx=0, start_s=0, end_s=1, text="好"); db.add(seg); db.commit()
+        for tone, target, prev, score, ch in rows:
+            a = Attempt(segment_id=seg.id, mode="echo", audio_path="x.wav", duration_s=1.0); db.add(a); db.commit()
+            db.add(SyllableScore(attempt_id=a.id, segment_id=seg.id, idx=0, ch=ch, pinyin_toneless="hao", tone=tone,
+                                 target_tone=target, prev_tone=prev, tone_score=score, status="ok"))
+        db.commit()
+
+
+def test_tone_stats_use_target_tones_and_weeks(client):
+    _scores(client, [(3, 2, 3, 0.4, "你"), (3, 3, None, 0.8, "好"), (0, None, 3, None, "吗"), (-1, None, None, None, "A")])
+    out = client.get("/stats/tones").json()
+    assert {t["tone"]: t["n"] for t in out["tones"]} == {2: 1, 3: 1}
+    assert out["pairs"] == [{"prev_tone": 3, "tone": 2, "mean": 0.4, "n": 1}]
+    assert len(out["weeks"]) == 2 and all(w["week"].count("-W") == 1 for w in out["weeks"])
+
+
+def test_syllable_stats_per_character_with_trend(client):
+    _scores(client, [(3, 3, None, 0.2, "好")] * 10 + [(3, 3, None, 0.8, "好")] * 10 + [(4, 4, None, 0.9, "是")])
+    out = client.get("/stats/syllables").json()["syllables"]
+    hao = next(s for s in out if s["ch"] == "好")
+    assert hao["n"] == 20 and hao["tone"] == 3 and abs(hao["trend"] - 0.6) < 1e-9
+    assert next(s for s in out if s["ch"] == "是")["trend"] is None
+    assert out[0]["ch"] == "好"                              # weakest first

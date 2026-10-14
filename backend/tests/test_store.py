@@ -33,3 +33,22 @@ def test_file_layout(data_dir):
     assert fl.attempt_wav(12) == data_dir / "attempts" / "12.wav"
     fl.lesson_dir(7).mkdir(parents=True)
     assert fl.source_wav(7).parent.exists()
+
+
+def test_init_db_adds_missing_nullable_columns_in_place(tmp_path):
+    from sqlalchemy import inspect, text
+    from shadow.store.db import init_db, make_engine
+    eng = make_engine(tmp_path)
+    with eng.begin() as c:     # the Phase 1 shape of the table
+        c.execute(text("CREATE TABLE syllablescore (id INTEGER PRIMARY KEY AUTOINCREMENT, attempt_id INTEGER NOT NULL, "
+                       "segment_id INTEGER NOT NULL, idx INTEGER NOT NULL, ch VARCHAR NOT NULL, pinyin_toneless VARCHAR NOT NULL, "
+                       "tone INTEGER NOT NULL, prev_tone INTEGER, tone_score FLOAT, seg_score FLOAT, status VARCHAR NOT NULL)"))
+        c.execute(text("INSERT INTO syllablescore (attempt_id, segment_id, idx, ch, pinyin_toneless, tone, status) "
+                       "VALUES (1, 1, 0, '我', 'wo', 3, 'ok')"))
+    init_db(eng)
+    init_db(eng)               # idempotent
+    insp = inspect(eng)
+    assert {"target_tone", "heard_tone"} <= {c["name"] for c in insp.get_columns("syllablescore")}
+    assert "voiceprofile" in insp.get_table_names()
+    with eng.connect() as c:
+        assert c.execute(text("SELECT ch, target_tone FROM syllablescore")).all() == [("我", None)]

@@ -9,7 +9,7 @@ def test_health(data_dir):
     assert r.status_code == 200
     body = r.json()
     assert body["device"] in {"cpu", "cuda"}
-    assert body["models_loaded"] == []
+    assert set(body["models_loaded"]) <= {"tone"}   # the committed tone model loads at start-up
     assert "versions" in body
 
 
@@ -56,3 +56,8 @@ def test_spa_catch_all_never_serves_files_outside_dist(data_dir, tmp_path, monke
         r = c.get(path)
         assert "SECRET" not in r.text, path
         assert r.text == "<html>spa</html>", path
+
+
+def test_health_reports_the_tone_model(client):
+    tm = client.get("/health").json()["tone_model"]
+    assert tm == {"loaded": True, "version": "fake", "accuracy": None}

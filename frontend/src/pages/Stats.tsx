@@ -2,9 +2,12 @@ import { useEffect, useState } from 'react'
 import { api } from '../api/client'
 import type { ActivityStats, SentenceStats, SyllableStats, ToneStats } from '../api/types'
 import Shell from '../components/Shell'
+import ToneMatrix from '../components/ToneMatrix'
+import ToneTrend from '../components/ToneTrend'
+import { TONE_NAMES, pct } from '../lib/score'
 import { activityBars } from '../lib/stats'
 
-const EMPTY = 'No scores yet — tone scoring arrives in Phase 2.'
+const EMPTY = 'No scores yet — record a take to see tone stats.'
 const plural = (n: number) => `${n} attempt${n === 1 ? '' : 's'}`
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
@@ -74,12 +77,18 @@ export default function Stats() {
         </>) : <Empty />}
       </Panel>
       <Panel title="Characters">
-        {syllables?.syllables.length ? syllables.syllables.map((s) => <div key={`${s.pinyin}${s.tone}`} className={row}><span>{s.pinyin}{s.tone}</span><span>mean {Math.round(s.mean * 100)}</span><span className="text-fgdim">n {s.n}</span></div>) : <Empty />}
+        {syllables?.syllables.length ? syllables.syllables.map((s) => (
+          <div key={`${s.ch}${s.pinyin}${s.tone}`} className={row}>
+            <span className="font-hanzi text-fghi">{s.ch}</span> <span>{s.pinyin}{s.tone}</span> <span>mean {pct(s.mean)}</span> <span className="text-fgdim">n {s.n}</span>
+            {s.trend != null && <span className={s.trend >= 0 ? 'text-ok' : 'text-bad'}>{s.trend >= 0 ? '↑' : '↓'} {Math.abs(Math.round(s.trend * 100))}</span>}
+          </div>)) : <Empty />}
       </Panel>
       <Panel title="Tones">
         {tones && (tones.tones.length || tones.pairs.length) ? (<>
-          {tones.tones.map((t) => <div key={t.tone} className={row}><span>Tone {t.tone}</span><span>mean {Math.round(t.mean * 100)}</span><span className="text-fgdim">n {t.n}</span></div>)}
-          {tones.pairs.map((t) => <div key={`${t.prev_tone}-${t.tone}`} className={row}><span>{t.prev_tone} → {t.tone}</span><span>mean {Math.round(t.mean * 100)}</span><span className="text-fgdim">n {t.n}</span></div>)}
+          <ToneTrend weeks={tones.weeks} />
+          {tones.tones.map((t) => <div key={t.tone} className={row}><span>Tone {t.tone} ({TONE_NAMES[t.tone]})</span><span>mean {pct(t.mean)}</span><span className="text-fgdim">n {t.n}</span></div>)}
+          <h3 className="text-sm text-fgdim">After tone × tone</h3>
+          <ToneMatrix pairs={tones.pairs} />
         </>) : <Empty />}
       </Panel>
     </div></Shell>

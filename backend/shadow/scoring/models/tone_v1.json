@@ -1,0 +1,158 @@
+{
+ "version": "tone_v1-2026-10-11",
+ "feature_version": 2,
+ "classes": [
+  0,
+  1,
+  2,
+  3,
+  4
+ ],
+ "dtw_norm": 4.374347020251055,
+ "accuracy": 0.9442538077177773,
+ "per_tone": {
+  "0": 0.92,
+  "1": 0.9537934968625214,
+  "2": 0.9250125817815803,
+  "3": 0.9388743943347,
+  "4": 0.9596146721007781
+ },
+ "confusion": [
+  [
+   966,
+   14,
+   9,
+   25,
+   36
+  ],
+  [
+   14,
+   3344,
+   48,
+   12,
+   88
+  ],
+  [
+   24,
+   70,
+   3676,
+   161,
+   43
+  ],
+  [
+   10,
+   24,
+   83,
+   2519,
+   47
+  ],
+  [
+   27,
+   105,
+   29,
+   57,
+   5180
+  ]
+ ],
+ "accuracy_altered": 0.9525737420474263,
+ "per_tone_altered": {
+  "1": 0.9560201874549387,
+  "2": 0.9190893169877408,
+  "3": 0.9761978361669242,
+  "4": 0.9507097791798107
+ },
+ "false_wrong_native": 0.053338149419059656,
+ "flat_still_original": 0.09365408544172543,
+ "n_train": 120000,
+ "n_train_altered": 78226,
+ "train_rows_total": 280948,
+ "train_rows_used": 120000,
+ "n_test": 16611,
+ "n_test_altered": 15561,
+ "n_test_flat": 12055,
+ "test_speakers": [
+  "SSB0149",
+  "SSB0287",
+  "SSB0307",
+  "SSB0316",
+  "SSB0375",
+  "SSB0385",
+  "SSB0394",
+  "SSB0415",
+  "SSB0535",
+  "SSB0601",
+  "SSB0717",
+  "SSB0746",
+  "SSB0748",
+  "SSB0749",
+  "SSB0758",
+  "SSB0863",
+  "SSB0993",
+  "SSB1001",
+  "SSB1008",
+  "SSB1056",
+  "SSB1110",
+  "SSB1125",
+  "SSB1253",
+  "SSB1322",
+  "SSB1366",
+  "SSB1684",
+  "SSB1728",
+  "SSB1810",
+  "SSB1828",
+  "SSB1831",
+  "SSB1863",
+  "SSB1935"
+ ],
+ "hours": 10.0,
+ "labels": "realised",
+ "embedder": "TencentGameMate/chinese-wav2vec2-base",
+ "embedder_revision": "3991242c806928916fff4a8c0e4f76acf661b743",
+ "layer": 6,
+ "augmentation": {
+  "level": 0.6,
+  "templates": {
+   "1": [
+    5,
+    5,
+    5,
+    5,
+    5
+   ],
+   "2": [
+    3,
+    2.7,
+    3,
+    4,
+    5
+   ],
+   "3": [
+    2,
+    1.3,
+    1,
+    1,
+    null
+   ],
+   "4": [
+    5,
+    4.5,
+    3.5,
+    2,
+    1
+   ]
+  },
+  "fracs": [
+   0.05,
+   0.27,
+   0.5,
+   0.73,
+   0.95
+  ],
+  "altered_copies_train": 2,
+  "altered_copies_test": 1,
+  "flat_copy_test": 1
+ },
+ "corpus": "AISHELL-3 (OpenSLR SLR93, Apache-2.0)",
+ "sklearn": "1.9.1",
+ "date": "2026-10-11"
+}

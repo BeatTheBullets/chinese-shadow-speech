@@ -1,15 +1,17 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useSettings } from '../store/settings'
 
-const h = vi.hoisted(() => ({ setup: vi.fn() }))
+const h = vi.hoisted(() => ({ setup: vi.fn(), voice: { get: vi.fn(), reset: vi.fn() } }))
 vi.mock('../anki/listening', async (importOriginal) => ({ ...(await importOriginal<typeof import('../anki/listening')>()), setupListeningDeck: h.setup }))
+vi.mock('../api/client', async (importOriginal) => { const m = await importOriginal<typeof import('../api/client')>(); return { ...m, api: { ...m.api, voiceProfile: h.voice } } })
 import Settings from './Settings'
 
 const exportNote = { deckName: 'chinese-shadow-speech', modelName: 'Shadow Listening',
   fields: { sentence: 'Sentence', audio: 'Audio', pinyin: 'Pinyin', translation: 'Translation', source: 'Source', link: 'Link' } }
 
 describe('<Settings>', () => {
+  beforeEach(() => h.voice.get.mockResolvedValue({ baseline_hz: null, spread_st: null, voiced_s: 0, updated_at: null }))
   afterEach(() => { cleanup(); vi.restoreAllMocks(); h.setup.mockReset(); useSettings.setState({ exportNote: null }) })
 
   it('offers the bookmarklet for this origin', () => {
@@ -60,5 +62,29 @@ describe('<Settings>', () => {
     render(<Settings />)
     fireEvent.click(screen.getByRole('button', { name: 'Set up chinese-shadow-speech deck' }))
     expect(await screen.findByText('Could not set up the deck. The existing note type has no Sentence or Audio field.')).toBeInTheDocument()
+  })
+
+  it('shows the voice profile and resets it after confirming', async () => {
+    h.voice.get.mockResolvedValue({ baseline_hz: 118.2, spread_st: 9.46, voiced_s: 252, updated_at: '2026-10-09T10:00:00Z' })
+    h.voice.reset.mockResolvedValue(undefined)
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    render(<Settings />)
+    expect(await screen.findByText('Your baseline: 118 Hz · range 9.5 st · from 4.2 min of speech')).toBeInTheDocument()
+    h.voice.get.mockResolvedValue({ baseline_hz: null, spread_st: null, voiced_s: 0, updated_at: null })
+    fireEvent.click(screen.getByRole('button', { name: 'Reset voice profile' }))
+    expect(await screen.findByText(/No voice profile yet/)).toBeInTheDocument()
+    expect(h.voice.reset).toHaveBeenCalled()
+  })
+
+  it('says so when the voice profile cannot be reset (the backend is down)', async () => {
+    const { ApiError } = await import('../api/client')
+    h.voice.reset.mockRejectedValue(new ApiError(500, 'Internal Server Error', '{"detail":"database is locked"}', 'database is locked'))
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    render(<Settings />)
+    fireEvent.click(screen.getByRole('button', { name: 'Reset voice profile' }))
+    expect(await screen.findByText('Could not reset the voice profile: database is locked')).toBeInTheDocument()
+    h.voice.reset.mockRejectedValue(new TypeError('Failed to fetch'))
+    fireEvent.click(screen.getByRole('button', { name: 'Reset voice profile' }))
+    expect(await screen.findByText('Could not reset the voice profile: Failed to fetch')).toBeInTheDocument()
   })
 })

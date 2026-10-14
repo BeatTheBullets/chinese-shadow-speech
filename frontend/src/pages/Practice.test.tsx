@@ -19,7 +19,7 @@ const h = vi.hoisted(() => ({
   playSequence: vi.fn(() => Promise.resolve()),
   player: { play: vi.fn(() => Promise.resolve()), playRange: vi.fn(() => Promise.resolve()), stop: vi.fn(), setVolume: vi.fn(), preload: vi.fn(() => Promise.resolve()), peaksFor: vi.fn<(url: string) => Promise<Float32Array>>(() => new Promise(() => {})) },
   ctxClose: vi.fn(() => Promise.resolve()),
-  twoTrack: null as null | { onPlaySyllable: (i: number) => void; youPeaks: Float32Array | null; youDuration: number },
+  twoTrack: null as null | { onPlaySyllable: (i: number) => void; youPeaks: Float32Array | null; youDuration: number; score?: unknown },
 }))
 vi.mock('../api/client', async (importOriginal) => ({ ...(await importOriginal<typeof import('../api/client')>()), api: h.api }))
 vi.mock('../anki/export', async (importOriginal) => ({ ...(await importOriginal<typeof import('../anki/export')>()), exportAndRecord: h.exportAndRecord }))
@@ -69,6 +69,103 @@ function renderPractice() {
 }
 
 describe('<Practice>', () => {
+
+  it('Echo: the uploaded take\u2019s score reaches the You track and the sentence\u2019s last score', async () => {
+    const score = { overall: 0.8, tone_overall: 0.8, segmental_overall: null, rate_ratio: 1, ref_contour: null, usr_contour: null, syllables: [], warnings: [] }
+    h.api.segments.postAttempt.mockResolvedValue({ id: 99, score_json: score })
+    renderPractice()
+    await screen.findByText('你好', { selector: 'p.sentence' })
+    await waitFor(() => expect(usePractice.getState().sessionId).toBe(5))
+    press('Enter'); await screen.findByRole('button', { name: '■ stop' }); await flush()
+    press('Enter'); await flush()
+    await waitFor(() => expect(h.twoTrack?.score).toEqual(score))
+    expect(usePractice.getState().lesson!.segments[0]).toMatchObject({ last_score: 0.8, attempts: 1 })
+  })
+
+  it('a gated take explains itself in the hint line', async () => {
+    const score = { overall: null, tone_overall: null, segmental_overall: null, rate_ratio: null, ref_contour: null, usr_contour: null, syllables: [], warnings: ['too_quiet'] }
+    h.api.segments.postAttempt.mockResolvedValue({ id: 99, score_json: score })
+    renderPractice()
+    await screen.findByText('你好', { selector: 'p.sentence' })
+    press('Enter'); await screen.findByRole('button', { name: '■ stop' }); await flush()
+    press('Enter'); await flush()
+    expect(await screen.findByText('Too quiet — not scored. Move closer to the mic.')).toBeInTheDocument()
+  })
+
+  it('a take of other words shows what was heard in the hint line', async () => {
+    const score = { overall: null, tone_overall: null, segmental_overall: null, rate_ratio: null, ref_contour: null, usr_contour: null, syllables: [], warnings: ['different_words'], heard_text: '我是学生' }
+    h.api.segments.postAttempt.mockResolvedValue({ id: 99, score_json: score })
+    renderPractice()
+    await screen.findByText('你好', { selector: 'p.sentence' })
+    press('Enter'); await screen.findByRole('button', { name: '■ stop' }); await flush()
+    press('Enter'); await flush()
+    expect(await screen.findByText('Heard different words — not scored. Heard: 我是学生')).toBeInTheDocument()
+  })
+
+  it('a scored take whose words partly differed is scored and says what was heard', async () => {
+    const score = { overall: 0.7, tone_overall: 0.7, segmental_overall: null, rate_ratio: 1, ref_contour: null, usr_contour: null, syllables: [], warnings: [], notices: ['words_differ'], heard_text: '你号' }
+    h.api.segments.postAttempt.mockResolvedValue({ id: 99, score_json: score })
+    renderPractice()
+    await screen.findByText('你好', { selector: 'p.sentence' })
+    press('Enter'); await screen.findByRole('button', { name: '■ stop' }); await flush()
+    press('Enter'); await flush()
+    expect(await screen.findByText('Some words sounded different — heard: 你号')).toBeInTheDocument()
+    expect(usePractice.getState().lesson!.segments[0]).toMatchObject({ last_score: 0.7 })
+  })
+
+  const gated = { overall: null, tone_overall: null, segmental_overall: null, rate_ratio: null, ref_contour: null, usr_contour: null, syllables: [], warnings: ['too_quiet'] }
+  const scored = { ...gated, overall: 0.8, tone_overall: 0.8, warnings: [] }
+  const QUIET = 'Too quiet — not scored. Move closer to the mic.'
+
+  it('a gated take that uploads after moving on does not explain itself under the next sentence', async () => {
+    const pending = deferred<{ id: number; score_json: typeof gated }>()
+    h.api.segments.postAttempt.mockReturnValue(pending.promise)
+    renderPractice()
+    await screen.findByText('你好', { selector: 'p.sentence' })
+    press('Enter'); await screen.findByRole('button', { name: '■ stop' }); await flush()
+    press('Enter'); await flush()
+    press('ArrowRight'); await screen.findByText('再见', { selector: 'p.sentence' })
+    await act(async () => { pending.resolve({ id: 99, score_json: gated }) }); await flush()
+    expect(screen.queryByText(QUIET)).toBeNull()
+    expect(usePractice.getState().hint).toBe('')
+  })
+
+  it('a scored retake clears the gate warning but keeps the move-on hint', async () => {
+    h.api.segments.postAttempt.mockResolvedValueOnce({ id: 1, score_json: gated }).mockResolvedValueOnce({ id: 2, score_json: scored })
+      .mockResolvedValueOnce({ id: 3, score_json: gated }).mockResolvedValueOnce({ id: 4, score_json: scored })
+    renderPractice()
+    await screen.findByText('你好', { selector: 'p.sentence' })
+    const take = async () => { press('Enter'); await flush(); press('Enter'); await flush() }
+    await take()
+    expect(await screen.findByText(QUIET)).toBeInTheDocument()
+    await take()
+    await waitFor(() => expect(screen.queryByText(QUIET)).toBeNull())
+    await take()
+    expect(await screen.findByText(QUIET)).toBeInTheDocument()
+    await take() // the fourth attempt reaches moveOnAfter (4): the move-on hint, then a scored upload
+    await waitFor(() => expect(screen.queryByText(QUIET)).toBeNull())
+    expect(screen.getByText(/Move on and come back later/)).toBeInTheDocument()
+  })
+
+  it('a clean retake clears the words-differ notice', async () => {
+    const differ = { ...scored, notices: ['words_differ'], heard_text: '你号' }
+    h.api.segments.postAttempt.mockResolvedValueOnce({ id: 1, score_json: differ }).mockResolvedValueOnce({ id: 2, score_json: { ...scored, notices: [] } })
+    renderPractice()
+    await screen.findByText('你好', { selector: 'p.sentence' })
+    const take = async () => { press('Enter'); await flush(); press('Enter'); await flush() }
+    await take()
+    expect(await screen.findByText('Some words sounded different — heard: 你号')).toBeInTheDocument()
+    await take()
+    await waitFor(() => expect(screen.queryByText(/Some words sounded different/)).toBeNull())
+  })
+
+  it('stored takes bring their score back when the lesson is reopened', async () => {
+    const score = { overall: 0.6, tone_overall: 0.6, segmental_overall: null, rate_ratio: 1, ref_contour: null, usr_contour: null, syllables: [], warnings: [] }
+    h.api.lessons.takes.mockResolvedValue([{ segment_id: 11, attempt_id: 7, mode: 'echo', created_at: '', duration_s: 1, score_json: score }])
+    renderPractice()
+    await screen.findByText('你好', { selector: 'p.sentence' })
+    await waitFor(() => expect(h.twoTrack?.score).toEqual(score))
+  })
   const origAudioContext = globalThis.AudioContext
   const origCreate = URL.createObjectURL, origRevoke = URL.revokeObjectURL
   beforeEach(() => {
@@ -180,6 +277,19 @@ describe('<Practice>', () => {
     expect(items.map((i) => i.url)).toEqual(['/seg/11.opus', 'blob:take'])
     expect(usePractice.getState()).toMatchObject({ attemptsThisSegment: 1, recordingNow: false, lastAttempt: { id: 99, url: 'blob:take' } })
     expect(screen.getByRole('button', { name: '● Enter' })).toBeInTheDocument()
+  })
+
+  it('a take refused while the lesson is rebuilt says so and stays playable', async () => {
+    h.api.segments.postAttempt.mockRejectedValue(new ApiError(409, 'Conflict', '{"detail":"this lesson is being rebuilt — try again in a moment"}', 'this lesson is being rebuilt — try again in a moment'))
+    renderPractice()
+    await screen.findByText('你好', { selector: 'p.sentence' })
+    await waitFor(() => expect(usePractice.getState().sessionId).toBe(5))
+    press('Enter')
+    await screen.findByRole('button', { name: '■ stop' })
+    await flush()
+    press('Enter')
+    expect(await screen.findByRole('alert')).toHaveTextContent('Upload failed: this lesson is being rebuilt — try again in a moment')
+    expect(usePractice.getState().lastAttempt).toMatchObject({ id: 0, url: 'blob:take' })
   })
 
   it('shows the move-on hint once attempts reach the setting', async () => {
@@ -462,6 +572,15 @@ describe('<Practice>', () => {
       fireEvent.click(screen.getAllByRole('button', { name: '▶ ref+you' })[1])
       const [, items] = h.playSequence.mock.calls.at(-1) as unknown as [unknown, { url: string; rate: number }[]]
       expect(items).toEqual([{ url: '/seg/12.opus', rate: 1 }, { url: 'blob:take', rate: 1 }])
+    })
+
+    it('a flow slice refused while the lesson is rebuilt says so', async () => {
+      h.api.segments.postAttempt.mockRejectedValue(new ApiError(409, 'Conflict', '{"detail":"this lesson is being rebuilt — try again in a moment"}', 'this lesson is being rebuilt — try again in a moment'))
+      clipsTake(2)
+      h.rec.stop.mockReturnValue(new Float32Array(44100 * 10))
+      await startFlow('along')
+      expect(await screen.findByText(/Flow finished · 2 sentences/)).toBeInTheDocument()
+      expect(await screen.findByRole('alert')).toHaveTextContent('Upload failed: this lesson is being rebuilt — try again in a moment')
     })
 
     it('stopping midway submits the finished sentences, each to its own sentence, and drops the unfinished one', async () => {
@@ -791,6 +910,14 @@ describe('<Practice>', () => {
       expect(h.api.segments.clipChanged).toHaveBeenCalledWith(11)
       expect(usePractice.getState().idx).toBe(0)
       expect(screen.getByText('你好再见', { selector: 'p.sentence' })).toBeInTheDocument()
+    })
+
+    it('a merge refused while the lesson is rebuilt shows why', async () => {
+      h.api.segments.mergeNext.mockRejectedValue(new ApiError(409, 'Conflict', '{"detail":"this lesson is being rebuilt — try again in a moment"}', 'this lesson is being rebuilt — try again in a moment'))
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      openMenu(1, 'Merge with next')
+      expect(await screen.findByRole('alert')).toHaveTextContent('Could not merge: this lesson is being rebuilt — try again in a moment')
     })
 
     it('a merge without a next sentence shows a readable message', async () => {

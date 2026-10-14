@@ -1,6 +1,6 @@
 import type { AlignSpan, Word } from '../api/types'
-export type CellStatus = 'ok' | 'suspect' | 'missing' | 'unvoiced' | 'neutral'
-export interface Cell { ch: string; pinyin: string; tone: number; score?: number | null; status?: CellStatus }
+export type CellStatus = 'ok' | 'close' | 'wrong' | 'suspect' | 'missing' | 'unvoiced' | 'neutral'
+export interface Cell { ch: string; pinyin: string; tone: number; score?: number | null; status?: CellStatus; target?: number | null; heard?: number | null }
 
 /**
  * One cell per alignment span (backend guarantees one span and one syllable per
@@ -18,10 +18,7 @@ export function cellsFromWords(words: Word[] | null | undefined, alignment: Alig
   }
   return syllables.map((s) => ({ ch: s.ch, pinyin: s.pinyin, tone: s.tone, status: 'neutral' as const }))
 }
-export function cellStatusFromScore(score: number | null | undefined): CellStatus {
-  if (score == null) return 'neutral'
-  return score >= 0.7 ? 'ok' : 'suspect'
-}
+// Phase 2 spec §3: green ok, orange close, red a different tone heard, grey unvoiced, dashed outline missing.
 export function cellClass(c: Cell): string {
-  return { ok: 'cell-ok', suspect: 'cell-warn', missing: 'cell-bad', unvoiced: 'cell-unvoiced', neutral: 'cell-neutral' }[c.status ?? 'neutral']
+  return { ok: 'cell-ok', close: 'cell-warn', wrong: 'cell-bad', suspect: 'cell-warn', missing: 'cell-missing', unvoiced: 'cell-unvoiced', neutral: 'cell-neutral' }[c.status ?? 'neutral']
 }

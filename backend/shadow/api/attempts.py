@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from sqlmodel import Session, select
-from shadow.api.lessons import _get_lesson
+from shadow.api.lessons import _get_lesson, ensure_idle
 from shadow.api.sessions import MODES
 from shadow.ingest import audio
 from shadow.schemas import AttemptOut, FlowRunItem, FlowRunOut, FlowRunsOut, TakeOut, TakesOut
@@ -29,6 +29,7 @@ def create_attempt(segment_id: int, request: Request, audio_file: UploadFile = F
     seg = db.get(Segment, segment_id)
     if seg is None:
         raise HTTPException(404, "segment not found")
+    ensure_idle(db, seg.lesson_id)
     if mode not in MODES:
         raise HTTPException(400, "bad mode")
     sess = None
@@ -54,7 +55,8 @@ def create_attempt(segment_id: int, request: Request, audio_file: UploadFile = F
     finally:
         raw.unlink(missing_ok=True)
     att.audio_path = str(dst)
-    att.score_json = score_attempt(deps, seg, dst)
+    db.add(att); db.commit()            # the take is saved before scoring, which must not hold SQLite's write lock
+    score_attempt(deps, db, seg, att)
     if sess is not None:
         sess.attempts_count += 1; db.add(sess)
     db.add(att); db.commit(); db.refresh(att)
@@ -108,7 +110,7 @@ def lesson_takes(lesson_id: int, db: Session = Depends(get_session)):
     the You track shows when the lesson is opened again."""
     _get_lesson(db, lesson_id)
     return TakesOut(takes=[TakeOut(segment_id=a.segment_id, attempt_id=a.id, mode=a.mode, created_at=_utc(a.created_at),
-                                   duration_s=a.duration_s) for a, _ in _latest_per_segment(_lesson_attempts(db, lesson_id))])
+                                   duration_s=a.duration_s, score_json=a.score_json) for a, _ in _latest_per_segment(_lesson_attempts(db, lesson_id))])
 
 
 @router.get("/lessons/{lesson_id}/flow-runs", response_model=FlowRunsOut)

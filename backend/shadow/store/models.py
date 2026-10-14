@@ -74,8 +74,10 @@ class SyllableScore(SQLModel, table=True):
     idx: int
     ch: str
     pinyin_toneless: str = Field(index=True)
-    tone: int
-    prev_tone: int | None = None
+    tone: int                             # canonical tone from words_json (0 neutral, -1 non-hanzi)
+    prev_tone: int | None = None          # the previous syllable's target tone (its canonical tone when unscored)
+    target_tone: int | None = None        # the tone the speaker produced (Phase 2 spec §3)
+    heard_tone: int | None = None         # the classifier's top tone on the learner's syllable
     tone_score: float | None = None
     seg_score: float | None = None
     status: str
@@ -92,3 +94,14 @@ class Passage(SQLModel, table=True):
     title: str
     start_s: float
     end_s: float
+
+
+class VoiceProfile(SQLModel, table=True):
+    """The learner's pitch baseline (Phase 2 spec §2), one row per installation: the most recent voiced F0 frames
+    and the median and interquartile range derived from them. `voiced_s` counts every voiced second ever added."""
+    id: int | None = Field(default=None, primary_key=True)
+    frames_json: list[float] = Field(default_factory=list, sa_column=Column(JSON))
+    baseline_hz: float | None = None
+    spread_st: float | None = None
+    voiced_s: float = 0.0
+    updated_at: datetime = Field(default_factory=now)

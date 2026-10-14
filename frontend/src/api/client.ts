@@ -1,6 +1,6 @@
 import type {
   ActivityStats, AnkiNotePayload, Attempt, FlowRun, Job, Lesson, LessonDetail, LessonStats, Mode, PracticeSession,
-  Segment, SentenceStats, SyllableStats, Take, ToneStats, UnexportedItem,
+  Segment, SentenceStats, SyllableStats, Take, ToneStats, UnexportedItem, VoiceProfile,
 } from './types'
 
 // Same-origin in production (the backend serves the built SPA); the dev server talks to the backend directly.
@@ -50,6 +50,7 @@ export const api = {
     ankiImport: (query_name: string, notes: AnkiNotePayload[]) =>
       req<{ jobs: { job_id: string; lesson_id: number; title: string }[] }>('/lessons/anki', json('POST', { query_name, notes })),
     youtube: (url: string) => req<{ job_id: string | null; lesson_id: number }>('/lessons/youtube', json('POST', { url })),
+    rebuild: (id: number) => req<{ job_id: string; lesson_id: number }>(`/lessons/${id}/rebuild`, { method: 'POST' }),
     takes: (id: number) => req<{ takes: Take[] }>(`/lessons/${id}/takes`).then((r) => r.takes),
     flowRuns: (id: number) => req<{ runs: FlowRun[] }>(`/lessons/${id}/flow-runs`).then((r) => r.runs),
   },
@@ -95,6 +96,10 @@ export const api = {
     sentences: () => req<SentenceStats>('/stats/sentences'),
     syllables: () => req<SyllableStats>('/stats/syllables'),
     tones: () => req<ToneStats>('/stats/tones'),
+  },
+  voiceProfile: {
+    get: () => req<VoiceProfile>('/voice-profile'),
+    reset: () => req<void>('/voice-profile', { method: 'DELETE' }),
   },
   review: {
     unexported: () => req<UnexportedItem[]>('/review/unexported'),

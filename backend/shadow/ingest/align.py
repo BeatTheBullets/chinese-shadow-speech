@@ -1,5 +1,6 @@
 from __future__ import annotations
 import logging
+import threading
 from dataclasses import dataclass
 from typing import Protocol
 import numpy as np
@@ -21,16 +22,34 @@ class Aligner(Protocol):
     def align(self, wav: np.ndarray, sr: int, text: str) -> list[Span]: ...
 
 
+class LockedAligner:
+    """One aligner shared by ingest jobs and attempt scoring (Phase 2 spec §1 step 3): calls run one at a time."""
+    def __init__(self, inner: Aligner):
+        self.inner = inner
+        self._lock = threading.Lock()
+
+    @property
+    def _model(self):                   # Deps.loaded_models() looks for it
+        return getattr(self.inner, "_model", None)
+
+    def align(self, wav: np.ndarray, sr: int, text: str) -> list[Span]:
+        with self._lock:
+            return self.inner.align(wav, sr, text)
+
+
 def speech_chars(text: str) -> list[str]:
     return [c for c in text if not is_punct(c)]
 
 
+def toneless_pinyin(hans: str | list[str]) -> list[str]:
+    """Toneless pinyin, lower case, ü written v (as in a syllable's `pinyin_toneless`). A string is romanised with
+    word context; a list, item by item."""
+    return [p.lower().replace("ü", "v") for p in lazy_pinyin(hans, style=Style.NORMAL)]
+
+
 def romanise_for_mms(text: str) -> list[str]:
-    out = []
-    for p in lazy_pinyin(speech_chars(text), style=Style.NORMAL):
-        p = p.replace("ü", "u").replace("v", "u")
-        out.append("".join(ch for ch in p.lower() if "a" <= ch <= "z") or "a")
-    return out
+    return ["".join(ch for ch in p.replace("v", "u") if "a" <= ch <= "z") or "a"
+            for p in toneless_pinyin(speech_chars(text))]
 
 
 class FakeAligner:

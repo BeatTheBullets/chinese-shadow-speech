@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse
 from starlette.staticfiles import NotModifiedResponse
 from pydantic import BaseModel
 from sqlmodel import Session, select
-from shadow.api.lessons import _segment_out
+from shadow.api.lessons import _segment_out, ensure_idle
 from shadow.ingest import audio
 from shadow.ingest.passages import rebuild_passages
 from shadow.ingest.pipeline import MIN_CLIP_S
@@ -27,6 +27,12 @@ def _get(db: Session, segment_id: int) -> Segment:
     seg = db.get(Segment, segment_id)
     if seg is None:
         raise HTTPException(404, "segment not found")
+    return seg
+
+
+def _get_editable(db: Session, segment_id: int) -> Segment:
+    seg = _get(db, segment_id)
+    ensure_idle(db, seg.lesson_id)
     return seg
 
 
@@ -68,7 +74,7 @@ class SegmentPatch(BaseModel):
 def patch_segment(segment_id: int, body: SegmentPatch, request: Request, db: Session = Depends(get_session)):
     """A text change re-runs align + enrich for the segment; text equal to the current one (after
     simplification) changes nothing."""
-    seg = _get(db, segment_id)
+    seg = _get_editable(db, segment_id)
     text = to_simplified(body.text).strip() if body.text is not None else None
     if text is not None and not strip_punct(text):
         raise HTTPException(400, "text needs at least one speech character")
@@ -108,7 +114,7 @@ def _split_time(seg: Segment, speech_before: int) -> float:
 @router.post("/segments/{segment_id}/resplit", response_model=list[SegmentOut])
 def resplit(segment_id: int, body: ResplitIn, request: Request, db: Session = Depends(get_session)):
     """Split the text before `at_char_index` into two segments, the later ones moving up one idx."""
-    seg = _get(db, segment_id)
+    seg = _get_editable(db, segment_id)
     k = body.at_char_index
     left, right = seg.text[:k], seg.text[k:]
     if not 0 < k < len(seg.text) or not strip_punct(left) or not strip_punct(right):
@@ -142,7 +148,7 @@ def resplit(segment_id: int, body: ResplitIn, request: Request, db: Session = De
 @router.post("/segments/{segment_id}/merge-next", response_model=SegmentOut)
 def merge_next(segment_id: int, request: Request, db: Session = Depends(get_session)):
     """Append the next segment to this one; its attempts move here and the later segments move down one idx."""
-    seg = _get(db, segment_id)
+    seg = _get_editable(db, segment_id)
     nxt = db.exec(select(Segment).where(Segment.lesson_id == seg.lesson_id, Segment.idx == seg.idx + 1)).first()
     if nxt is None:
         raise HTTPException(409, "no next segment")

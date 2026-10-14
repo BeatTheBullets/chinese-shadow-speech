@@ -2,10 +2,10 @@ import { StrictMode } from 'react'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Lesson } from '../api/types'
+import type { Job, Lesson } from '../api/types'
 
 const h = vi.hoisted(() => ({
-  api: { lessons: { list: vi.fn(), remove: vi.fn(), patch: vi.fn(), youtube: vi.fn() }, jobs: { events: vi.fn() } },
+  api: { lessons: { list: vi.fn(), remove: vi.fn(), patch: vi.fn(), youtube: vi.fn(), rebuild: vi.fn() }, jobs: { events: vi.fn() } },
 }))
 vi.mock('../api/client', async (importOriginal) => ({ ...(await importOriginal<typeof import('../api/client')>()), api: h.api }))
 import Library from './Library'
@@ -54,6 +54,33 @@ describe('Library tile actions', () => {
   it('a tile shows passage progress', async () => {
     await show([lesson(1, { passage_count: 2, passages_done: 1 })])
     expect(screen.getByText(/1 \/ 2 passages/)).toBeInTheDocument()
+  })
+
+  it('rebuilds the text after confirmation, shows the job and says when it failed', async () => {
+    h.api.lessons.rebuild.mockReset().mockResolvedValue({ job_id: 'j9', lesson_id: 1 })
+    let send: (j: Job) => void = () => {}
+    h.api.jobs.events.mockReset().mockImplementation((_id: string, on: (j: Job) => void) => { send = on; return () => {} })
+    await show([lesson(1)])
+    const ask = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    h.api.lessons.list.mockResolvedValue([lesson(1, { status: 'processing' })])
+    fireEvent.click(screen.getByLabelText('Rebuild the text of t1'))
+    await waitFor(() => expect(h.api.lessons.rebuild).toHaveBeenCalledWith(1))
+    expect(ask.mock.calls[0][0]).toMatch(/keeps your takes/)
+    await waitFor(() => expect(h.api.jobs.events).toHaveBeenCalledWith('j9', expect.any(Function), expect.any(Function)))
+    act(() => send({ id: 'j9', stage: 'rescore', fraction: 0.5, status: 'running', error: null, lesson_id: 1 }))
+    expect(await screen.findByText(/rescore… 50 %/)).toBeInTheDocument()
+    h.api.lessons.list.mockResolvedValue([lesson(1)])
+    act(() => send({ id: 'j9', stage: 'error', fraction: 0.5, status: 'error', error: 'no speech found', lesson_id: 1 }))
+    expect(await screen.findByText('Could not rebuild the text of "t1": no speech found')).toBeInTheDocument()
+  })
+
+  it('a declined rebuild sends nothing, and an Anki lesson offers none', async () => {
+    h.api.lessons.rebuild.mockReset()
+    await show([lesson(1), lesson(2, { source_type: 'anki' })])
+    vi.spyOn(window, 'confirm').mockReturnValue(false)
+    fireEvent.click(screen.getByLabelText('Rebuild the text of t1'))
+    expect(h.api.lessons.rebuild).not.toHaveBeenCalled()
+    expect(screen.queryByLabelText('Rebuild the text of t2')).toBeNull()
   })
 
   it('a cancelled rename sends nothing', async () => {

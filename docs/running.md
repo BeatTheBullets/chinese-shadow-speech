@@ -43,3 +43,54 @@ runs `make dev`.
 Updating yt-dlp: YouTube changes often. When a lesson fails with "extraction failed, yt-dlp is probably outdated":
 
     cd backend && uv lock --upgrade-package yt-dlp && uv sync --extra dev --extra models
+
+## Tone scoring
+The tone model ships in `backend/shadow/scoring/models/` (`tone_v1.joblib` and `tone_v1.json`). It scores on the speech
+model chinese-wav2vec2 (~380 MB from Hugging Face, MIT), which the backend loads in the background at start-up and
+downloads the first time (needs the models extra); a take scored before that finishes waits for it.
+Paraformer (the ingest recogniser, which also checks each take's words) loads in the background at start-up the same way.
+If the download fails it is logged and the first scored take tries again. A missing or unreadable tone model file
+is logged too and takes are then saved unscored ("Tone model missing").
+`/health` reports `tone_model.loaded` and its version.
+
+Retraining: `make tone-model LABELS=realised`. It downloads ~17.7 GB (AISHELL-3, OpenSLR SLR93, Apache-2.0) into
+`data/corpora/aishell3` (the script's own estimate is ~19 GB with extraction), trains on 10 h of it with two
+pitch-altered copies per utterance, takes ~1.5 h on the GPU and needs the models extra. The speech model
+(chinese-wav2vec2, ~380 MB from Hugging Face, MIT) is downloaded on first use. Feature caches are kept under
+`data/corpora/aishell3/`.
+
+After a model or feature change run `make rescore`: it re-scores every stored take and writes
+`data/reports/rescore-<date>.html`. `--probe` (run `cd backend && uv run python scripts/rescore.py --probe` directly; the make target takes no args) prints the percentiles used to pick the gate thresholds
+(`min_rms_dbfs`, `min_align_conf`, `min_text_similarity`, `words_ok_at`).
+
+To check that each sentence's clip says its text, run `cd backend && ~/.local/bin/uv run python scripts/clipcheck.py
+--lesson N` (or `--all` for every ready lesson). Read only: the recogniser hears each clip and the words check
+(toneless pinyin similarity) compares it with the sentence; it prints the sentences below 0.8 and per lesson n, how
+many match and the mean. A lesson whose text runs ahead of its audio (lessons transcribed before the FunASR
+`sentence_info` fix of 2026-10-12, one character more after each pause) scores far lower: **⟲ Rebuild text** on its
+library tile transcribes it again and rebuilds its sentences and clips; your takes move to the sentence at the same
+time and are scored again (difficulty flags and Anki notes move with them).
+
+Voice profile: tones are judged against your own pitch range, which is learned from your most recent minute or so of voiced speech and keeps adapting as you practise.
+Settings -> Voice profile shows it; **Reset voice profile** empties it (for a new mic or after a bad take) and the next
+takes rebuild it.
+
+Gate warnings (the take is always saved, it is just not scored):
+- "Too short — not scored. Say the whole sentence." Speak the full sentence.
+- "Too quiet — not scored. Move closer to the mic." Raise the mic level or move closer.
+- "Too loud — not scored. Lower the mic gain." The recording clips; lower the gain.
+- "Heard different words — not scored. Heard: …" The speech recogniser (the Paraformer model ingest uses) heard
+  other words than the sentence shown (toneless pinyin similarity below `min_text_similarity`, 0.25). Say the sentence
+  shown. A wrong tone alone does not trigger this; a sentence sharing most of its words with the one shown can pass.
+  While a video is being imported the recogniser is busy: a take then waits at most 2 s and is tone-scored without
+  the check.
+- "Could not match this to the sentence — not scored." The take is too garbled or noisy to align.
+- "No voice found — not scored." Check that the right microphone is selected.
+- "Tone model missing — not scored. See docs/running.md." Restore `backend/shadow/scoring/models/tone_v1.*` or retrain.
+- "This sentence has no reference timing — not scored." Re-align or edit the sentence in the drawer.
+- "Could not align this take — not scored." Record it again.
+- "Scoring failed — the take is saved." See the backend log; `make rescore` re-scores once fixed.
+
+Notice on a scored take (the score stands):
+- "Some words sounded different — heard: …" The similarity was between `min_text_similarity` (0.25) and
+  `words_ok_at` (0.55): a few words were misheard or mispronounced. Compare what was heard with the sentence.

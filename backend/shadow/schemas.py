@@ -86,6 +86,7 @@ class TakeOut(BaseModel):
     mode: str
     created_at: datetime
     duration_s: float
+    score_json: dict[str, Any] | None = None
 
 
 class TakesOut(BaseModel):

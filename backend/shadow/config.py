@@ -14,6 +14,9 @@ class ModelsCfg(BaseModel):
     asr: str = "iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch"
     aligner: str = "auto"
     gop_model: str = "wbbbbb/wav2vec2-large-chinese-zh-cn"
+    tone_embedder: str = "TencentGameMate/chinese-wav2vec2-base"      # Phase 2 spec §10 (MIT)
+    tone_embedder_revision: str = "3991242c806928916fff4a8c0e4f76acf661b743"
+    tone_layer: int = 6
 
 
 class LlmCfg(BaseModel):
@@ -30,7 +33,7 @@ class SegmentationCfg(BaseModel):
 
 
 class ScoringCfg(BaseModel):
-    tone_weight: float = 0.5
+    tone_weight: float = 0.5          # share of the classifier's P(target) in tone_score; the rest is contour similarity
     dtw_band: int = 4
     f0_floor: int = 60
     f0_ceiling: int = 500
@@ -38,6 +41,16 @@ class ScoringCfg(BaseModel):
     min_voiced_frames: int = 4
     gop_margin: float = 2.0
     min_duration_ratio: float = 0.4
+    green_at: float = 0.7             # Phase 2 spec §3: ok needs the target tone heard and tone_score ≥ this
+    wrong_margin: float = 0.25        # wrong: another tone beats P(target) by at least this
+    ref_confidence: float = 0.6       # the reference's own classification becomes the target from this probability
+    min_rms_dbfs: float = -55.0       # gate (spec §1); re-set from the user's takes in the plan's Task 15
+    min_align_conf: float = 0.05
+    min_text_similarity: float = 0.25  # words check (spec §1): below this toneless similarity of what was heard → not scored
+    words_ok_at: float = 0.55         # from here no notice; in between the take is scored with notice `words_differ`
+    max_clipped: float = 0.01
+    profile_seconds: float = 60.0     # voiced seconds before the voice profile alone sets the learner's baseline
+    tone_model: str = "tone_v1"       # backend/shadow/scoring/models/<name>.{joblib,json}
 
 
 class PracticeCfg(BaseModel):
