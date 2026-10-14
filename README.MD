@@ -126,6 +126,24 @@ characters with trend arrows.
 
 ![Stats](docs/screenshots/stats.png)
 
+### Drills
+
+The **Drill** tab (after Review) opens `/drill`. It shows today's focus with your mean: a tone, a tone pair like 3→3, or
+a character. This is your weakest over the last 30 days; it needs at least 8 scored syllables, and a character must
+appear in at least 2 sentences. Two alternatives are offered. Stats has **Drill this** on tone rows, tone-pair matrix
+cells and character rows, and a Drills panel.
+
+A drill is about 10 sentences from all your lessons, at most 4 per lesson while the others still have material. For each
+sentence you listen once and speak along (karaoke wipe, guide volume), then make a scored Echo take with the target
+syllables outlined. If all targets are green you move on; otherwise **Again**, up to 3 scored tries. Takes that are too
+quiet or gated don't count. `→` skips a sentence and `R` replays your take.
+
+The summary shows first → best on the target syllables, the green counts and the history for this focus. Sentences that
+never went green get **Open in Practice** (it opens that sentence) and **Drill these again**.
+
+Tune it in `config.toml` under `[drill]`: `window_days` 30, `min_rows` 8, `queue_size` 10, `max_tries` 3,
+`max_per_lesson` 4, `min_syllables` 4, `max_syllables` 15, `rotate_within` 0.05.
+
 ### Settings
 
 You can set:
@@ -246,7 +264,7 @@ fake implementation.
 | `docs/superpowers/specs/` | the design: [main spec](docs/superpowers/specs/2026-10-03-shadowing-tool-design.md), [YouTube/passages/guidance addendum](docs/superpowers/specs/2026-10-07-youtube-passages-guidance-design.md) |
 | `docs/superpowers/plans/` | the implementation plans each phase was built from |
 | `backend/shadow/scoring/` | pitch tracking, the tone model, syllable scoring, voice profile |
-| `docs/phase1-acceptance.md`, `docs/phase2-acceptance.md` | the manual checklists for things only a real browser, mic and Anki can verify |
+| `docs/phase1-acceptance.md`, `docs/phase2-acceptance.md`, `docs/phase3b-acceptance.md` | the manual checklists for things only a real browser, mic and Anki can verify |
 
 ---
 
@@ -256,10 +274,11 @@ fake implementation.
 - **Phase 0–1:** the pipeline, the four practice modes, the Anki bridge and Yomitan rendering.
 - **Phase 1.5:** YouTube lessons, passages, the guidance and karaoke cues, volume, listening cards, and recordings that come back when you reopen a lesson.
 - **Phase 2:** tone scoring per syllable from a classifier trained on AISHELL-3 plus contour similarity, both normalised to each speaker's own baseline; pitch lines; stats per tone, tone pair and character. See [docs/phase2-acceptance.md](docs/phase2-acceptance.md).
+- **Phase 3b:** drills on your weakest tone, tone pair or character, across all your lessons. See [docs/phase3b-acceptance.md](docs/phase3b-acceptance.md).
 
-### Next: Phase 3 — consonants and vowels
+### Next: Phase 3a — consonants and vowels
 
-Per-syllable pronunciation feedback (goodness of pronunciation from a Chinese CTC model), so you see *which*
+Designed via a spike; waiting on the check-set recording (`data/reports/phase3-checkset.md`). Per-syllable pronunciation feedback (goodness of pronunciation from a Chinese CTC model), so you see *which*
 syllables were mispronounced, not just which tones. It also adds a "most-missed syllables" list.
 
 ### Phase 4 — polish
