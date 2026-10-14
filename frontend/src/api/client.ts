@@ -1,5 +1,5 @@
 import type {
-  ActivityStats, AnkiNotePayload, Attempt, FlowRun, Job, Lesson, LessonDetail, LessonStats, Mode, PracticeSession,
+  ActivityStats, AnkiNotePayload, Attempt, DrillFocus, DrillRecent, DrillSession, DrillSummary, FlowRun, Job, Lesson, LessonDetail, LessonStats, Mode, PracticeSession,
   Segment, SentenceStats, SyllableStats, Take, ToneStats, UnexportedItem, VoiceProfile,
 } from './types'
 
@@ -64,11 +64,12 @@ export const api = {
     resplit: (id: number, at_char_index: number) => req<Segment[]>(`/segments/${id}/resplit`, json('POST', { at_char_index })),
     mergeNext: (id: number) => req<Segment>(`/segments/${id}/merge-next`, { method: 'POST' }),
     attempts: (id: number) => req<Attempt[]>(`/segments/${id}/attempts`),
-    postAttempt: (id: number, wav: Blob, opts: { session_id?: number; mode: Mode }) => {
+    postAttempt: (id: number, wav: Blob, opts: { session_id?: number; drill_session_id?: number; mode: Mode }) => {
       const fd = new FormData()
       fd.append('audio', new File([wav], 'attempt.wav', { type: 'audio/wav' }))
       fd.append('mode', opts.mode)
       if (opts.session_id != null) fd.append('session_id', String(opts.session_id))
+      if (opts.drill_session_id != null) fd.append('drill_session_id', String(opts.drill_session_id))
       return req<Attempt>(`/segments/${id}/attempts`, { method: 'POST', body: fd })
     },
   },
@@ -76,6 +77,13 @@ export const api = {
   sessions: {
     create: (lesson_id: number, mode: Mode) => req<PracticeSession>('/sessions', json('POST', { lesson_id, mode })),
     end: (id: number) => req<PracticeSession>(`/sessions/${id}`, json('PATCH', { ended: true })),
+  },
+  drill: {
+    focuses: () => req<{ focuses: DrillFocus[]; auto: { kind: string; key: string } | null }>('/drill/focuses'),
+    start: (body: { kind: string; key: string; segment_ids?: number[] }) => req<DrillSession>('/drill/sessions', json('POST', body)),
+    end: (id: number) => req<unknown>(`/drill/sessions/${id}`, json('PATCH', { ended: true })),
+    summary: (id: number) => req<DrillSummary>(`/drill/sessions/${id}/summary`),
+    recent: (limit = 10) => req<{ sessions: DrillRecent[] }>(`/drill/sessions?limit=${limit}`).then((r) => r.sessions),
   },
   jobs: {
     get: (id: string) => req<Job>(`/jobs/${id}`),

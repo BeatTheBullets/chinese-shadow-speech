@@ -33,7 +33,7 @@ export interface Take { segment_id: number; attempt_id: number; mode: string; cr
 export interface FlowRun { started_at: string; ended_at: string; session_id: number | null; items: { segment_id: number; idx: number; attempt_id: number }[] }
 export interface PracticeSession { id: number; lesson_id: number; mode: string; started_at: string; ended_at: string | null; attempts_count: number }
 export interface Job { id: string; stage: string; fraction: number; status: 'queued' | 'running' | 'done' | 'error'; error: string | null; lesson_id: number | null }
-export type Mode = 'echo' | 'chorus' | 'flow' | 'guided'
+export type Mode = 'echo' | 'chorus' | 'flow' | 'guided' | 'drill'
 export interface AnkiNotePayload { note_id: number; text: string; translation?: string | null; source?: string | null; url?: string | null; audio_b64: string; filename: string }
 
 export interface SentenceStat { segment_id: number; last: number; best: number; attempts: number }
@@ -53,4 +53,22 @@ export interface VoiceProfile { baseline_hz: number | null; spread_st: number | 
 export interface UnexportedItem {
   lesson_id: number; lesson_title: string; lesson_source_type: Lesson['source_type']; lesson_source_ref: string
   last_attempt_at: string; segment: Segment
+}
+
+export interface DrillFocus { kind: 'tone' | 'pair' | 'char'; key: string; label: string; mean: number; n: number }
+export interface DrillItem { segment: Segment; lesson_id: number; lesson_title: string; targets: number[] }
+export interface DrillSession { id: number; kind: string; key: string; label: string; short: boolean; items: DrillItem[] }
+export interface DrillTake { attempt_id: number; mean: number | null; green: number }
+export interface DrillSummaryItem {
+  segment_id: number; lesson_id: number; lesson_title: string; idx: number; text: string; targets: number[]
+  tries: number; first: DrillTake | null; best: DrillTake | null; went_green: boolean
+}
+export interface DrillSummary {
+  id: number; kind: string; key: string; label: string; items: DrillSummaryItem[]
+  first_mean: number | null; best_mean: number | null; green_first: number; green_best: number; n_targets: number
+  history: { session_id: number; started_at: string; first_mean: number | null; best_mean: number | null }[]
+}
+export interface DrillRecent {
+  id: number; kind: string; key: string; label: string; started_at: string; ended_at: string | null
+  first_mean: number | null; best_mean: number | null
 }
