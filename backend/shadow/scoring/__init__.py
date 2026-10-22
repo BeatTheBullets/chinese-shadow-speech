@@ -7,7 +7,7 @@ from sqlmodel import Session
 from shadow.ingest import audio
 from shadow.scoring.profile import add_frames, get_profile, profile_baseline
 from shadow.scoring.reference import (lesson_baseline, reference_audio, reference_pitch, reference_spans,
-                                     segment_syllables)
+                                     segment_syllables, sound_ref_key)
 from shadow.scoring.score import RefData, failed_result, score_take
 from shadow.store.models import Attempt, Lesson, Segment, SyllableScore
 
@@ -47,8 +47,7 @@ def score_attempt(deps: Deps, db: Session, segment: Segment, attempt: Attempt) -
                 result = failed_result(syllables, ["no_tone_model"])
             else:
                 wav, sr = audio.read_wav(Path(attempt.audio_path))
-                ref_key = (f"{segment.clip_wav_path}|{segment.text}|"        # the detector caches the reference by key
-                           + " ".join(s["pinyin_toneless"] for s in syllables))
+                ref_key = sound_ref_key(segment, syllables)
                 ref = RefData(ref_pitch, reference_spans(segment), ref_base, *reference_audio(segment))
                 result = score_take(ref=ref, syllables=syllables, text=segment.text, wav=wav, sr=sr,
                                     aligner=deps.aligner, embedder=deps.embedder, model=deps.tone_model,

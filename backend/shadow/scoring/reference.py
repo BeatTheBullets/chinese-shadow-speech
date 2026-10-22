@@ -14,6 +14,11 @@ def segment_syllables(seg: Segment) -> list[dict]:
     return [s for w in (seg.words_json or []) for s in w.get("syllables", [])]
 
 
+def sound_ref_key(seg: Segment, syllables: list[dict]) -> str:
+    """The sound detector caches the reference's side by this key."""
+    return f"{seg.clip_wav_path}|{seg.text}|" + " ".join(s["pinyin_toneless"] for s in syllables)
+
+
 def reference_spans(seg: Segment) -> list[tuple[float, float]]:
     """Alignment spans are on the lesson's time axis; the clip starts at the segment's start_s."""
     return [(a["start"] - seg.start_s, a["end"] - seg.start_s) for a in (seg.ref_alignment_json or [])]

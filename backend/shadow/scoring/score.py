@@ -60,6 +60,24 @@ def _r(x: float | None, nd: int = 3) -> float | None:
     return None if x is None else round(float(x), nd)
 
 
+def check_sounds(sounds: Sounds, *, take: np.ndarray, sr: int, usr_win: list[tuple[float, float]], ref_wav: np.ndarray,
+                 ref_sr: int, ref_key: str, syllables: list[dict], statuses: list[str]):
+    """Run the sound check and shape its results, shared by scoring and the back-fill so both write the same fields.
+    Returns (checked, off, [(result, (sound_status, heard_syllable, seg_score))]) or None when the check failed: a
+    sound failure never fails a take, whose tone result is already final and stays identical without sounds."""
+    try:
+        found = sounds.check(take=take, sr=sr, usr_win=usr_win, ref_wav=ref_wav, ref_sr=ref_sr, ref_key=ref_key,
+                             syllables=syllables, statuses=statuses)
+        if len(found) != len(syllables):
+            raise ValueError(f"the sound check returned {len(found)} results for {len(syllables)} syllables")
+        # everything is computed before anything is applied, so a malformed result leaves no half-applied state
+        applied = [(f, (None, None, None) if f is None else (f["status"], f["heard"], _r(f["z"]))) for f in found]
+    except Exception:  # noqa: BLE001
+        log.exception("the sound check failed; the take keeps its tone score")
+        return None
+    return (sum(f is not None for f, _ in applied), sum(f is not None and f["status"] == "slip" for f, _ in applied), applied)
+
+
 def score_take(*, ref: RefData, syllables: list[dict], text: str, wav: np.ndarray, sr: int, aligner: Aligner,
                embedder: Embedder, model: ToneModel | None, profile: Baseline | None, profile_voiced_s: float, cfg: ScoringCfg,
                hear: Callable[[], str | None] | None = None, sounds: Sounds | None = None,
@@ -129,22 +147,13 @@ def score_take(*, ref: RefData, syllables: list[dict], text: str, wav: np.ndarra
 
     sounds_off = sounds_checked = None
     if sounds is not None:
-        # a sound failure never fails a take: the tone result above is already final and stays identical without sounds
-        try:
-            found = sounds.check(take=trimmed, sr=sr, usr_win=usr_win, ref_wav=ref.wav, ref_sr=ref.sr, ref_key=ref_key,
-                                 syllables=syllables, statuses=[x["status"] for x in out_syl])
-            if len(found) != len(syllables):
-                raise ValueError(f"the sound check returned {len(found)} results for {len(syllables)} syllables")
-            # everything is computed before anything is applied, so a malformed result leaves no half-applied state
-            applied = [(f, None if f is None else (f["status"], f["heard"], _r(f["z"]))) for f in found]
-        except Exception:  # noqa: BLE001
-            log.exception("the sound check failed; the take keeps its tone score")
-        else:
-            sounds_checked = sum(f is not None for f, _ in applied)
-            sounds_off = sum(f is not None and f["status"] == "slip" for f, _ in applied)
+        got = check_sounds(sounds, take=trimmed, sr=sr, usr_win=usr_win, ref_wav=ref.wav, ref_sr=ref.sr, ref_key=ref_key,
+                           syllables=syllables, statuses=[x["status"] for x in out_syl])
+        if got is not None:
+            sounds_checked, sounds_off, applied = got
             for js, row, (f, t) in zip(out_syl, rows, applied):
                 js["sound"] = f
-                row["sound_status"], row["heard_syllable"], row["seg_score"] = (None, None, None) if t is None else t
+                row["sound_status"], row["heard_syllable"], row["seg_score"] = t
 
     overall = sentence_overall([(x["status"], x["tone_score"]) for x in out_syl])
     usr_spans = [(a + off, b + off) for a, b in usr_win]
