@@ -22,9 +22,10 @@ export interface FlowViewProps {
 }
 
 // Flow mode while running (main spec §7.3, addendum §6.5, style spec §3): the lesson as a transcript; the current
-// line large on the stage, with the karaoke wipe, the 3 · 2 · 1 countdown wherever the count-in window runs (the
-// stage is then getReady), and while the learner speaks (after's turn: ghost wipe and turn bar; along: throughout)
-// the record frame and the live waveform; the run's next line dimmed right below it.
+// line large on the stage, with the karaoke wipe, the 3 · 2 · 1 countdown wherever the count-in window runs (after:
+// the stage is then getReady; along: the ring shows inside the speak-along frame, which stays, as the recording
+// does), and while the learner speaks (after's turn: ghost wipe and turn bar; along: throughout) the record frame
+// and the live waveform; the run's next line dimmed right below it.
 export default function FlowView(p: FlowViewProps) {
   const { current } = p
   const curRef = useRef<HTMLDivElement | null>(null)
@@ -47,7 +48,7 @@ export default function FlowView(p: FlowViewProps) {
           <div key={s.id} ref={curRef} className="flex gap-3 items-start px-3 rounded bg-card py-3">
             <RowMarks s={s} pending={p.pending.has(s.id)} />
             <div className="flex-1">
-              <StageState stage={k.count != null ? 'getReady' : p.stage} count={k.count} recordingS={p.recordingS}>
+              <StageState stage={k.count != null && p.stage !== 'along' ? 'getReady' : p.stage} count={k.count} recordingS={p.recordingS}>
                 <KaraokeSentence wipe={k.wipe} text={s.text} words={s.words_json} showHanzi={p.showText} showPinyin={p.showText} />
                 {!p.showText && <GhostLine count={spans.length} wipe={k.wipe} />}
                 {k.turnLeft != null && (

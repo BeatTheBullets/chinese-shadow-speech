@@ -52,6 +52,17 @@ describe('<StageState>', () => {
     expect(screen.getByTestId('rec-dot')).toBeInTheDocument()
     expect(screen.getByTestId('rec-timer')).toHaveTextContent('0:00')
   })
+  it('along with a count: the speak-along frame stays and the 3·2·1 ring shows inside it', () => {
+    render(<StageState stage="along" count={2} recordingS={5}>{card}</StageState>)
+    expect(screen.getByTestId('stage')).toHaveClass('border-record')
+    expect(screen.getByText('Speak along')).toBeInTheDocument()
+    expect(screen.getByTestId('rec-timer')).toHaveTextContent('0:05')
+    expect(screen.getByLabelText('starting in 2')).toHaveTextContent('2')
+  })
+  it('yourTurn ignores a count: no ring once it is your turn', () => {
+    render(<StageState stage="yourTurn" count={2}>{card}</StageState>)
+    expect(screen.queryByTestId('countdown')).toBeNull()
+  })
   it('review: the original, then you, in the speaker colour; the note stays', () => {
     render(<StageState stage="review" note="Scoring…">{card}</StageState>)
     expect(screen.getByText('Listen — the original, then you')).toBeInTheDocument()

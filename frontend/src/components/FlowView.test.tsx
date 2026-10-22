@@ -66,6 +66,19 @@ describe('<FlowView>', () => {
     rerender(<FlowView {...base} sub="along" showText clipTime={1.5} />)          // 0.2 s of silence: none
     expect(screen.queryByLabelText(/starting in/)).toBeNull()
   })
+  it('along with a countdown: the along frame, text, timer and live waveform stay, with 3·2·1 inside', () => {
+    const late = { ...seg(2, 1, '再见', 2), ref_alignment_json: [{ ch: '再', start: 2.6, end: 3.0, conf: 1 }, { ch: '见', start: 3.0, end: 3.5, conf: 1 }] }
+    render(<FlowView {...base} segments={[seg(1, 0, '你好', 0), late]} stage="along" recordingS={4} sub="along" showText clipTime={1.5} />)
+    const stage = screen.getByTestId('stage')
+    expect(stage).toHaveAttribute('data-stage', 'along')
+    expect(stage).toHaveClass('border-record')
+    expect(stage).toHaveTextContent('Speak along')
+    expect(screen.getByTestId('rec-dot')).toBeInTheDocument()
+    expect(screen.getByTestId('rec-timer')).toHaveTextContent('0:04')
+    expect(screen.getByTestId('live-wave')).toBeInTheDocument()
+    expect(screen.getByTestId('countdown').textContent).toBe('3')
+    expect(stage).toContainElement(screen.getByLabelText('starting in 3'))
+  })
   it('along: the count-in runs on through the lead silence of the next clip, down to its first syllable', () => {
     const late = { ...seg(2, 1, '再见', 2), ref_alignment_json: [{ ch: '再', start: 2.6, end: 3.0, conf: 1 }, { ch: '见', start: 3.0, end: 3.5, conf: 1 }] }
     const segments = [seg(1, 0, '你好', 0), late, seg(3, 2, '谢谢', 4)]
