@@ -23,9 +23,9 @@ import TopBar from '../components/TopBar'
 import Transport from '../components/Transport'
 import type { SoundControls } from '../components/SoundPopover'
 import TwoTrack from '../components/TwoTrack'
-import { idleNote, stageOf } from '../lib/cue'
+import { stageOf } from '../lib/cue'
 import { echoReducer, MIN_TAKE_S, type EchoEvent, type EchoState } from '../lib/echo'
-import { weakestResults, type FlowResult } from '../lib/flow'
+import { weakestResults, type FlowResult, type FlowSub } from '../lib/flow'
 import { clipSpans, stageWipe } from '../lib/karaoke'
 import { actionForKey, type Action } from '../lib/keys'
 import { passageIndexOf, passageSpan } from '../lib/passages'
@@ -135,7 +135,8 @@ export default function Practice() {
     api.lessons.get(lessonId).then((l) => {
       if (cancelled) return
       const ps = usePractice.getState(), s = useSettings.getState()
-      ps.setLesson(l); ps.setTextPrefs(s.textPrefs[String(lessonId)] ?? defaultTextPrefs); ps.setRate(s.practice.defaultRate)
+      ps.setLesson(l); usePractice.setState({ drawerOpen: false }) // closed on each visit
+      ps.setTextPrefs(s.textPrefs[String(lessonId)] ?? defaultTextPrefs); ps.setRate(s.practice.defaultRate)
       const seg = new URLSearchParams(window.location.search).get('seg')   // Review links here with ?seg=idx
       if (seg != null && Number.isInteger(Number(seg)) && Number(seg) >= 0 && Number(seg) < l.segments.length) ps.setIdx(Number(seg))
       const ix = idxParam.current
@@ -381,7 +382,8 @@ export default function Practice() {
     const status = take?.score?.syllables[cell]?.status
     if (take && span && status !== 'missing' && status !== 'unvoiced') playSolo(() => player.playRange(take.url, 1, span[0], span[1], setYouHead))
   }
-  // Plays one syllable of the reference once (addendum §1.2); clicking again plays it again.
+  // Plays one syllable of the reference once (addendum §1.2), from a click on its character on the sentence card;
+  // clicking again plays it again.
   // Alignment times are source-absolute, the clip starts at seg.start_s.
   function playSyllable(cell: number) {
     const ps = usePractice.getState(), s = currentSegment(ps), span = s?.ref_alignment_json?.[cell]
@@ -403,31 +405,44 @@ export default function Practice() {
     if (m === usePractice.getState().mode) return
     if (runRef.current?.kind === 'flow') await flow.stop()
     if (!alive.current) return
-    cancelActivity(); flow.clear(); flow.setForm({ from: null, to: null })
+    // The sentence stays as it is either way: Flow's run starts from it (flowRange), Echo goes on from where Flow was.
+    cancelActivity(); flow.clear(); flow.setForm({ to: null })
     usePractice.getState().setMode(m)
   }
 
-  // Flow: the setup form's range, defaulting to the current sentence's passage (addendum §4), or to the current
-  // sentence through the last when the lesson has no passages.
+  function passageSpanAt(i: number) {
+    const ps = usePractice.getState(), segs = ps.lesson?.segments ?? [], passages = ps.lesson?.passages ?? []
+    const k = passageIndexOf(passages, segs, i)
+    return k >= 0 ? passageSpan(passages[k], segs) : null
+  }
+  // Flow: the run's range. Before a run one sentence drives everything: the run starts at the current sentence, the one
+  // the learner was on in Echo (the stage shows it; ‹ ›, the drawer and the form's "Flow from" all move it). It ends at
+  // the form's "to", by default the end of the current sentence's passage (addendum §4), or the last sentence when the
+  // lesson has none; never before it starts.
   function flowRange() {
-    const ps = usePractice.getState(), segs = ps.lesson?.segments ?? [], last = Math.max(0, segs.length - 1)
-    const clamp = (i: number) => Math.max(0, Math.min(last, i))
-    const passages = ps.lesson?.passages ?? []
-    const k = passageIndexOf(passages, segs, ps.idx)
-    const span = k >= 0 ? passageSpan(passages[k], segs) : null
-    const from = clamp(flow.state.from ?? span?.from ?? ps.idx), to = clamp(flow.state.to ?? span?.to ?? last)
-    return { from: Math.min(from, to), to: Math.max(from, to) }
+    const ps = usePractice.getState(), last = Math.max(0, (ps.lesson?.segments.length ?? 0) - 1)
+    const from = Math.max(0, Math.min(last, ps.idx))
+    return { from, to: Math.max(from, Math.min(last, flow.state.to ?? passageSpanAt(ps.idx)?.to ?? last)) }
+  }
+  // A "to" the current sentence has moved past is stale (its range would end before it): back to the default, the passage's end.
+  const flowTo = flow.state.to, setFlowTo = flow.setForm
+  useEffect(() => { if (flowTo != null && st.idx > flowTo) setFlowTo({ to: null }) }, [flowTo, st.idx, setFlowTo])
+  // The Flow form: its "from" is the current sentence (see flowRange), so picking one goes there.
+  function setFlowForm({ from, ...rest }: { from?: number; to?: number; sub?: FlowSub }) {
+    if (from != null) goTo(from)
+    if (Object.keys(rest).length) flow.setForm(rest)
   }
   // The top bar's passage selector: to the passage's first sentence (Flow's range follows it). Not during a Flow run.
   function pickPassage(k: number) {
     const l = usePractice.getState().lesson, p = l?.passages?.[k]
     const span = l && p ? passageSpan(p, l.segments) : null
     if (!span || runRef.current?.kind === 'flow') return
-    flow.setForm({ from: null, to: null })
+    flow.setForm({ to: null })
     goTo(span.from)
   }
   function startFlow(from: number, to: number) {
     cancelActivity()
+    usePractice.setState({ drawerOpen: false }) // a run starts with the list closed
     usePractice.getState().setHint('') // a stale move-on or Anki hint would show through the run
     if (flow.state.sub === 'along') hintHeadphones()
     void flow.start(from, to, flow.state.sub)
@@ -630,6 +645,8 @@ export default function Practice() {
   }, [])
 
   const back = <Link to="/library" className="underline">Back to the library</Link>
+  // stable, so the drawer's keydown listener isn't re-registered on every render
+  const closeList = useCallback(() => usePractice.setState({ drawerOpen: false }), [])
   if (loadError) return <div className="p-8 text-bad">{loadError} {back}</div>
   if (!st.lesson || st.lesson.id !== lessonId) return <div className="p-8 text-fgdim">Loading…</div>
   if (!seg) return <div className="p-8 text-fgdim">This lesson has no sentences yet. {back}</div>
@@ -649,8 +666,17 @@ export default function Practice() {
   const refPlaying = echo === 'playing' || echo === 'playback'
   const { wipe } = stageWipe({ spans, refPlaying, refHead, turnStart: st.mode === 'echo' ? echoTurn : null, now, rate: st.rate })
   // The stage (spec §3). Echo goes straight to "Your turn" (no countdown); Flow's countdown is FlowView's.
-  const activity = { mode: st.mode, echo, runKind, hasTake: st.lastAttempt != null, flowPhase: fs.phase, flowSub: fs.sub, flowTurn: fs.turn != null }
-  const stage = stageOf(activity), note = idleNote(activity)
+  const stage = stageOf({ mode: st.mode, echo, runKind, flowPhase: fs.phase, flowSub: fs.sub, flowTurn: fs.turn != null })
+  // The next expected action pulses, while nothing is going on (no "Ready / Done" line): Record before an Echo take or
+  // a Flow run; › once this sentence has a take (Enter would still record again), unless it is the last sentence.
+  const pulse = echo !== 'idle' ? undefined
+    : st.mode === 'flow' ? (fs.phase === 'setup' ? 'record' : undefined)
+    : st.lastAttempt == null ? 'record' : st.idx < segments.length - 1 ? 'next' : undefined
+  // Picking a sentence or opening an edit/split dialog from the list closes it (the dialog is modal over the page anyway); a merge keeps it open.
+  const lessonList = <Drawer segments={segments} idx={st.idx} open={st.drawerOpen} pendingIds={fs.pending} onJump={(i) => { closeList(); goTo(i) }} onClose={closeList}
+    onEdit={(i) => { closeList(); openDialog('edit', i) }} onSplit={(i) => { closeList(); openDialog('split', i) }} onMerge={mergeNext} passages={passages} practised={st.practised} />
+  const bar = <Transport onAction={act} idx={st.idx} total={segments.length} recording={echo === 'recording'} busy={echo === 'uploading'} hint={st.hint} error={error} recordLabel={recordLabel} sound={sound}
+    canNext={st.idx < segments.length - 1} pulse={pulse} list={{ open: st.drawerOpen, onToggle: st.toggleDrawer, panel: lessonList }} />
   return (
     <div className="h-full flex flex-col">
       <TopBar title={st.lesson.title} speaker={st.lesson.speaker} mode={st.mode}
@@ -659,42 +685,41 @@ export default function Practice() {
         passage={passages.length ? { index: passageIndexOf(passages, segments, flowRunning ? fs.current : st.idx), titles: passages.map((p) => p.title), onPick: pickPassage } : null} />
       <div className="flex-1 flex min-h-0">
         <main className="flex-1 flex flex-col min-w-0">
-          {flowRunning ? (<>
-            <FlowView segments={segments} current={fs.current} first={fs.range?.from ?? 0} last={fs.range?.to ?? segments.length - 1}
+          {/* Flow shows its own screen as soon as it is chosen (before a run: the range's first line, idle, with the
+              settings above); its summary and Echo share the sentence page. */}
+          {st.mode === 'flow' && fs.phase !== 'summary' ? (<>
+            <FlowView segments={segments} current={flowRunning ? fs.current : range.from} first={flowRunning ? fs.range?.from ?? 0 : range.from}
+              last={flowRunning ? fs.range?.to ?? segments.length - 1 : range.to} running={flowRunning}
               pending={fs.pending} sub={fs.sub} rate={st.rate} now={now}
-              stage={stage} mic={mic} startedAt={fs.turn ? fs.turn.startedAt : runFrom} clipTime={fs.clipTime} turn={fs.turn}
-              showText={!(settings.practice.hideTextWhileRecording && fs.sub === 'after')} />
-            <FlowTransport onAction={act} idx={fs.current} total={segments.length} sound={sound} error={error} hint={st.hint} />
+              stage={stage} mic={mic} startedAt={fs.turn ? fs.turn.startedAt : runFrom} clipTime={flowRunning ? fs.clipTime : null} turn={flowRunning ? fs.turn : null}
+              showText={!(settings.practice.hideTextWhileRecording && fs.sub === 'after' && fs.turn != null)}
+              controls={<FlowSetup segments={segments} from={range.from} to={range.to} sub={fs.sub} onChange={setFlowForm} runs={flowRuns} onReplay={replayRun} />} />
+            {flowRunning ? <FlowTransport onAction={act} idx={fs.current} total={segments.length} sound={sound} error={error} hint={st.hint} /> : bar}
           </>) : (<>
             <div className="flex-1 overflow-y-auto p-6 space-y-6">
-              {st.mode === 'flow' && fs.phase === 'summary' ? (<>
-                <StageState stage={stage} note={note} />
+              {st.mode === 'flow' ? (<>
+                {stage !== 'idle' && <StageState stage={stage} />}{/* Space plays the sentence: "Listening" */}
                 <FlowSummary segments={segments} results={fs.results} skipped={fs.skipped} elapsedS={fs.elapsedS}
                   onPlayPair={(r) => playItems(resultPair(r))} onReplayAll={() => playItems([...fs.results].sort((x, y) => x.idx - y.idx).flatMap(resultPair))}
                   onRunAgain={() => { if (fs.range) startFlow(fs.range.from, fs.range.to) }} onEcho={(i) => void echoOn(i)}
                   onFlagWeakest={flagWeakest} onExportWeakest={exportWeakest}
                   onDone={() => offerExport(flow.clear)} />
               </>) : (<>
-                {st.mode === 'flow' && <FlowSetup segments={segments} from={range.from} to={range.to} sub={fs.sub} onChange={flow.setForm}
-                  runs={flowRuns} onReplay={replayRun} />}
-                <StageState stage={stage} note={note} startedAt={echoTurn ?? undefined} autoStop wave={<LiveWave mic={mic} color={TOKENS.you} />}>
-                  <KaraokeSentence wipe={wipe} text={seg.text} words={seg.words_json} showHanzi={st.textPrefs.hanzi && show} showPinyin={st.textPrefs.pinyin && show} translation={seg.translation} showTranslation={st.textPrefs.translation && show}
+                <StageState stage={stage} startedAt={echoTurn ?? undefined} autoStop wave={<LiveWave mic={mic} color={TOKENS.you} />}>
+                  <KaraokeSentence wipe={wipe} onSyllableClick={playSyllable} text={seg.text} words={seg.words_json} showHanzi={st.textPrefs.hanzi && show} showPinyin={st.textPrefs.pinyin && show} translation={seg.translation} showTranslation={st.textPrefs.translation && show}
                     tools={<SentenceTools flagged={seg.difficulty_flag} onFlag={() => act('flag')} prefs={st.textPrefs} onToggle={(k) => act(TOGGLE[k])} />}>
                     {!(st.textPrefs.hanzi && show) && wipe && <GhostLine count={spans.length} wipe={wipe} />}
                   </KaraokeSentence>
                 </StageState>
                 <TwoTrack segment={seg} refPeaks={refPeaks} refDuration={seg.end_s - seg.start_s} refPlayhead={refHead}
                   youPeaks={youPeaks} youDuration={take?.duration ?? 0} youPlayhead={youHead}
-                  onPlayRef={() => act('play')} onPlayYou={() => act('replayYou')} onPlaySyllable={playSyllable} onPlayYouSyllable={playYouSyllable}
+                  onPlayRef={() => act('play')} onPlayYou={() => act('replayYou')} onPlayYouSyllable={playYouSyllable}
                   score={take?.score ?? null} scoreHeader={<ScoreHeader score={take?.score} best={seg.best_score} attempts={seg.attempts} />} />
               </>)}
             </div>
-            <Transport onAction={act} idx={st.idx} total={segments.length} recording={echo === 'recording'} busy={echo === 'uploading'} hint={st.hint} error={error} recordLabel={recordLabel} sound={sound}
-              canNext={st.idx < segments.length - 1} />
+            {bar}
           </>)}
         </main>
-        {!flowRunning && <Drawer segments={segments} idx={st.idx} open={st.drawerOpen} pendingIds={fs.pending} onJump={goTo} onToggle={st.toggleDrawer}
-          onEdit={(i) => openDialog('edit', i)} onSplit={(i) => openDialog('split', i)} onMerge={mergeNext} passages={passages} practised={st.practised} />}
       </div>
       {dialog && segments[dialog.idx] && (
         <EditDialog key={`${dialog.mode}-${segments[dialog.idx].id}`} segment={segments[dialog.idx]} mode={dialog.mode} busy={dialogBusy} error={dialogError}

@@ -6,19 +6,20 @@ function youMark(c: Cell): string {
   if (c.status === 'missing' || c.score == null) return '–'
   return pct(c.score)
 }
-// highlight: cell indexes to outline (a drill's target syllables). soundMarks: cells to ring in purple (a heard wrong sound; purple means sound only).
-export default function CellRow({ cells, variant, onCellClick, highlight, soundMarks }: { cells: Cell[]; variant: 'ref' | 'you'; onCellClick?: (i: number) => void; highlight?: number[]; soundMarks?: number[] }) {
-  // One ring per cell: the purple sound ring wins over a drill's accent outline (a sound drill's targets are the marked cells).
-  const ring = (i: number) => (soundMarks?.includes(i) ? ' ring-2 ring-sound' : highlight?.includes(i) ? ' ring-2 ring-accent' : '')
+// Your verdict cells, one per syllable under your track (the Echo review's only cell row). Every cell is the same
+// fixed size and its lines cannot wrap (they truncate), and the row aligns cells at the top, so a longer label can
+// never make one cell taller than its neighbours and lift it out of line. HeardRow's slots share this width and gap.
+// highlight: cell indexes to outline (a drill's target syllables).
+const CELL_SIZE = 'w-12 h-14'  // HeardRow's slots are w-12 too
+export default function CellRow({ cells, onCellClick, highlight }: { cells: Cell[]; onCellClick?: (i: number) => void; highlight?: number[] }) {
   return (
-    <div className="flex flex-wrap gap-1 mt-2 justify-center">
+    <div className="flex flex-wrap items-start gap-1 mt-2 justify-center">
       {cells.map((c, i) => (
-        <button key={i} title={variant === 'you' ? cellTitle(c) : c.pinyin} onClick={() => onCellClick?.(i)}
-          className={`w-10 max-w-[56px] rounded border px-1 py-1 text-center ${cellClass(c)}${ring(i)}`}>
-          <span className="block font-hanzi text-fg text-sm leading-tight">{c.ch}</span>
-          <span className="block text-[10px] text-ref">{variant === 'ref' ? `${c.pinyin} ${c.tone >= 0 ? c.tone : ''}`
-            : c.status === 'wrong' && c.target != null && c.heard != null ? `${c.target}→${c.heard}` : `${c.tone >= 0 ? c.tone : ''}`}</span>
-          {variant === 'you' && <span className="block text-[9px] text-fgdim">{youMark(c)}</span>}
+        <button key={i} title={cellTitle(c)} onClick={() => onCellClick?.(i)}
+          className={`${CELL_SIZE} shrink-0 overflow-hidden whitespace-nowrap rounded border px-0.5 flex flex-col items-center justify-center ${cellClass(c)}${highlight?.includes(i) ? ' ring-2 ring-accent' : ''}`}>
+          <span className="block w-full truncate font-hanzi text-fg text-base leading-tight">{c.ch}</span>
+          <span className="block w-full truncate text-[10px] leading-tight text-ref">{c.status === 'wrong' && c.target != null && c.heard != null ? `${c.target}→${c.heard}` : `${c.tone >= 0 ? c.tone : ''}`}</span>
+          <span className="block w-full truncate text-[9px] leading-tight text-fgdim">{youMark(c)}</span>
         </button>))}
     </div>
   )

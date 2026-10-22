@@ -14,12 +14,15 @@ const nowS = () => performance.now() / 1000
 //   when you finish" beside it (Echo, Drill; Flow's turns end on their own clock); `wave` (the live waveform) shows.
 //   No note here: nothing competes with it.
 //   Along records throughout, so its frame stays while it counts in to the next line: the ring shows inside it.
-// `note` is the small line saying what Enter does when nothing is going on (idle, and alongside listen and review).
+// `note` is a page's own small guidance line (the drill's "Scoring…", "Not green yet…"), shown when nothing is going
+// on and alongside listen and review. What to press next is not a line: that button pulses (Transport's pulse).
 // Nothing moves between stages (no page jump): the cue area under the sentence has one min-height that fits the tallest
 // state, the ring is overlaid on it (absolute), and `wave` has a fixed slot, held empty while not speaking.
+// `compact` (Flow, between its transcript lines): the cue area only as tall as the ring, "Get ready" beside the ring
+// instead of under it, a smaller wave slot and less space between: no big empty box.
 // No transitions on the frame: nothing may delay the moment to speak (spec §7).
-export default function StageState({ stage, count = null, startedAt, autoStop = false, note, wave, children }: {
-  stage: Stage; count?: 3 | 2 | 1 | null; startedAt?: number; autoStop?: boolean; note?: string; wave?: ReactNode; children?: ReactNode
+export default function StageState({ stage, count = null, startedAt, autoStop = false, note, wave, compact = false, children }: {
+  stage: Stage; count?: 3 | 2 | 1 | null; startedAt?: number; autoStop?: boolean; note?: string; wave?: ReactNode; compact?: boolean; children?: ReactNode
 }) {
   const speaking = stage === 'yourTurn' || stage === 'along'
   const ring = (place: string) => count != null && (
@@ -33,19 +36,23 @@ export default function StageState({ stage, count = null, startedAt, autoStop = 
     </div>)
   return (
     <section data-testid="stage" data-stage={stage}
-      className={`rounded-2xl border-2 p-3 space-y-4 ${speaking ? 'border-record ring-4 ring-inset ring-record/20' : 'border-transparent'}`}>
+      className={`rounded-2xl border-2 p-3 ${compact ? 'space-y-2' : 'space-y-4'} ${speaking ? 'border-record ring-4 ring-inset ring-record/20' : 'border-transparent'}`}>
       {children}
-      {wave != null && <div data-testid="wave-slot" className="h-12">{speaking && wave}</div>}
-      {/* min-h-28 (112 px): getReady's ring (80) over "Get ready" (28), the tallest state */}
-      <div data-testid="stage-cue" className="relative min-h-28 flex flex-col items-center justify-center gap-1">
+      {wave != null && <div data-testid="wave-slot" className={compact ? 'h-10' : 'h-12'}>{speaking && wave}</div>}
+      {/* min-h-28 (112 px): getReady's ring (80) over "Get ready" (28), the tallest state; compact: the ring (80) alone,
+          "Your turn" with its timer (~60) fits under it */}
+      <div data-testid="stage-cue" className={`relative ${compact ? 'min-h-20' : 'min-h-28'} flex flex-col items-center justify-center gap-1`}>
         {(stage === 'listen' || stage === 'review') && (
           <p role="status" className="flex justify-center gap-2 text-ref">
             <span aria-hidden="true">▶</span> <span>{stage === 'listen' ? 'Listening' : 'Listen — the original, then you'}</span>
           </p>)}
-        {stage === 'getReady' && (<>
+        {stage === 'getReady' && (compact ? (<>
+          {ring('top-0 right-1/2 mr-2')}
+          <p className="absolute left-1/2 ml-2 top-1/2 -translate-y-1/2 text-accent text-lg">Get ready</p>
+        </>) : (<>
           {ring('top-0 left-1/2 -translate-x-1/2')}
           <p className="absolute bottom-0 inset-x-0 text-center text-accent text-lg">Get ready</p>
-        </>)}
+        </>))}
         {speaking && (<>
           {stage === 'along' && ring('right-0 top-1/2 -translate-y-1/2')}
           <p role="status" className="flex items-center gap-3">

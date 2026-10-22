@@ -15,6 +15,7 @@ from sqlmodel import Session, delete, select
 from shadow.config import load_settings
 from shadow.deps import build_deps
 from shadow.ingest import audio
+from shadow.memory import release_freed_memory_eagerly
 from shadow.scoring import score_attempt
 from shadow.scoring.pitch import trim_silence
 from shadow.scoring.gate import text_similarity
@@ -32,6 +33,7 @@ def main() -> None:
     a = ap.parse_args()
     settings = load_settings()
     engine = make_engine(settings.data_dir); init_db(engine)
+    release_freed_memory_eagerly()      # before any model loads
     deps = build_deps(settings)
     if deps.tone_model is None:
         raise SystemExit("no tone model: train it first (make tone-model)")

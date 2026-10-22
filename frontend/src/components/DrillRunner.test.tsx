@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DrillSession, Segment } from '../api/types'
 
@@ -66,5 +66,25 @@ describe('<DrillRunner> your syllable', () => {
     act(() => h.twoTrack!.onPlayYouSyllable!(1)); await flush()
     act(() => h.twoTrack!.onPlayYouSyllable!(2)); await flush()
     expect(h.player.playRange).toHaveBeenCalledTimes(1)
+  })
+
+  it('clicking a character on the sentence card plays that syllable of the reference', async () => {
+    const aligned: Segment = { ...seg, start_s: 10, end_s: 12, ref_alignment_json: [
+      { ch: '你', start: 10.2, end: 10.5, conf: 1 }, { ch: '好', start: 10.5, end: 11.25, conf: 1 }, { ch: '吗', start: 11.25, end: 11.5, conf: 1 }] }
+    // jsdom does no layout: each character gets a 40 px box at 40 px × its offset, so x = 40 i + 20 is on character i.
+    const orig = Range.prototype.getClientRects
+    Range.prototype.getClientRects = function (this: Range) { return [{ left: this.startOffset * 40, top: 0, width: 40, height: 40 }] as unknown as DOMRectList }
+    try {
+      render(<DrillRunner session={{ ...session, items: [{ ...session.items[0], segment: aligned }] }} onFinish={() => {}} />)
+      const flush = () => act(async () => { for (let i = 0; i < 10; i++) await Promise.resolve() })
+      await flush()
+      fireEvent.keyDown(window, { key: 'Enter' }); await flush() // a take, so the step is past listening
+      fireEvent.keyDown(window, { key: 'Enter' }); await flush()
+      await waitFor(() => expect(h.twoTrack?.score).toEqual(score))
+      fireEvent.click(screen.getByText('你好吗', { selector: 'p.sentence' }), { clientX: 60, clientY: 20 }); await flush()
+      expect(h.player.playRange).toHaveBeenCalledTimes(1)
+      const [url, , from, to] = h.player.playRange.mock.calls[0] as unknown as [string, number, number, number]
+      expect(url).toBe('/seg/11.wav'); expect(from).toBeCloseTo(0.5, 5); expect(to).toBeCloseTo(1.25, 5)
+    } finally { Range.prototype.getClientRects = orig }
   })
 })

@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { FlowRun, Segment } from '../api/types'
-import FlowView, { FlowSetup, FlowTransport } from './FlowView'
+import FlowView, { FlowSetup, FlowTransport, WINDOW } from './FlowView'
 
 const seg = (id: number, idx: number, text: string, start: number): Segment => ({
   id, lesson_id: 1, idx, start_s: start, end_s: start + 2, text, translation: null, words_json: null,
@@ -10,7 +10,7 @@ const seg = (id: number, idx: number, text: string, start: number): Segment => (
 })
 const base = {
   segments: [seg(1, 0, '你好', 0), seg(2, 1, '再见', 2), seg(3, 2, '谢谢', 4)], current: 0, first: 0, last: 2, pending: new Set<number>(), rate: 1, now: 100,
-  mic: { snapshot: () => null }, stage: 'listen' as const, startedAt: performance.now() / 1000, clipTime: null, turn: null,
+  mic: { snapshot: () => null }, stage: 'listen' as const, startedAt: performance.now() / 1000, clipTime: null, turn: null, running: true,
 }
 const original = Range.prototype.getClientRects
 
@@ -91,6 +91,64 @@ describe('<FlowView>', () => {
     expect(screen.getByLabelText('starting in 1')).toBeInTheDocument()
     rerender(<FlowView {...base} segments={segments} current={1} first={1} sub="along" showText clipTime={0} />)
     expect(screen.queryByLabelText(/starting in/)).toBeNull() // the first line of the run carries nothing over
+  })
+  const ten = '一二三四五六七八九十'.split('').map((c, i) => seg(i + 1, i, `${c}${c}`, i * 2))
+  const lines = () => screen.getAllByTestId('flow-line').map((l) => l.textContent)
+  it(`shows only a window round the current line, ${WINDOW.before} before and ${WINDOW.after} after, centred above and below the stage`, () => {
+    expect(WINDOW).toEqual({ before: 2, after: 3 })
+    render(<FlowView {...base} segments={ten} current={5} last={9} sub="along" showText />)
+    expect(lines()).toEqual(['4四四', '5五五', '7七七', '8八八', '9九九'])  // each line: its number, then its text
+    expect(screen.getByTestId('stage')).toHaveTextContent('六六')
+    expect(screen.queryByText('一一')).toBeNull()
+    expect(screen.queryByText('十十')).toBeNull()
+    expect(screen.getByTestId('flow-transcript')).toHaveClass('items-center')
+    screen.getAllByTestId('flow-line').forEach((l) => expect(l).toHaveClass('justify-center'))
+    const order = [...screen.getByTestId('flow-transcript').querySelectorAll('[data-testid="flow-line"], [data-testid="flow-current"]')].map((e) => e.getAttribute('data-testid'))
+    expect(order).toEqual(['flow-line', 'flow-line', 'flow-current', 'flow-line', 'flow-line', 'flow-line'])
+  })
+  it('the window advances with the run, and keeps its slots at the ends so the stage never moves', () => {
+    const { rerender } = render(<FlowView {...base} segments={ten} current={0} last={9} sub="along" showText />)
+    expect(lines()).toEqual(['2二二', '3三三', '4四四'])
+    expect(screen.getAllByTestId('flow-pad')).toHaveLength(2)                // two empty slots above the first line
+    rerender(<FlowView {...base} segments={ten} current={1} last={9} sub="along" showText />)
+    expect(lines()).toEqual(['1一一', '3三三', '4四四', '5五五'])
+    expect(screen.getAllByTestId('flow-pad')).toHaveLength(1)
+    rerender(<FlowView {...base} segments={ten} current={9} last={9} sub="along" showText />)
+    expect(lines()).toEqual(['8八八', '9九九'])
+    expect(screen.getAllByTestId('flow-pad')).toHaveLength(3)
+  })
+  it('the run\'s past lines are dimmed and finished ones keep their mark; the next one is marked', () => {
+    render(<FlowView {...base} segments={ten} current={5} last={9} pending={new Set([5])} sub="along" showText />)
+    const [l4, l5, l7] = screen.getAllByTestId('flow-line')
+    expect(l4.querySelector('.font-hanzi')!.className).toContain('text-fgdim')
+    expect(l5.querySelector('.rounded-full')!.className).not.toBe(l4.querySelector('.rounded-full')!.className) // 5 is pending
+    expect(l7).toContainElement(screen.getByTestId('next-line'))
+  })
+  it('lines above the stage are cut to one line (the full text in their title); lines below wrap, to read ahead', () => {
+    const long = [seg(1, 0, '你好', 0), seg(2, 1, '再见', 2), { ...seg(3, 2, '谢谢', 4), text: '谢'.repeat(80) }]
+    render(<FlowView {...base} segments={long} current={1} sub="along" showText />)
+    const [above, below] = screen.getAllByTestId('flow-line')
+    const text = (l: HTMLElement) => l.querySelector('.font-hanzi') as HTMLElement
+    expect(text(above)).toHaveClass('truncate')
+    expect(text(above)).toHaveAttribute('title', '你好')
+    expect(above).toHaveClass('h-8')
+    expect(text(below)).not.toHaveClass('truncate')
+    expect(below).not.toHaveClass('h-8')
+    expect(below).toHaveClass('min-h-8')
+    expect(text(below)).toHaveTextContent('谢'.repeat(80))
+  })
+  it('the stage is compact: its cue area only as tall as the ring', () => {
+    render(<FlowView {...base} sub="after" showText />)
+    expect(screen.getByTestId('stage-cue')).toHaveClass('min-h-20')
+  })
+  it('before a run: the start sentence on an idle stage, the settings shown above; once running they keep their space hidden', () => {
+    const controls = <div data-testid="settings">from … to</div>
+    const { rerender } = render(<FlowView {...base} running={false} controls={controls} stage="idle" sub="after" showText />)
+    expect(screen.getByTestId('stage')).toHaveAttribute('data-stage', 'idle')
+    expect(screen.getByTestId('stage')).toHaveTextContent('你好')
+    expect(screen.getByTestId('settings').parentElement).not.toHaveClass('invisible')
+    rerender(<FlowView {...base} running controls={controls} sub="after" showText />)
+    expect(screen.getByTestId('settings').parentElement).toHaveClass('invisible')
   })
   it('the last sentence of the run previews nothing: no next line, no count-in for it', () => {
     const late = { ...seg(2, 1, '再见', 2), ref_alignment_json: [{ ch: '再', start: 2.6, end: 3.0, conf: 1 }, { ch: '见', start: 3.0, end: 3.5, conf: 1 }] }

@@ -9,6 +9,8 @@ body { @apply bg-bg text-fg font-ui; }
 .sentence { @apply font-hanzi text-fg text-center leading-snug; }
 .sentence.hide-pinyin rt { display: none; }
 .sentence rt { @apply text-ref font-ui text-sm tracking-wide; }
+/* The sentence card's large sentence (1.5×): its pinyin scales along, 14 px -> 21 px. */
+.sentence.sentence-lg rt { @apply text-[21px]; }
 .cell-ok { background: color-mix(in srgb, theme('colors.ok') 18%, transparent); @apply border-ok; }
 .cell-warn { background: color-mix(in srgb, theme('colors.warn') 18%, transparent); @apply border-warn; }
 .cell-bad { background: color-mix(in srgb, theme('colors.bad') 18%, transparent); @apply border-bad; }
@@ -24,3 +26,11 @@ select, option { @apply bg-card text-fg; }
 input[type=range], input[type=checkbox] { accent-color: theme('colors.accent'); }
 /* Window-frame corners (octagon, 13px) for main cards only. */
 .notch { clip-path: polygon(13px 0, calc(100% - 13px) 0, 100% 13px, 100% calc(100% - 13px), calc(100% - 13px) 100%, 13px 100%, 0 calc(100% - 13px), 0 13px); }
+/* The next expected action (Button's pulse): an accent glow that swells and fades, ~1.6 s, subtle. A box-shadow, so the
+   button itself never moves or resizes. None at all with reduced motion: the button is then just itself. */
+@keyframes next-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, theme('colors.accent') 0%, transparent); }
+  50% { box-shadow: 0 0 0 4px color-mix(in srgb, theme('colors.accent') 40%, transparent); }
+}
+.pulse-next { animation: next-pulse 1.6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .pulse-next { animation: none; } }

@@ -16,6 +16,8 @@ describe('<HeardRow>', () => {
     expect(screen.getByText('cī')).toHaveClass('text-sound', 'font-semibold')
     expect(slots[3]).toHaveAttribute('title', 'heard cī instead of chī')
     expect(slots[3]).toHaveClass('border-dashed', 'border-sound')
+    // 24 px slot - 2 px border - 4 px padding leaves 18 px for a 16 px line of 11 px text: nothing clipped
+    expect(slots[3]).toHaveClass('h-6', 'py-0.5', 'w-12'); expect(screen.getByText('cī')).toHaveClass('text-[11px]', 'leading-4')
   })
   it('renders nothing without slips', () => {
     const { container } = render(<HeardRow cells={base} />)

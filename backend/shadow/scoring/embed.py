@@ -39,19 +39,20 @@ class Wav2Vec2Embedder:
             self._model = Wav2Vec2Model.from_pretrained(self.name, revision=self.revision).to(self.device).eval()
         return self._model
 
+    def warm(self) -> None:
+        """Blocking load under the lock, so a take arriving meanwhile waits for this load instead of starting
+        another; a failure is logged and the next take tries again."""
+        try:
+            with self._lock:
+                self._load()
+        except Exception:
+            log.exception("warming up the speech model %s failed", self.name)
+        finally:
+            trim_heap()
+
     def warm_up(self) -> threading.Thread:
-        """Load (on first run: download, ~380 MB) the model in a daemon thread, so the first scored take does not
-        wait for it. Under the lock, so a take arriving meanwhile waits for this load instead of starting another;
-        a failure is logged and the next take tries again."""
-        def run():
-            try:
-                with self._lock:
-                    self._load()
-            except Exception:
-                log.exception("warming up the speech model %s failed", self.name)
-            finally:
-                trim_heap()
-        t = threading.Thread(target=run, name="embedder-warm-up", daemon=True)
+        """`warm` in a daemon thread, so the first scored take does not wait for the (first run: ~380 MB) download."""
+        t = threading.Thread(target=self.warm, name="embedder-warm-up", daemon=True)
         t.start()
         return t
 

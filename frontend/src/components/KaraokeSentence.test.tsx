@@ -1,5 +1,5 @@
-import { act, cleanup, render } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { act, cleanup, fireEvent, render } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import KaraokeSentence from './KaraokeSentence'
 
 const words = [{ word: '你好', pinyin: 'nǐhǎo', tones: [3, 3], char_from: 0, char_to: 1, syllables: [] }]
@@ -67,5 +67,49 @@ describe('<KaraokeSentence>', () => {
     expect(boxes.map((b) => [b.style.top, b.style.left, b.style.width])).toEqual([
       ['0px', '0px', '40px'], ['0px', '40px', '40px'], ['50px', '0px', '40px'], ['50px', '40px', '20px'],
     ])
+  })
+
+  it('on the sentence card the sentence is large, with its pinyin scaled along; elsewhere (Flow) it is not', () => {
+    const { container, rerender } = render(<KaraokeSentence text="你好" words={words} showHanzi showPinyin wipe={null} tools={<span />} />)
+    expect(container.querySelector('p.sentence')).toHaveClass('sentence-lg', 'text-[60px]')
+    rerender(<KaraokeSentence text="你好" words={words} showHanzi showPinyin wipe={null} />)
+    expect(container.querySelector('p.sentence')).not.toHaveClass('sentence-lg')
+    expect(container.querySelector('p.sentence')).toHaveClass('text-[40px]')
+  })
+
+  it('clicking a character plays that syllable (punctuation skipped); not while selecting text', () => {
+    Range.prototype.getClientRects = boxesOf(40)                       // 你 0-40, ，40-80, 好 80-120 (one text node)
+    const calls: number[] = []
+    const { container } = render(<KaraokeSentence text="你，好" words={null} showHanzi showPinyin wipe={null} tools={<span />} onSyllableClick={(i) => calls.push(i)} />)
+    const p = container.querySelector('p.sentence')!
+    fireEvent.click(p, { clientX: 100, clientY: 10 })                 // 好: the second syllable
+    fireEvent.click(p, { clientX: 10, clientY: 10 })                  // 你
+    fireEvent.click(p, { clientX: 60, clientY: 10 })                  // the comma: nothing
+    fireEvent.click(p, { clientX: 500, clientY: 10 })                 // past the text: nothing
+    expect(calls).toEqual([1, 0])
+    const sel = vi.spyOn(window, 'getSelection').mockReturnValue({ isCollapsed: false } as Selection)
+    fireEvent.click(p, { clientX: 10, clientY: 10 })
+    expect(calls).toEqual([1, 0])
+    sel.mockRestore()
+  })
+
+  it('the pointer cursor and title show over a character only, not over punctuation or empty space', () => {
+    Range.prototype.getClientRects = boxesOf(40)                       // 你 0-40, ，40-80, 好 80-120
+    const { container } = render(<KaraokeSentence text="你，好" words={null} showHanzi showPinyin wipe={null} tools={<span />} onSyllableClick={() => {}} />)
+    const p = container.querySelector('p.sentence')!, box = p.parentElement!.parentElement! // Sentence's wrapper sits in the box
+    const at = (x: number) => { fireEvent.mouseMove(p, { clientX: x, clientY: 10 }); return [box.classList.contains('cursor-pointer'), box.getAttribute('title')] }
+    expect(at(500)).toEqual([false, null])
+    expect(at(100)).toEqual([true, 'Click a character to hear it'])
+    expect(at(60)).toEqual([false, null])
+    at(10); fireEvent.mouseLeave(box)
+    expect(box).not.toHaveClass('cursor-pointer')
+  })
+
+  it('no click target without a handler', () => {
+    Range.prototype.getClientRects = boxesOf(40)
+    const { container } = render(<KaraokeSentence text="你好" words={null} showHanzi showPinyin wipe={null} tools={<span />} />)
+    fireEvent.mouseMove(container.querySelector('p.sentence')!, { clientX: 10, clientY: 10 })
+    expect(container.querySelector('.cursor-pointer')).toBeNull()
+    expect(container.querySelector('[title]')).toBeNull()
   })
 })
