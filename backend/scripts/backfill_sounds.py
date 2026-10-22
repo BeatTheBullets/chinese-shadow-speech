@@ -6,13 +6,12 @@ but writes nothing. Back up the database first."""
 from __future__ import annotations
 import argparse
 from pathlib import Path
-from sqlmodel import Session, select
+from sqlmodel import Session
 from shadow.config import load_settings
 from shadow.deps import build_deps
 from shadow.memory import trim_heap
-from shadow.scoring.sounds.backfill import backfill_attempt
+from shadow.scoring.sounds.backfill import backfill_all
 from shadow.store.db import init_db, make_engine
-from shadow.store.models import Attempt
 
 EVERY = 20
 
@@ -29,18 +28,9 @@ def main() -> None:
     deps = build_deps(settings)
     if deps.sounds is None:
         raise SystemExit(f"the sound detector is off: {deps.sounds_error or 'disabled in settings'}")
-    done = skipped = slips = 0
     with Session(engine) as db:
-        for n, att in enumerate(db.exec(select(Attempt).order_by(Attempt.created_at, Attempt.id)).all(), 1):
-            if backfill_attempt(deps, db, att):
-                done += 1; slips += (att.score_json or {}).get("sounds_off") or 0
-            else:
-                skipped += 1
-            if n % EVERY == 0:
-                db.rollback() if a.dry_run else db.commit()
-                trim_heap()
-        db.rollback() if a.dry_run else db.commit()
-    print(f"{'dry run: ' if a.dry_run else ''}{done} done, {skipped} skipped, {slips} slips")
+        c = backfill_all(deps, db, dry_run=a.dry_run, every=EVERY, after_commit=trim_heap)
+    print(f"{'dry run: ' if a.dry_run else ''}{c['done']} done, {c['skipped']} skipped, {c['failed']} failed, {c['slips']} slips")
 
 
 if __name__ == "__main__":

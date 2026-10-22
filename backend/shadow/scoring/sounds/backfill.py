@@ -60,3 +60,26 @@ def backfill_attempt(deps: Deps, db: Session, attempt: Attempt) -> bool:
             db.add(rows[i])
     db.add(attempt)
     return True
+
+
+def backfill_all(deps: Deps, db: Session, *, dry_run: bool = False, every: int = 20, after_commit=lambda: None) -> dict:
+    """All takes oldest first, each in its own savepoint: a raise on one take (corrupt wav, aligner error, a stored
+    syllable without a status) rolls back only that take and the run goes on. Commits every `every` takes."""
+    out = {"done": 0, "skipped": 0, "failed": 0, "slips": 0}
+    for n, att in enumerate(db.exec(select(Attempt).order_by(Attempt.created_at, Attempt.id)).all(), 1):
+        aid = att.id
+        try:
+            with db.begin_nested():
+                ok = backfill_attempt(deps, db, att)
+                slips = ((att.score_json or {}).get("sounds_off") or 0) if ok else 0
+        except Exception:  # noqa: BLE001
+            log.exception("back-fill of attempt %s failed; it is left as it was", aid)
+            out["failed"] += 1
+        else:
+            out["done" if ok else "skipped"] += 1
+            out["slips"] += slips
+        if n % every == 0:
+            db.rollback() if dry_run else db.commit()
+            after_commit()
+    db.rollback() if dry_run else db.commit()
+    return out
