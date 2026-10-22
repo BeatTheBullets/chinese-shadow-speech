@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { FlowRun, Segment } from '../api/types'
-import FlowView, { FlowSetup } from './FlowView'
+import FlowView, { FlowSetup, FlowTransport } from './FlowView'
 
 const seg = (id: number, idx: number, text: string, start: number): Segment => ({
   id, lesson_id: 1, idx, start_s: start, end_s: start + 2, text, translation: null, words_json: null,
@@ -111,5 +111,25 @@ describe('<FlowSetup>', () => {
     setup([run(7, 14, 5, 1)])
     expect(screen.getByTestId('last-run')).toHaveTextContent('Last run · Wed 14:05 · 1 sentence')
     expect(screen.queryByRole('combobox', { name: 'Run to replay' })).toBeNull()
+  })
+})
+
+describe('<FlowTransport>', () => {
+  afterEach(cleanup)
+  const sound = { rate: 1, onRate: () => {}, volume: { reference: 1, guide: 0.5, onReference: () => {}, onGuide: () => {} } }
+
+  it('uses the same groups as the bar: position, Stop on Enter, › skips; no previous, no Anki', () => {
+    const onAction = vi.fn()
+    render(<FlowTransport onAction={onAction} idx={1} total={3} sound={sound} hint="" error="" />)
+    expect(screen.getByTestId('position')).toHaveTextContent('2 / 3')
+    expect(screen.getByRole('button', { name: 'Previous sentence (←)' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Listen (Space)' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Me (R)' })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: /Anki/ })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Stop (Enter)' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Next sentence (→)' }))
+    expect(onAction.mock.calls).toEqual([['record'], ['next']])
+    fireEvent.click(screen.getByRole('button', { name: 'Sound' }))
+    expect(screen.getByLabelText('Guide level')).toBeInTheDocument()
   })
 })

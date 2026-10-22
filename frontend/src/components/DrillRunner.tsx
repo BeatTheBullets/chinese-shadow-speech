@@ -14,15 +14,22 @@ import { actionForKey, type Action } from '../lib/keys'
 import { applyAttempt, noticeText, warningText } from '../lib/score'
 import { speechBounds } from '../lib/speech'
 import { clamp01, playbackVolume } from '../lib/volume'
-import { defaultTextPrefs, useSettings } from '../store/settings'
+import { defaultTextPrefs, useSettings, type TextPrefs } from '../store/settings'
+import Button from '../ui/Button'
+import { IconChevronRight } from '../ui/icons'
 import CueLine, { WithMicLevel } from './CueLine'
 import KaraokeSentence from './KaraokeSentence'
 import ScoreHeader from './ScoreHeader'
+import SentenceTools from './SentenceTools'
+import type { SoundControls } from './SoundPopover'
+import Transport from './Transport'
 import TwoTrack from './TwoTrack'
-import VolumeSliders, { type VolumeControls } from './VolumeSliders'
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 const readable = (e: unknown) => (e instanceof ApiError ? e.detail : message(e))
+
+const DRILL_KEYS: Action[] = ['record', 'next', 'replayYou', 'play', 'speed075', 'flag', 'toggleHanzi', 'togglePinyin', 'toggleTranslation']
+const TOGGLE: Record<keyof TextPrefs, Action> = { hanzi: 'toggleHanzi', pinyin: 'togglePinyin', translation: 'toggleTranslation' }
 
 // This visit's take of the current sentence; `score` arrives with the upload (undefined until then).
 interface DrillTake { url: string; duration: number; peaks: Float32Array; score?: Score | null }
@@ -77,6 +84,12 @@ export default function DrillRunner({ session, onFinish }: { session: DrillSessi
   const [youHead, setYouHead] = useState<number | null>(null)
   const [hint, setHint] = useState('')
   const [error, setError] = useState('')
+  // The drill's own speed (S, the Sound pop-up) and text toggles (T/P/E): they start fresh each run and are not a
+  // lesson's saved preferences.
+  const rateRef = useRef(1)
+  const [rate, setRateState] = useState(1)
+  const setRate = (r: number) => { rateRef.current = r; setRateState(r) }
+  const [prefs, setPrefs] = useState<TextPrefs>(defaultTextPrefs)
   const alive = useRef(true)
   const finished = useRef(false)
 
@@ -121,7 +134,7 @@ export default function DrillRunner({ session, onFinish }: { session: DrillSessi
     if (listenOn == null) return
     const ctrl = new AbortController()
     seqCtrl.current = ctrl
-    playClip(player, api.segments.audioUrl(session.items[listenOn].segment.id), 1, ctrl.signal, setRefHead)
+    playClip(player, api.segments.audioUrl(session.items[listenOn].segment.id), rateRef.current, ctrl.signal, setRefHead)
       .catch((e) => { if (!ctrl.signal.aborted) setError(`Could not play the reference: ${message(e)}`) })
       .finally(() => {
         if (seqCtrl.current === ctrl) seqCtrl.current = null
@@ -218,7 +231,7 @@ export default function DrillRunner({ session, onFinish }: { session: DrillSessi
     try {
       // The take plays from its voice to its end (Task 14); the You track still shows all of it.
       const voice = speechBounds(peaks, duration) ?? {}
-      await playSequence(player, [{ url: api.segments.audioUrl(it.segment.id), rate: 1, onTime: setRefHead }, { url, rate: 1, onTime: setYouHead, ...voice }], 250, ctrl.signal)
+      await playSequence(player, [{ url: api.segments.audioUrl(it.segment.id), rate: rateRef.current, onTime: setRefHead }, { url, rate: 1, onTime: setYouHead, ...voice }], 250, ctrl.signal)
     } catch (e) {
       if (!ctrl.signal.aborted) setError(`Playback failed: ${message(e)}`)
     } finally {
@@ -228,13 +241,14 @@ export default function DrillRunner({ session, onFinish }: { session: DrillSessi
     await upload
   }
 
-  function playSolo(url: string, onTime: (t: number) => void, from?: number, to?: number) {
+  // `rate`: the reference plays at the drill's speed, the user's take always at 1.
+  function playSolo(url: string, onTime: (t: number) => void, from?: number, to?: number, rate = 1) {
     if (recRef.current || stRef.current.step === 'listen') return
     stopPlayback()
-    const p = from == null ? player.play(url, 1, onTime) : player.playRange(url, 1, from, to ?? from, onTime)
+    const p = from == null ? player.play(url, rate, onTime) : player.playRange(url, rate, from, to ?? from, onTime)
     p.catch((e) => setError(`Could not play: ${message(e)}`))
   }
-  const playRef = () => { const s = segRef.current; if (s) playSolo(api.segments.audioUrl(s.id), setRefHead) }
+  const playRef = () => { const s = segRef.current; if (s) playSolo(api.segments.audioUrl(s.id), setRefHead, undefined, undefined, rateRef.current) }
   // The take from its voice to its end; with no clear voice in its waveform, all of it.
   const replayYou = () => {
     const t = takeRef.current, voice = t && speechBounds(t.peaks, t.duration)
@@ -250,10 +264,20 @@ export default function DrillRunner({ session, onFinish }: { session: DrillSessi
   // One syllable of the reference (alignment times are source-absolute; the clip starts at start_s).
   function playSyllable(cell: number) {
     const s = segRef.current, span = s?.ref_alignment_json?.[cell]
-    if (s && span) playSolo(api.segments.audioUrl(s.id, 'wav'), setRefHead, Math.max(0, span.start - s.start_s), Math.max(0, span.end - s.start_s))
+    if (s && span) playSolo(api.segments.audioUrl(s.id, 'wav'), setRefHead, Math.max(0, span.start - s.start_s), Math.max(0, span.end - s.start_s), rateRef.current)
+  }
+
+  // ⚑ Difficult, patched on the sentence as Practice does; the run's copy follows.
+  function flag() {
+    const s = segRef.current
+    if (!s) return
+    api.segments.patch(s.id, { difficulty_flag: !s.difficulty_flag })
+      .then((u) => { if (alive.current) setSegs((ss) => ss.map((x) => (x.id === u.id ? { ...x, difficulty_flag: u.difficulty_flag } : x))) })
+      .catch((e) => { if (alive.current) setError(`Could not flag: ${readable(e)}`) })
   }
 
   // Enter: skip the listening ahead to recording, start/stop a take, then Again or Next. → skips at any time.
+  // The other keys do what they do in Practice: Space, R, S, F, T/P/E.
   function act(a: Action) {
     if (finished.current) return
     const s = stRef.current
@@ -266,6 +290,11 @@ export default function DrillRunner({ session, onFinish }: { session: DrillSessi
       case 'next': cancelActivity(); moveTo(skip(s)); return
       case 'replayYou': replayYou(); return
       case 'play': playRef(); return
+      case 'speed075': setRate(rateRef.current === 0.75 ? 1 : 0.75); return
+      case 'flag': flag(); return
+      case 'toggleHanzi': setPrefs((p) => ({ ...p, hanzi: !p.hanzi })); return
+      case 'togglePinyin': setPrefs((p) => ({ ...p, pinyin: !p.pinyin })); return
+      case 'toggleTranslation': setPrefs((p) => ({ ...p, translation: !p.translation })); return
       default: return
     }
   }
@@ -275,7 +304,7 @@ export default function DrillRunner({ session, onFinish }: { session: DrillSessi
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented) return
       const a = actionForKey(e)
-      if (!a || !['record', 'next', 'replayYou', 'play'].includes(a)) return
+      if (!a || !DRILL_KEYS.includes(a)) return
       e.preventDefault()
       // The shortcut acts on the page, so a focused button must not also be activated by Space/Enter.
       if (e.target instanceof HTMLElement && e.target !== document.body) e.target.blur()
@@ -290,40 +319,34 @@ export default function DrillRunner({ session, onFinish }: { session: DrillSessi
   const tryNo = Math.min(maxTries, st.step === 'review' && take?.score?.overall != null ? st.tries : st.tries + 1)
   const show = !(recording && settings.practice.hideTextWhileRecording)
   const spans = clipSpans(seg.ref_alignment_json, seg.start_s)
-  const { wipe } = stageWipe({ spans, refPlaying: st.step === 'listen' || playback, refHead, turnStart: null, now: 0, rate: 1 })
-  const volume: VolumeControls = {
+  const { wipe } = stageWipe({ spans, refPlaying: st.step === 'listen' || playback, refHead, turnStart: null, now: 0, rate })
+  const sound: SoundControls = { rate, onRate: setRate, volume: {
     reference: settings.referenceVolume, guide: settings.guideLevel,
     onReference: (v) => settings.set({ referenceVolume: clamp01(v) }), onGuide: (v) => settings.set({ guideLevel: clamp01(v) }),
-  }
-  const enterLabel = st.step === 'listen' ? 'Record now' : st.step === 'review' ? (st.outcome === 'retry' ? 'Again' : 'Next') : recording ? '■ Stop' : '● Record'
-  const b = 'px-3 py-1 rounded bg-card text-sm disabled:opacity-40'
+  } }
+  // What Enter does when not recording: record (now, again) or go on to the next sentence.
+  const enterLabel = st.step === 'listen' ? 'Record now' : st.step === 'review' ? (st.outcome === 'retry' ? 'Again' : 'Next') : undefined
+  const tools = <SentenceTools flagged={seg.difficulty_flag} onFlag={() => act('flag')} prefs={prefs} onToggle={(k) => act(TOGGLE[k])} />
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-4 text-sm text-fgdim border-b border-line pb-2">
         <span className="text-fg">{session.label}</span>
-        <span>Sentence {st.i + 1} / {st.n}</span>
         <span>Try {tryNo} / {maxTries}</span>
         <span>{item.lesson_title}</span>
-        <button className="btn ml-auto" onClick={finish}>Finish</button>
+        <span className="ml-auto"><Button label="Finish drill" onClick={finish} /></span>
       </div>
       <WithMicLevel mic={mic}>{(level) => <CueLine cue={cueOf(st, recording, playback, uploading, green, saving)} level={level} />}</WithMicLevel>
-      <KaraokeSentence wipe={wipe} text={seg.text} words={seg.words_json} showHanzi={defaultTextPrefs.hanzi && show} showPinyin={defaultTextPrefs.pinyin && show}
-        translation={seg.translation} showTranslation={false} />
+      <KaraokeSentence wipe={wipe} text={seg.text} words={seg.words_json} showHanzi={prefs.hanzi && show} showPinyin={prefs.pinyin && show}
+        translation={seg.translation} showTranslation={prefs.translation && show} tools={tools} />
       <TwoTrack segment={seg} refPeaks={refPeaks} refDuration={seg.end_s - seg.start_s} refPlayhead={refHead}
         youPeaks={take?.peaks ?? null} youDuration={take?.duration ?? 0} youPlayhead={youHead}
         onPlayRef={playRef} onPlayYou={replayYou} onPlaySyllable={playSyllable} onPlayYouSyllable={playYouSyllable} highlight={item.targets}
         score={take?.score ?? null} scoreHeader={<ScoreHeader score={take?.score} best={seg.best_score} attempts={seg.attempts} />} />
-      <div className="border-t border-line pt-3 text-center space-y-1">
-        <div className="flex justify-center gap-2 items-center">
-          <button className={b} onClick={() => act('record')} disabled={uploading && st.step === 'record'}>{enterLabel}</button>
-          <button className={b} onClick={() => act('next')} title="Skip to the next sentence (→)">Skip →</button>
-          <button className={b} onClick={replayYou} disabled={!take}>▶ R</button>
-          <VolumeSliders volume={volume} />
-        </div>
-        <p className="text-xs text-fgdim">Enter record / stop / next · → skip · R your take · Space the reference</p>
-        {hint && <p className="text-xs text-warn">{hint}</p>}
-        {error && <p className="text-xs text-bad" role="alert">{error}</p>}
-      </div>
+      {/* The Practice bar, minus Anki: position n / N with › skipping (no going back), Listen, Record (Again / Next
+          when reviewing), Me, Sound. */}
+      <Transport onAction={act} idx={st.i} total={st.n} recording={recording} busy={uploading && st.step === 'record'} hint={hint} error={error}
+        recordLabel={enterLabel} recordIcon={st.step === 'review' && st.outcome !== 'retry' ? <IconChevronRight /> : undefined}
+        canPrev={false} showAnki={false} sound={sound} />
     </div>
   )
 }

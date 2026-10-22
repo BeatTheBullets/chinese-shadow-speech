@@ -15,11 +15,12 @@ import FlowSummary from '../components/FlowSummary'
 import FlowView, { FlowSetup, FlowTransport } from '../components/FlowView'
 import HelpOverlay from '../components/HelpOverlay'
 import KaraokeSentence, { GhostLine } from '../components/KaraokeSentence'
+import SentenceTools from '../components/SentenceTools'
 import SessionExportDialog from '../components/SessionExportDialog'
 import ScoreHeader from '../components/ScoreHeader'
 import TopBar from '../components/TopBar'
 import Transport from '../components/Transport'
-import type { VolumeControls } from '../components/VolumeSliders'
+import type { SoundControls } from '../components/SoundPopover'
 import TwoTrack from '../components/TwoTrack'
 import { cueFor, cuePhase } from '../lib/cue'
 import { echoReducer, MIN_TAKE_S, type EchoEvent, type EchoState } from '../lib/echo'
@@ -37,6 +38,8 @@ import { useSettings, defaultTextPrefs, type TextPrefs } from '../store/settings
 import { useFlow } from './useFlow'
 
 const MOVE_ON = 'Several tries on this one. Move on and come back later.'
+// The sentence card's 字 · pīn · EN toggles do what T / P / E do.
+const TOGGLE: Record<keyof TextPrefs, Action> = { hanzi: 'toggleHanzi', pinyin: 'togglePinyin', translation: 'toggleTranslation' }
 const HEADPHONES = 'Use headphones — the mic would pick up the reference'
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 // The backend's own explanation (FastAPI `detail`) rather than the raw status line.
@@ -87,7 +90,7 @@ export default function Practice() {
   const [elapsed, setElapsed] = useState(0)
   // The edit/split dialog, on drawer row `idx`. While it is open the page shortcuts are off.
   const [dialog, setDialog] = useState<{ mode: 'edit' | 'split'; idx: number } | null>(null)
-  // The session-end export dialog (addendum §5.2) and what to do once it closes.
+  // The session-end export dialog (addendum §5.2), offered on leaving (⌂ Library) and closing the Flow summary, and what to do once it closes.
   const [exportPrompt, setExportPrompt] = useState<{ items: ExportItem[]; after: () => void } | null>(null)
   const dialogOpen = useRef(false)
   dialogOpen.current = dialog != null || exportPrompt != null
@@ -628,12 +631,12 @@ export default function Practice() {
   const show = !hide
   const fs = flow.state
   const flowRunning = fs.phase === 'running'
-  const recordLabel = st.mode === 'flow' ? '● Start flow' : undefined
+  const recordLabel = st.mode === 'flow' ? 'Start flow' : undefined
   const range = flowRange()
-  const volume: VolumeControls = {
+  const sound: SoundControls = { rate: st.rate, onRate: st.setRate, volume: {
     reference: settings.referenceVolume, guide: guideApplies(st.mode, fs.sub) ? settings.guideLevel : null,
     onReference: (v) => settings.set({ referenceVolume: clamp01(v) }), onGuide: (v) => settings.set({ guideLevel: clamp01(v) }),
-  }
+  } }
   const spans = clipSpans(seg.ref_alignment_json, seg.start_s)
   const refPlaying = echo === 'playing' || echo === 'playback'
   const { wipe, dots } = stageWipe({ spans, refPlaying, refHead, turnStart: st.mode === 'echo' ? echoTurn : null, now, rate: st.rate })
@@ -656,7 +659,7 @@ export default function Practice() {
                 cue={cue} level={level} clipTime={fs.clipTime} turn={fs.turn}
                 showText={!(settings.practice.hideTextWhileRecording && fs.sub === 'after')} />)}
             </WithMicLevel>
-            <FlowTransport rate={st.rate} onRate={st.setRate} sub={fs.sub} onStop={() => act('record')} onSkip={() => act('next')} error={error} hint={st.hint} volume={volume} />
+            <FlowTransport onAction={act} idx={fs.current} total={segments.length} sound={sound} error={error} hint={st.hint} />
           </>) : (<>
             <div className="flex-1 overflow-y-auto p-6 space-y-6">
               <WithMicLevel mic={mic}>{(level) => <CueLine cue={cue} level={level} dots={dots} />}</WithMicLevel>
@@ -669,16 +672,17 @@ export default function Practice() {
               ) : (<>
                 {st.mode === 'flow' && <FlowSetup segments={segments} from={range.from} to={range.to} sub={fs.sub} onChange={flow.setForm} onStart={() => act('record')}
                   runs={flowRuns} onReplay={replayRun} />}
-                <KaraokeSentence wipe={wipe} text={seg.text} words={seg.words_json} showHanzi={st.textPrefs.hanzi && show} showPinyin={st.textPrefs.pinyin && show} translation={seg.translation} showTranslation={st.textPrefs.translation && show} />
-                {!(st.textPrefs.hanzi && show) && wipe && <GhostLine count={spans.length} wipe={wipe} />}
+                <KaraokeSentence wipe={wipe} text={seg.text} words={seg.words_json} showHanzi={st.textPrefs.hanzi && show} showPinyin={st.textPrefs.pinyin && show} translation={seg.translation} showTranslation={st.textPrefs.translation && show}
+                  tools={<SentenceTools flagged={seg.difficulty_flag} onFlag={() => act('flag')} prefs={st.textPrefs} onToggle={(k) => act(TOGGLE[k])} />}>
+                  {!(st.textPrefs.hanzi && show) && wipe && <GhostLine count={spans.length} wipe={wipe} />}
+                </KaraokeSentence>
                 <TwoTrack segment={seg} refPeaks={refPeaks} refDuration={seg.end_s - seg.start_s} refPlayhead={refHead}
                   youPeaks={youPeaks} youDuration={take?.duration ?? 0} youPlayhead={youHead}
                   onPlayRef={() => act('play')} onPlayYou={() => act('replayYou')} onPlaySyllable={playSyllable} onPlayYouSyllable={playYouSyllable}
                   score={take?.score ?? null} scoreHeader={<ScoreHeader score={take?.score} best={seg.best_score} attempts={seg.attempts} />} />
               </>)}
             </div>
-            <Transport onAction={act} rate={st.rate} onRate={st.setRate} recording={echo === 'recording'} busy={echo === 'uploading'} flagged={seg.difficulty_flag} hint={st.hint} error={error} recordLabel={recordLabel} volume={volume}
-              onFinish={() => offerExport(() => navigate('/library'))} />
+            <Transport onAction={act} idx={st.idx} total={segments.length} recording={echo === 'recording'} busy={echo === 'uploading'} hint={st.hint} error={error} recordLabel={recordLabel} sound={sound} />
           </>)}
         </main>
         {!flowRunning && <Drawer segments={segments} idx={st.idx} open={st.drawerOpen} pendingIds={fs.pending} onJump={goTo} onToggle={st.toggleDrawer}

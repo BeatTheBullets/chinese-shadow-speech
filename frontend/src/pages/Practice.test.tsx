@@ -85,7 +85,7 @@ describe('<Practice>', () => {
     renderPractice()
     await screen.findByText('你好', { selector: 'p.sentence' })
     await waitFor(() => expect(usePractice.getState().sessionId).toBe(5))
-    press('Enter'); await screen.findByRole('button', { name: '■ stop' }); await flush()
+    press('Enter'); await screen.findByRole('button', { name: 'Stop (Enter)' }); await flush()
     press('Enter'); await flush()
     await waitFor(() => expect(h.twoTrack?.score).toEqual(score))
     expect(usePractice.getState().lesson!.segments[0]).toMatchObject({ last_score: 0.8, attempts: 1 })
@@ -96,7 +96,7 @@ describe('<Practice>', () => {
     h.api.segments.postAttempt.mockResolvedValue({ id: 99, score_json: score })
     renderPractice()
     await screen.findByText('你好', { selector: 'p.sentence' })
-    press('Enter'); await screen.findByRole('button', { name: '■ stop' }); await flush()
+    press('Enter'); await screen.findByRole('button', { name: 'Stop (Enter)' }); await flush()
     press('Enter'); await flush()
     expect(await screen.findByText('Too quiet — not scored. Move closer to the mic.')).toBeInTheDocument()
   })
@@ -106,7 +106,7 @@ describe('<Practice>', () => {
     h.api.segments.postAttempt.mockResolvedValue({ id: 99, score_json: score })
     renderPractice()
     await screen.findByText('你好', { selector: 'p.sentence' })
-    press('Enter'); await screen.findByRole('button', { name: '■ stop' }); await flush()
+    press('Enter'); await screen.findByRole('button', { name: 'Stop (Enter)' }); await flush()
     press('Enter'); await flush()
     expect(await screen.findByText('Heard different words — not scored. Heard: 我是学生')).toBeInTheDocument()
   })
@@ -116,7 +116,7 @@ describe('<Practice>', () => {
     h.api.segments.postAttempt.mockResolvedValue({ id: 99, score_json: score })
     renderPractice()
     await screen.findByText('你好', { selector: 'p.sentence' })
-    press('Enter'); await screen.findByRole('button', { name: '■ stop' }); await flush()
+    press('Enter'); await screen.findByRole('button', { name: 'Stop (Enter)' }); await flush()
     press('Enter'); await flush()
     expect(await screen.findByText('Some words sounded different — heard: 你号')).toBeInTheDocument()
     expect(usePractice.getState().lesson!.segments[0]).toMatchObject({ last_score: 0.7 })
@@ -131,7 +131,7 @@ describe('<Practice>', () => {
     h.api.segments.postAttempt.mockReturnValue(pending.promise)
     renderPractice()
     await screen.findByText('你好', { selector: 'p.sentence' })
-    press('Enter'); await screen.findByRole('button', { name: '■ stop' }); await flush()
+    press('Enter'); await screen.findByRole('button', { name: 'Stop (Enter)' }); await flush()
     press('Enter'); await flush()
     press('ArrowRight'); await screen.findByText('再见', { selector: 'p.sentence' })
     await act(async () => { pending.resolve({ id: 99, score_json: gated }) }); await flush()
@@ -205,7 +205,7 @@ describe('<Practice>', () => {
     usePractice.setState({ lesson: null, idx: 0, mode: 'echo', sessionId: null, drawerOpen: true, attemptsThisSegment: 0, lastAttempt: null, recordingNow: false, hint: '', storedTakes: {} })
     // helpSeen: the help would otherwise open on every render and switch the shortcuts off. The volumes are reset here,
     // not at the end of a test, so no store update reaches a page that is still mounted (act() warnings).
-    useSettings.setState({ helpSeen: true, referenceVolume: 1, guideLevel: 0.5 })
+    useSettings.setState({ helpSeen: true, referenceVolume: 1, guideLevel: 0.5, textPrefs: {} })
     h.api.lessons.get.mockResolvedValue(lesson)
     h.api.lessons.takes.mockResolvedValue([])
     h.api.lessons.flowRuns.mockResolvedValue([])
@@ -256,7 +256,7 @@ describe('<Practice>', () => {
     await screen.findByText('你好', { selector: 'p.sentence' })
     press('Enter')
     expect(await screen.findByRole('alert')).toHaveTextContent('Microphone permission was denied')
-    expect(screen.getByRole('button', { name: '● Enter' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Record (Enter)' })).toBeInTheDocument()
     expect(usePractice.getState().recordingNow).toBe(false)
     press('Enter') // idle, so Enter tries to record again rather than "stopping" a phantom recording
     await flush()
@@ -285,9 +285,9 @@ describe('<Practice>', () => {
     renderPractice()
     await screen.findByText('你好', { selector: 'p.sentence' })
     press('Enter')
-    expect(await screen.findByRole('button', { name: '■ stop' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Stop (Enter)' })).toBeInTheDocument()
     press('Enter')
-    expect(await screen.findByRole('button', { name: '● Enter' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Record (Enter)' })).toBeInTheDocument()
     started.resolve()
     await flush()
     expect(h.rec.stop).toHaveBeenCalledTimes(1)
@@ -299,7 +299,7 @@ describe('<Practice>', () => {
     await screen.findByText('你好', { selector: 'p.sentence' })
     await waitFor(() => expect(usePractice.getState().sessionId).toBe(5))
     press('Enter')
-    expect(await screen.findByRole('button', { name: '■ stop' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Stop (Enter)' })).toBeInTheDocument()
     await flush()
     expect(usePractice.getState().recordingNow).toBe(true)
     press('Enter')
@@ -309,7 +309,7 @@ describe('<Practice>', () => {
     const [, items] = h.playSequence.mock.calls[0] as unknown as [unknown, { url: string }[]]
     expect(items.map((i) => i.url)).toEqual(['/seg/11.opus', 'blob:take'])
     expect(usePractice.getState()).toMatchObject({ attemptsThisSegment: 1, recordingNow: false, lastAttempt: { id: 99, url: 'blob:take' } })
-    expect(screen.getByRole('button', { name: '● Enter' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Record (Enter)' })).toBeInTheDocument()
   })
 
   it('a take refused while the lesson is rebuilt says so and stays playable', async () => {
@@ -318,7 +318,7 @@ describe('<Practice>', () => {
     await screen.findByText('你好', { selector: 'p.sentence' })
     await waitFor(() => expect(usePractice.getState().sessionId).toBe(5))
     press('Enter')
-    await screen.findByRole('button', { name: '■ stop' })
+    await screen.findByRole('button', { name: 'Stop (Enter)' })
     await flush()
     press('Enter')
     expect(await screen.findByRole('alert')).toHaveTextContent('Upload failed: this lesson is being rebuilt — try again in a moment')
@@ -337,6 +337,7 @@ describe('<Practice>', () => {
   it('shortcuts are ignored in text fields and with browser modifiers', async () => {
     renderPractice()
     await screen.findByText('你好', { selector: 'p.sentence' })
+    fireEvent.click(screen.getByRole('button', { name: 'Sound' }))
     fireEvent.keyDown(screen.getByLabelText('Playback speed'), { key: 'l' })
     press('l', { ctrlKey: true })
     expect(usePractice.getState().drawerOpen).toBe(true)
@@ -353,7 +354,7 @@ describe('<Practice>', () => {
     expect(h.playSequence).not.toHaveBeenCalled()
     expect(usePractice.getState()).toMatchObject({ attemptsThisSegment: 0, lastAttempt: null, recordingNow: false })
     expect(screen.getByRole('alert')).toHaveTextContent(/Too short/)
-    expect(screen.getByRole('button', { name: '● Enter' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Record (Enter)' })).toBeInTheDocument()
   })
 
   // 100 buckets, voice in 20..60: on a 1 s take that is 0.05..0.76 s with the padding.
@@ -550,7 +551,7 @@ describe('<Practice>', () => {
     renderPractice()
     await screen.findByText('你好', { selector: 'p.sentence' })
     await waitFor(() => expect(usePractice.getState().sessionId).toBe(5))
-    press('Enter'); await screen.findByRole('button', { name: '■ stop' }); await flush()
+    press('Enter'); await screen.findByRole('button', { name: 'Stop (Enter)' }); await flush()
     press('Enter'); await flush()
     await waitFor(() => expect(h.twoTrack?.score).toEqual(score))
     const url = currentTake(usePractice.getState())!.url
@@ -802,7 +803,7 @@ describe('<Practice>', () => {
       h.rec.start.mockRejectedValue(new Error('Microphone permission was denied'))
       await startFlow('along')
       expect(await screen.findByRole('alert')).toHaveTextContent('Microphone permission was denied')
-      expect(screen.getByRole('button', { name: '● Start flow' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Start flow (Enter)' })).toBeInTheDocument()
       expect(h.player.play).not.toHaveBeenCalled()
       expect(usePractice.getState().recordingNow).toBe(false)
     })
@@ -1072,7 +1073,8 @@ describe('<Practice>', () => {
     it('shows the guide level only in Flow along', async () => {
       renderPractice()
       await screen.findByText('你好', { selector: 'p.sentence' })
-      expect(screen.getByLabelText('Reference volume')).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: 'Sound' }))
+      expect(screen.getByLabelText('Speaker volume')).toBeInTheDocument()
       expect(screen.queryByLabelText('Guide level')).toBeNull()
       await enterFlow()
       await waitFor(() => expect(screen.queryByLabelText('Guide level')).toBeNull()) // Flow starts in after
@@ -1080,12 +1082,104 @@ describe('<Practice>', () => {
       expect(screen.getByLabelText('Guide level')).toBeInTheDocument()
     })
 
-    it('the reference volume is saved in settings and applied to the player', async () => {
+    it('the speaker volume is saved in settings and applied to the player', async () => {
       renderPractice()
       await screen.findByText('你好', { selector: 'p.sentence' })
-      fireEvent.change(screen.getByLabelText('Reference volume'), { target: { value: '60' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Sound' }))
+      fireEvent.change(screen.getByLabelText('Speaker volume'), { target: { value: '60' } })
       expect(useSettings.getState().referenceVolume).toBeCloseTo(0.6)
       await waitFor(() => expect(h.player.setVolume).toHaveBeenLastCalledWith(0.6))
+    })
+  })
+
+  describe('control bar', () => {
+    const BAR = ['Previous sentence (←)', 'Next sentence (→)', 'Listen (Space)', 'Record (Enter)', 'Me (R)', 'Anki (A)', 'Sound']
+    const bar = () => screen.getByTestId('transport')
+
+    it('the bar has prev · position · next, Listen, Record, Me, Anki and Sound', async () => {
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      for (const name of BAR) expect(within(bar()).getByRole('button', { name })).toBeInTheDocument()
+      expect(within(bar()).getByTestId('position')).toHaveTextContent('1 / 2')
+      fireEvent.click(within(bar()).getByRole('button', { name: 'Next sentence (→)' }))
+      expect(await screen.findByText('再见', { selector: 'p.sentence' })).toBeInTheDocument()
+      expect(within(bar()).getByTestId('position')).toHaveTextContent('2 / 2')
+      fireEvent.click(within(bar()).getByRole('button', { name: 'Listen (Space)' }))
+      expect(h.player.play).toHaveBeenLastCalledWith('/seg/12.opus', 1, expect.any(Function))
+      fireEvent.click(within(bar()).getByRole('button', { name: 'Previous sentence (←)' }))
+      expect(await screen.findByText('你好', { selector: 'p.sentence' })).toBeInTheDocument()
+      fireEvent.click(within(bar()).getByRole('button', { name: 'Record (Enter)' }))
+      expect(await within(bar()).findByRole('button', { name: 'Stop (Enter)' })).toBeInTheDocument()
+    })
+
+    it('no Finish session, C, F, T, P, E or 0.75× buttons on the bar', async () => {
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      expect(within(bar()).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(BAR)
+      expect(screen.queryByRole('button', { name: /Finish session/ })).toBeNull()
+      expect(screen.queryByRole('button', { name: /0\.75/ })).toBeNull()
+      expect(screen.queryByLabelText('Playback speed')).toBeNull() // speed and volume live in the Sound pop-up
+      expect(screen.queryByLabelText('Speaker volume')).toBeNull()
+    })
+
+    it('⚑ Difficult and 字/pīn/EN sit on the sentence card and work', async () => {
+      h.api.segments.patch.mockImplementation(async (id: number, p: { difficulty_flag: boolean }) => ({ ...lesson.segments.find((s) => s.id === id)!, ...p }))
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      const card = screen.getByTestId('sentence-card')
+      expect(within(card).getByText('你好', { selector: 'p.sentence' })).toBeInTheDocument()
+      fireEvent.click(within(card).getByRole('button', { name: 'Difficult (F)' }))
+      expect(h.api.segments.patch).toHaveBeenCalledWith(11, { difficulty_flag: true })
+      await waitFor(() => expect(within(card).getByRole('button', { name: 'Difficult (F)' })).toHaveAttribute('aria-pressed', 'true'))
+      fireEvent.click(within(card).getByRole('button', { name: 'EN English (E)' }))
+      expect(usePractice.getState().textPrefs).toEqual({ hanzi: true, pinyin: true, translation: true })
+      fireEvent.click(within(card).getByRole('button', { name: 'pīn pinyin (P)' }))
+      fireEvent.click(within(card).getByRole('button', { name: '字 characters (T)' }))
+      expect(usePractice.getState().textPrefs).toEqual({ hanzi: false, pinyin: false, translation: true })
+      expect(useSettings.getState().textPrefs['1']).toEqual({ hanzi: false, pinyin: false, translation: true })
+      expect(screen.queryByText('你好', { selector: 'p.sentence' })).toBeNull()
+      expect(within(screen.getByTestId('sentence-card')).getByRole('button', { name: '字 characters (T)' })).toHaveAttribute('aria-pressed', 'false')
+      press('t') // the key does the same
+      expect(await screen.findByText('你好', { selector: 'p.sentence' })).toBeInTheDocument()
+    })
+
+    it('keys still work while the Sound pop-up is open', async () => {
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      // Keys as a browser sends them with nothing focused: from the body, bubbling through document to window.
+      const key = (k: string) => fireEvent.keyDown(document.body, { key: k })
+      fireEvent.click(within(bar()).getByRole('button', { name: 'Sound' }))
+      expect(screen.getByLabelText('Playback speed')).toBeInTheDocument()
+      key(' ')
+      expect(h.player.play).toHaveBeenCalledWith('/seg/11.opus', 1, expect.any(Function))
+      await flush()
+      key('ArrowRight')
+      expect(await screen.findByText('再见', { selector: 'p.sentence' })).toBeInTheDocument()
+      expect(screen.getByLabelText('Playback speed')).toBeInTheDocument() // still open
+      key('Enter')
+      expect(await within(bar()).findByRole('button', { name: 'Stop (Enter)' })).toBeInTheDocument()
+      await flush()
+      key('Escape')
+      expect(screen.queryByLabelText('Playback speed')).toBeNull()
+    })
+
+    it('the S key and the 0.75× preset toggle 0.75 ↔ 1', async () => {
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      expect(usePractice.getState().rate).toBe(1)
+      press('s')
+      expect(usePractice.getState().rate).toBe(0.75)
+      fireEvent.click(within(bar()).getByRole('button', { name: 'Sound' }))
+      expect(screen.getByLabelText('Playback speed')).toHaveValue('0.75')
+      const preset = screen.getByRole('button', { name: '0.75× (S)' })
+      expect(preset).toHaveAttribute('aria-pressed', 'true')
+      fireEvent.click(preset)
+      expect(usePractice.getState().rate).toBe(1)
+      expect(screen.getByLabelText('Playback speed')).toHaveValue('1')
+      fireEvent.click(screen.getByRole('button', { name: '0.75× (S)' }))
+      expect(usePractice.getState().rate).toBe(0.75)
+      press('s')
+      expect(usePractice.getState().rate).toBe(1)
     })
   })
 
@@ -1196,11 +1290,11 @@ describe('<Practice>', () => {
       await waitFor(() => expect(usePractice.getState().practised).toEqual([11]))
     }
 
-    it('Finish session offers the practised sentences, sends them, then goes to the library', async () => {
+    it('the back link offers the practised sentences, sends them, then goes to the library', async () => {
       h.exportAndRecord.mockImplementation(async (s: Segment) => ({ ...s, anki_note_id: 5 }))
       renderWithLibrary()
       await takeOne()
-      fireEvent.click(screen.getByRole('button', { name: 'Finish session' }))
+      fireEvent.click(screen.getByTitle('Back to the library'))
       const dialog = await screen.findByRole('dialog', { name: 'Send what you practised to Anki?' })
       fireEvent.click(within(dialog).getByRole('button', { name: 'Send 1 to Anki' }))
       expect(await within(dialog).findByText('sent ✓')).toBeInTheDocument()
@@ -1216,12 +1310,12 @@ describe('<Practice>', () => {
       await screen.findByText('你好', { selector: 'p.sentence' })
       press('Enter'); await flush(); press('Enter'); await flush()
       await waitFor(() => expect(usePractice.getState().practised).toEqual([11]))
-      fireEvent.click(screen.getByRole('button', { name: 'Finish session' }))
+      fireEvent.click(screen.getByTitle('Back to the library'))
       const dialog = await screen.findByRole('dialog', { name: 'Send what you practised to Anki?' })
       expect(within(dialog).getByRole('checkbox', { name: /你好/ })).not.toBeChecked()
     })
 
-    it('the back link asks first when something practised is not in Anki', async () => {
+    it('⌂ Library still offers the session export when something is unsent', async () => {
       renderWithLibrary()
       await takeOne()
       fireEvent.click(screen.getByTitle('Back to the library'))
@@ -1234,9 +1328,9 @@ describe('<Practice>', () => {
     it('while the dialog is open the page shortcuts are off, and Esc closes it', async () => {
       renderWithLibrary()
       await takeOne()
-      press('Enter') // a new take, still recording: Finish session drops it
+      press('Enter') // a new take, still recording: leaving drops it
       await waitFor(() => expect(usePractice.getState().recordingNow).toBe(true))
-      fireEvent.click(screen.getByRole('button', { name: 'Finish session' }))
+      fireEvent.click(screen.getByTitle('Back to the library'))
       await screen.findByRole('dialog', { name: 'Send what you practised to Anki?' })
       expect(usePractice.getState().recordingNow).toBe(false)
       const starts = h.rec.start.mock.calls.length
@@ -1336,11 +1430,11 @@ describe('<Practice>', () => {
       expect(screen.queryByText('library page')).toBeNull()
     })
 
-    it("Finish session right after a run lists the run's sentences while their uploads are still pending", async () => {
+    it("the back link right after a run lists the run's sentences while their uploads are still pending", async () => {
       h.api.segments.postAttempt.mockReturnValue(new Promise(() => {}))
       await startFlowRun(() => false)
       await screen.findByText(/Flow finished · 2 sentences/)
-      fireEvent.click(screen.getByRole('button', { name: 'Finish session' }))
+      fireEvent.click(screen.getByTitle('Back to the library'))
       const dialog = await screen.findByRole('dialog', { name: 'Send what you practised to Anki?' })
       expect(rowsOf(dialog)).toEqual([['我今天想学中文', true], ['再见filler', false]])
     })
@@ -1350,7 +1444,7 @@ describe('<Practice>', () => {
       h.exportAndRecord.mockReturnValue(d.promise)
       renderWithLibrary()
       await takeOne()
-      fireEvent.click(screen.getByRole('button', { name: 'Finish session' }))
+      fireEvent.click(screen.getByTitle('Back to the library'))
       const dialog = await screen.findByRole('dialog', { name: 'Send what you practised to Anki?' })
       fireEvent.click(within(dialog).getByRole('button', { name: 'Send 1 to Anki' }))
       expect(await within(dialog).findByText('sending…')).toBeInTheDocument()
@@ -1372,14 +1466,14 @@ describe('<Practice>', () => {
       await takeOne()
       press('a'); await flush()
       expect(h.exportAndRecord).toHaveBeenCalledTimes(1)
-      fireEvent.click(screen.getByRole('button', { name: 'Finish session' }))
+      fireEvent.click(screen.getByTitle('Back to the library'))
       expect(await screen.findByText('library page')).toBeInTheDocument()
       expect(screen.queryByRole('dialog')).toBeNull()
       await act(async () => { d.resolve({ ...long.segments[0], anki_note_id: 5 }) })
       expect(h.exportAndRecord).toHaveBeenCalledTimes(1)
     })
 
-    it('with nothing to send, the back link and Finish session leave at once', async () => {
+    it('with nothing to send, the back link leaves at once', async () => {
       renderWithLibrary()
       await screen.findByText('我今天想学中文', { selector: 'p.sentence' })
       fireEvent.click(screen.getByTitle('Back to the library'))

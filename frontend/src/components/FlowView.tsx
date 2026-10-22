@@ -2,12 +2,14 @@ import { memo, useEffect, useRef, useState } from 'react'
 import type { FlowRun, Segment } from '../api/types'
 import type { Cue } from '../lib/cue'
 import type { FlowSub } from '../lib/flow'
+import type { Action } from '../lib/keys'
 import { clipSpans, flowWipe, lineLead, nextLineStart } from '../lib/karaoke'
 import { weekdayTime } from '../lib/time'
 import CueLine from './CueLine'
 import { dotClass } from './Drawer'
 import KaraokeSentence, { GhostLine } from './KaraokeSentence'
-import VolumeSliders, { type VolumeControls } from './VolumeSliders'
+import type { SoundControls } from './SoundPopover'
+import Transport from './Transport'
 
 export interface FlowViewProps {
   segments: Segment[]; current: number; pending: Set<number>; sub: FlowSub; showText: boolean
@@ -107,24 +109,10 @@ function PastRuns({ runs, onReplay }: { runs: FlowRun[]; onReplay: (run: FlowRun
   )
 }
 
-// Flow mode while running: ■ stop (Enter) · skip (→) · speed · volume. Pause is not in v1.
-export function FlowTransport({ rate, onRate, sub, onStop, onSkip, error, hint, volume }: {
-  rate: number; onRate: (r: number) => void; sub: FlowSub; onStop: () => void; onSkip: () => void; error: string; hint: string; volume: VolumeControls
+// Flow mode while running: the same bar and keys (spec §2). Enter (■ Stop) ends the run keeping the finished
+// sentences, › (→) skips this sentence, Sound holds speed and volume. No going back, no Anki and nothing to replay mid-run.
+export function FlowTransport({ onAction, idx, total, sound, error, hint }: {
+  onAction: (a: Action) => void; idx: number; total: number; sound: SoundControls; error: string; hint: string
 }) {
-  const b = 'px-3 py-1 rounded bg-card text-sm'
-  return (
-    <div className="border-t border-line p-3 text-center space-y-1">
-      <div className="flex justify-center gap-2 items-center">
-        <button className={`${b} bg-record text-fg`} onClick={onStop} title="Stop and save the finished sentences (Enter)">■ stop</button>
-        <button className={b} onClick={onSkip} title="Skip this sentence (→)">skip ▸▸</button>
-        <label className="text-xs text-fgdim flex items-center gap-1">{rate.toFixed(2)}×<input type="range" aria-label="Playback speed" min={0.6} max={1} step={0.05} value={rate}
-          onChange={(e) => onRate(Number(e.target.value))} onPointerUp={(e) => e.currentTarget.blur()} /></label>
-        <button className={b} onClick={() => onRate(rate === 0.75 ? 1 : 0.75)}>0.75×</button>
-        <span className="text-xs text-fgdim">{sub}</span>
-        <VolumeSliders volume={volume} />
-      </div>
-      {hint && <p className="text-xs text-warn">{hint}</p>}
-      {error && <p className="text-xs text-bad" role="alert">{error}</p>}
-    </div>
-  )
+  return <Transport onAction={onAction} idx={idx} total={total} recording busy={false} canPrev={false} showAnki={false} sound={sound} hint={hint} error={error} />
 }
