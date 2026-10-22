@@ -118,6 +118,26 @@ Speaking happens in the app; Anki is used for **listening** review.
 
 ![Review: flagged sentences and practised sentences not yet in Anki](docs/screenshots/review.png)
 
+### Wrong sounds
+
+After a scored take, a Chinese character-level CTC model checks the **initial and final** of each syllable (goodness of
+pronunciation plus a bad-pronunciation score, fused). If you said a different sound, for example `cī` for 吃, the
+**HEARD** row under your track shows what was heard, the syllable is ringed in purple on the reference row, and the
+header chip reads "1 sound off" (or "sounds ok"). Click a cell on your track to hear that syllable of your take. Tones
+and sounds are judged separately: a syllable can be a green sound with an orange tone.
+
+Stats has a **Sounds** panel with your most-missed sounds and **Drill this**, which starts a drill with the `sound`
+focus; its items go green when the sound is right. Run `make backfill-sounds` (`ARGS="--dry-run"`, `ARGS="--data-dir DIR"`)
+to add sound results to older takes; stop the backend and back up the database first. Tune it under `[sounds]` in
+`config.toml` (`enabled`, the model and its revision, the z-normalisers and the two thresholds).
+
+Takes the recording itself rejects (too quiet or short, no voice, clipped, couldn't match or align, different words)
+show their warning but are **not stored**. `backend/scripts/drop_failed_takes.py` (`--dry-run`, `--data-dir`) removes
+older ones. Your take's playback skips the silence before and after your voice.
+
+The backend trims its heap after model loads, jobs and scoring (`shadow/memory.py`), so all models, the sound model
+included, take about 1.8 GB of RAM instead of about 5.7 GB. `/health` lists `sounds` and `sounds_error`.
+
 ### Stats
 
 Minutes and attempts per day for the last 30 days, then the tone scores: your mean for each tone, a weekly line chart per
@@ -265,7 +285,10 @@ fake implementation.
 | `docs/superpowers/specs/` | the design: [main spec](docs/superpowers/specs/2026-10-03-shadowing-tool-design.md), [YouTube/passages/guidance addendum](docs/superpowers/specs/2026-10-07-youtube-passages-guidance-design.md), [drills](docs/superpowers/specs/2026-10-14-phase3b-drills-design.md) |
 | `docs/superpowers/plans/` | the implementation plans each phase was built from |
 | `backend/shadow/scoring/` | pitch tracking, the tone model, syllable scoring, voice profile |
-| `docs/phase1-acceptance.md`, `docs/phase2-acceptance.md`, `docs/phase3b-acceptance.md` | the manual checklists for things only a real browser, mic and Anki can verify |
+| `backend/shadow/scoring/sounds/` | wrong-sound detection: the character-CTC model, GOP and bad-pronunciation scores, fusion |
+| `backend/shadow/memory.py` | heap trimming after model loads, jobs and scoring |
+| `backend/scripts/` | `backfill_sounds.py` (`make backfill-sounds`), `drop_failed_takes.py`, `rescore.py`, `tone_model.py` |
+| `docs/phase1-acceptance.md`, `docs/phase2-acceptance.md`, `docs/phase3a-acceptance.md`, `docs/phase3b-acceptance.md` | the manual checklists for things only a real browser, mic and Anki can verify |
 
 ---
 
@@ -276,11 +299,7 @@ fake implementation.
 - **Phase 1.5:** YouTube lessons, passages, the guidance and karaoke cues, volume, listening cards, and recordings that come back when you reopen a lesson.
 - **Phase 2:** tone scoring per syllable from a classifier trained on AISHELL-3 plus contour similarity, both normalised to each speaker's own baseline; pitch lines; stats per tone, tone pair and character. See [docs/phase2-acceptance.md](docs/phase2-acceptance.md).
 - **Phase 3b:** drills on your weakest tone, tone pair or character, across all your lessons. See [docs/phase3b-acceptance.md](docs/phase3b-acceptance.md).
-
-### Next: Phase 3a — consonants and vowels
-
-Designed via a spike; waiting on the check-set recording (`data/reports/phase3-checkset.md`). Per-syllable pronunciation feedback (goodness of pronunciation from a Chinese CTC model), so you see *which*
-syllables were mispronounced, not just which tones. It also adds a "most-missed syllables" list.
+- **Phase 3a:** wrong-sound (initial/final) detection on every scored take, a Sounds panel and sound drills. See [docs/phase3a-acceptance.md](docs/phase3a-acceptance.md).
 
 ### Phase 4 — polish
 
