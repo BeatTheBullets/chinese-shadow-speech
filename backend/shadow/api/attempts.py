@@ -10,6 +10,7 @@ from sqlmodel import Session, select
 from shadow.api.lessons import _get_lesson, ensure_idle
 from shadow.api.sessions import MODES
 from shadow.ingest import audio
+from shadow.memory import trim_heap
 from shadow.schemas import AttemptOut, FlowRunItem, FlowRunOut, FlowRunsOut, TakeOut, TakesOut
 from shadow.scoring import score_attempt
 from shadow.store.db import get_session
@@ -59,6 +60,7 @@ def create_attempt(segment_id: int, request: Request, audio_file: UploadFile = F
     att.audio_path = str(dst)
     db.add(att); db.commit()            # the take is saved before scoring, which must not hold SQLite's write lock
     score_attempt(deps, db, seg, att)
+    trim_heap()
     if sess is not None:
         sess.attempts_count += 1; db.add(sess)
     db.add(att); db.commit(); db.refresh(att)

@@ -7,6 +7,8 @@ import threading
 from typing import Protocol
 import numpy as np
 
+from shadow.memory import trim_heap
+
 log = logging.getLogger(__name__)
 
 
@@ -66,6 +68,8 @@ class CharCtc:
                     self._load()
             except Exception:
                 log.exception("warming up the char-CTC model %s failed", self.name)
+            finally:
+                trim_heap()
         t = threading.Thread(target=run, name="charctc-warm-up", daemon=True)
         t.start()
         return t

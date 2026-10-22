@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Protocol
 from shadow.ingest.rectify import SENTENCE_END
 from shadow.ingest.text import is_punct, to_simplified
+from shadow.memory import trim_heap
 from shadow.ingest.transcript import (
     Transcript, TimedChar, append_segment, chars_with_interpolated_times, chars_with_speech_times,
 )
@@ -114,6 +115,8 @@ class ParaformerASR:
                     self._load()
             except Exception:
                 log.exception("warming up the recogniser %s failed", self.model_id)
+            finally:
+                trim_heap()
         t = threading.Thread(target=run, name="asr-warm-up", daemon=True)
         t.start()
         return t

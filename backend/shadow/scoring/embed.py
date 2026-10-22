@@ -6,6 +6,8 @@ import threading
 from typing import Protocol
 import numpy as np
 
+from shadow.memory import trim_heap
+
 FRAME_S = 0.02                           # wav2vec2 frame step at 16 kHz
 DIM = 768
 _CENTRE = 0.0125                         # frame i covers ~[i·20 ms, i·20 ms + 25 ms]
@@ -47,6 +49,8 @@ class Wav2Vec2Embedder:
                     self._load()
             except Exception:
                 log.exception("warming up the speech model %s failed", self.name)
+            finally:
+                trim_heap()
         t = threading.Thread(target=run, name="embedder-warm-up", daemon=True)
         t.start()
         return t

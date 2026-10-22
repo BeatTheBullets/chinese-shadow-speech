@@ -6,6 +6,8 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, asdict
 from typing import AsyncIterator, Callable
 
+from shadow.memory import trim_heap
+
 log = logging.getLogger(__name__)
 
 Progress = Callable[[str, float], None]
@@ -82,6 +84,8 @@ class JobManager:
             except Exception as e:  # noqa: BLE001
                 log.exception("job %s failed", job_id)
                 st.status, st.stage, st.error = "error", "error", str(e) or type(e).__name__
+            finally:
+                trim_heap()
             self._publish(job_id)
 
     async def events(self, job_id: str) -> AsyncIterator[dict]:
