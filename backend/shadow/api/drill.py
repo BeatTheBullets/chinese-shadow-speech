@@ -51,6 +51,10 @@ def _valid(kind: str, key: str) -> bool:
 def create_drill(body: SessionIn, request: Request, db: Session = Depends(get_session)):
     if not _valid(body.kind, body.key):
         raise HTTPException(400, "bad focus")
+    deps = request.app.state.deps
+    if body.kind == "sound" and deps.sounds is None:
+        # every take would come back unchecked, so no item could go green: refuse and say why (the Drill page shows it)
+        raise HTTPException(409, f"sound checking is off: {deps.sounds_error or 'not available'}")
     cfg = request.app.state.settings.drill
     items = (queue_from_ids(db, body.segment_ids, body.kind, body.key) if body.segment_ids is not None
              else build_queue(db, cfg, body.kind, body.key))

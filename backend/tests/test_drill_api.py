@@ -24,6 +24,7 @@ def test_a_drill_take_is_an_attempt_linked_to_its_drill_session(client, tmp_path
 def test_create_sound_drill(client):
     from sqlmodel import Session
     from shadow.store.models import Lesson, Segment
+    client.app.state.deps.sounds = object()                 # sound checking on (fake deps have it off)
     with Session(client.app.state.engine) as db:
         les = Lesson(title="L", source_type="upload", status="ready"); db.add(les); db.commit(); db.refresh(les)
         db.add(Segment(lesson_id=les.id, idx=0, start_s=0, end_s=1, text="吃吃吃吃", clip_wav_path="c.wav",
@@ -32,4 +33,16 @@ def test_create_sound_drill(client):
         db.commit()
     r = client.post("/drill/sessions", json={"kind": "sound", "key": "ch>c"})
     assert r.status_code == 201 and r.json()["label"] == "ch (not c)"
+    assert client.post("/drill/sessions", json={"kind": "sound", "key": "x>y"}).status_code == 400
+
+
+def test_sound_drill_refused_while_sound_checking_is_off(client):
+    # every take would come back unchecked and no item could go green: say why instead (the Drill page shows detail)
+    deps = client.app.state.deps
+    deps.sounds, deps.sounds_error = None, "CUDA out of memory"
+    r = client.post("/drill/sessions", json={"kind": "sound", "key": "ch>c"})
+    assert r.status_code == 409 and r.json()["detail"] == "sound checking is off: CUDA out of memory"
+    deps.sounds_error = None
+    assert client.post("/drill/sessions", json={"kind": "sound", "key": "ch>c"}).json()["detail"] == \
+        "sound checking is off: not available"
     assert client.post("/drill/sessions", json={"kind": "sound", "key": "x>y"}).status_code == 400

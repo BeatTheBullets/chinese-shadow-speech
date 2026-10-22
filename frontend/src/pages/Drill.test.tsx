@@ -157,6 +157,15 @@ describe('<Drill> start screen', () => {
     expect(await screen.findByText('No sentences contain this focus yet.')).toBeInTheDocument()
     expect(screen.getByText("Today's focus")).toBeInTheDocument()
   })
+
+  it('a sound drill refused while sound checking is off shows the backend reason', async () => {
+    const detail = 'sound checking is off: CUDA out of memory'
+    h.drill.start.mockRejectedValue(new ApiError(409, 'Conflict', JSON.stringify({ detail }), detail))
+    renderAt()
+    await screen.findByText("Today's focus")
+    fireEvent.click(screen.getAllByRole('button', { name: 'Start' })[0])
+    expect(await screen.findByText(`Could not start the drill: ${detail}`)).toBeInTheDocument()
+  })
 })
 
 describe('<Drill> runner', () => {
