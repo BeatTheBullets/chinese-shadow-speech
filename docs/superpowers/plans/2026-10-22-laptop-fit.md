@@ -445,7 +445,7 @@ git commit -m "feat: pause splitting by default; laptop budget met with int8 on 
 
 | Item | Result |
 |---|---|
-| Baseline budget run (Task 1) | `--device cpu --threads 4`, watchdog cap 5000 MB. Startup peaks 738 MB (models load lazily). Build phase fails every time, three ways: twice SIGKILLed by the kernel (exit 137) with the watchdog having seen a tree peak of 3689 MB, below the cap (the machine had ~3 GB used by other processes, so the OOM killer fired first), and twice a job error (funasr "Cannot copy out of meta tensor", peak 2.6 GB, exit 1). Practice and build+practice never reached. The cap watchdog itself is verified separately (`--hard-cap-mb 500` gives exit 3, tests/test_cpu_budget_watchdog.py). |
+| Baseline budget run (Task 1) | `--device cpu --threads 4`, default adaptive cap (about 4100 MB on this machine). Startup peaks 738 MB (models load lazily). Build phase: the watchdog aborted with exit 3 at 4143 MB (cap 4104 MB), phase build. Earlier runs with the 5000 MB cap were killed by the kernel (exit 137) at a watched peak of 3689 MB, and some runs (also with the adaptive cap) ended early with a job error (funasr "Cannot copy out of meta tensor", peak about 2.6 GB), which is attributed to concurrent model loading. Practice and build+practice never reached. |
 | Gate videos and verdict (Task 4) | |
 | User's go on pause splitting | |
 | int8: alignment / words / CER + gate / sounds / tone (Task 6) | |

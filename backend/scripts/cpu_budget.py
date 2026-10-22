@@ -8,7 +8,7 @@ Always run with CUDA_VISIBLE_DEVICES="" so nothing lands on a GPU. Phases (defau
 /health answers), build (upload the clip as a lesson), practice (8 scored takes, the lesson's own clips as audio),
 build+practice (a second lesson builds while 8 more takes are scored). Prints one JSON line
 {"phases": [{"name", "seconds", "peak_mb"}], "take_seconds": [...]}. --budget exits 1 when a phase peak is over its
-budget (startup/practice 3000 MB, build/build+practice 3500 MB). RSS over --hard-cap-mb (default 5000) aborts the run
+budget (startup/practice 3000 MB, build/build+practice 3500 MB). RSS over --hard-cap-mb (default: the smaller of 5000 and the free memory minus 500) aborts the run
 with exit 3: the script re-runs itself as a child and a parent watchdog polls the child tree's RSS every 0.05 s and
 kills it over the cap, so a runaway run cannot make the kernel OOM-killer pick other processes."""
 from __future__ import annotations
@@ -143,14 +143,16 @@ def main() -> None:
     ap.add_argument("--threads", type=int, default=4)
     ap.add_argument("--budget", action="store_true")
     ap.add_argument("--phases", default=",".join(PHASES))
-    ap.add_argument("--hard-cap-mb", type=float, default=5000)
+    ap.add_argument("--hard-cap-mb", type=float, default=None)
     ap.add_argument("--_child", action="store_true", help=argparse.SUPPRESS)
     a = ap.parse_args()
     if not a._child:                      # parent: the watchdog around a re-run of this script
+        cap = a.hard_cap_mb if a.hard_cap_mb is not None else min(5000.0, psutil.virtual_memory().available / 1e6 - 500)
+        print(f"hard cap: {cap:.0f} MB", flush=True)
         phase_file = Path(tempfile.mkdtemp(prefix="cpu_budget_phase_")) / "phase"
         os.environ["CPU_BUDGET_PHASE_FILE"] = str(phase_file)
         raise SystemExit(watch([sys.executable, os.path.abspath(__file__), *sys.argv[1:], "--_child"],
-                               a.hard_cap_mb, phase_file))
+                               cap, phase_file))
     phases = a.phases.split(",")
     if bad := [p for p in phases if p not in PHASES]:
         raise SystemExit(f"unknown phases {bad}; choose from {PHASES}")
