@@ -64,3 +64,20 @@ def test_one_failing_take_does_not_block_the_rest(client, tmp_path):
         assert db.get(Attempt, ids[0]).score_json.get("sounds_checked") is None
         assert db.get(Attempt, ids[1]).score_json["sounds_checked"] == 1 and _rows(db, ids[1])[0].sound_status == "slip"
         assert _rows(db, ids[0])[0].sound_status is None
+
+
+def test_dry_run_writes_nothing(client, tmp_path):
+    from shadow.scoring.sounds.backfill import backfill_all
+    lid, seg = _first_segment(client, tmp_path)
+    ids = [_post(client, make_tone_wav(tmp_path / f"t{i}.wav", 2.6), seg["id"]).json()["id"] for i in range(2)]
+    n = len([s for w in seg["words_json"] for s in w["syllables"]])
+    res = [{"status": "slip", "heard": "zhong", "heard_pinyin": "zhōng", "z": 6.0, "rule": "fused"}] + [None] * (n - 1)
+    deps = client.app.state.deps
+    deps.sounds = FakeSounds(res)
+    with Session(client.app.state.engine) as db:
+        counts = backfill_all(deps, db, dry_run=True, every=1)
+    assert counts == {"done": 2, "skipped": 0, "failed": 0, "slips": 2}
+    with Session(client.app.state.engine) as db:
+        for aid in ids:
+            assert db.get(Attempt, aid).score_json.get("sounds_checked") is None
+            assert all(r.sound_status is None and r.heard_syllable is None and r.seg_score is None for r in _rows(db, aid))
