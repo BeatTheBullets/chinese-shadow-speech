@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse
 from sqlmodel import Session, select
 from shadow.api.lessons import _get_lesson, ensure_idle
@@ -14,9 +14,14 @@ from shadow.memory import trim_heap
 from shadow.schemas import AttemptOut, FlowRunItem, FlowRunOut, FlowRunsOut, TakeOut, TakesOut
 from shadow.scoring import score_attempt
 from shadow.store.db import get_session
-from shadow.store.models import Attempt, DrillSession, PracticeSession, Segment
+from shadow.store.files import FileLayout
+from shadow.store.models import Attempt, DrillSession, PracticeSession, Segment, SyllableScore
 
 router = APIRouter()
+
+# A take rejected because of the recording itself (its first warning) is not kept: no audio, no row, no try. Takes
+# failing for server-side reasons (score_failed, no_reference, no_tone_model) stay, they can be rescored later.
+DROP_WARNINGS = frozenset({"too_short", "too_quiet", "no_voice", "clipped", "wrong_or_unclear", "different_words", "align_failed"})
 
 RUN_GAP_S = 60      # Flow attempts of one session further apart than this belong to different runs
 MAX_RUNS = 10
@@ -25,7 +30,7 @@ MAX_RUNS = 10
 # Sync def on purpose: FastAPI runs it in the threadpool, so blocking ffmpeg/DB work never stalls the event loop.
 # Phase 2: VAD-trim the 150 ms slack from uploaded attempt slices here (spec §6.1); deferred, not done in Phase 1.
 @router.post("/segments/{segment_id}/attempts", response_model=AttemptOut, status_code=201)
-def create_attempt(segment_id: int, request: Request, audio_file: UploadFile = File(..., alias="audio"),
+def create_attempt(segment_id: int, request: Request, response: Response, audio_file: UploadFile = File(..., alias="audio"),
                    session_id: int | None = Form(None), drill_session_id: int | None = Form(None), mode: str = Form("echo"), db: Session = Depends(get_session)):
     seg = db.get(Segment, segment_id)
     if seg is None:
@@ -61,10 +66,34 @@ def create_attempt(segment_id: int, request: Request, audio_file: UploadFile = F
     db.add(att); db.commit()            # the take is saved before scoring, which must not hold SQLite's write lock
     score_attempt(deps, db, seg, att)
     trim_heap()
+    if dropped(att):                    # nothing stored, so 200 rather than 201; the score still says why
+        out = AttemptOut(id=None, segment_id=att.segment_id, session_id=att.session_id, created_at=att.created_at,
+                         mode=att.mode, duration_s=att.duration_s, score_json=att.score_json, dropped=True)
+        drop_attempt(db, files, att)
+        response.status_code = 200
+        return out
     if sess is not None:
         sess.attempts_count += 1; db.add(sess)
     db.add(att); db.commit(); db.refresh(att)
     return att
+
+
+def dropped(att: Attempt) -> bool:
+    """Its score's first warning says the recording itself failed (DROP_WARNINGS)."""
+    warnings = (att.score_json or {}).get("warnings") or []
+    return bool(warnings) and warnings[0] in DROP_WARNINGS
+
+
+def drop_attempt(db: Session, files: FileLayout, att: Attempt) -> None:
+    """Deletes the attempt with its SyllableScore rows (a gated take has none), commits, then removes its audio: a
+    failed commit leaves the row with its file, never a row whose audio is gone. The audio is looked for under the
+    data dir too, in case the stored path predates a move of the data dir."""
+    paths = {files.attempt_wav(att.id or 0), *([Path(att.audio_path)] if att.audio_path else [])}
+    for sc in db.exec(select(SyllableScore).where(SyllableScore.attempt_id == att.id)).all():
+        db.delete(sc)
+    db.delete(att); db.commit()
+    for p in paths:
+        p.unlink(missing_ok=True)
 
 
 @router.get("/segments/{segment_id}/attempts", response_model=list[AttemptOut])
@@ -139,7 +168,7 @@ def flow_runs(lesson_id: int, db: Session = Depends(get_session)):
     for run in runs:                                    # a run with no playable take is left out, not counted
         if len(out) == MAX_RUNS:
             break
-        items = [FlowRunItem(segment_id=a.segment_id, idx=idx, attempt_id=a.id) for a, idx in _latest_per_segment(run)]
+        items = [FlowRunItem(segment_id=a.segment_id, idx=idx, attempt_id=a.id, duration_s=a.duration_s) for a, idx in _latest_per_segment(run)]
         if items:
             out.append(FlowRunOut(started_at=_utc(run[-1][0].created_at), ended_at=_utc(run[0][0].created_at),
                                   session_id=run[0][0].session_id, items=items))

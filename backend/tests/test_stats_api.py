@@ -2,7 +2,9 @@ from tests.helpers import make_tone_wav
 from tests.test_lessons_api import _upload
 
 
-def test_stats_shapes(client, tmp_path):
+def test_stats_shapes(client, tmp_path, monkeypatch):
+    import shadow.scoring as scoring
+    monkeypatch.setattr(scoring, "score_take", lambda **kw: 1 / 0)   # an unscored take that is kept (a gated one is dropped)
     lid = _upload(client, tmp_path)
     sid = client.get(f"/lessons/{lid}").json()["segments"][0]["id"]
     sess = client.post("/sessions", json={"lesson_id": lid, "mode": "echo"}).json()

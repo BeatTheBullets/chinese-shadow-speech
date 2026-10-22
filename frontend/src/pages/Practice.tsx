@@ -5,7 +5,7 @@ import { api, ApiError } from '../api/client'
 import type { Attempt, FlowRun, LessonDetail, Mode, Score, Segment, Take } from '../api/types'
 import { playClip, sleep } from '../audio/abortable'
 import { findSilenceEnd, sliceSamples } from '../audio/pcm'
-import { ClipPlayer, peaks as peaksOf, playSequence } from '../audio/player'
+import { ClipPlayer, peaks as peaksOf, playSequence, type SequenceItem } from '../audio/player'
 import { toWav16k } from '../audio/recorder'
 import { useMic } from '../audio/useMic'
 import CueLine, { WithMicLevel } from '../components/CueLine'
@@ -31,6 +31,7 @@ import { actionForKey, type Action } from '../lib/keys'
 import { passageIndexOf, passageSpan } from '../lib/passages'
 import { applyAttempt, isWarningText, noticeText, warningText } from '../lib/score'
 import { sessionUnsent } from '../lib/sessionExport'
+import { speechBounds } from '../lib/speech'
 import { useNow } from '../lib/useNow'
 import { clamp01, guideApplies, playbackVolume } from '../lib/volume'
 import { usePractice, currentSegment, currentTake, type LastAttempt, type StoredTake } from '../store/practice'
@@ -295,11 +296,14 @@ export default function Practice() {
     if (duration < MIN_TAKE_S) { dispatch('CANCEL'); setError('Too short to keep, nothing was saved. Try again.'); return }
     const wav = toWav16k(samples, rec.sampleRate)
     // Once uploaded, the take is the sentence's newest stored one, with its score (what R replays after moving away and back).
+    // A dropped one (the gates rejected it, the server kept nothing) only explains itself: it is no take and no attempt.
     const uploaded = (a: Attempt) => {
       const cur = usePractice.getState()
-      cur.markPractised(s.id); cur.recordTake(s.id, stored(a.id, duration, a.score_json))
-      const now = cur.lesson?.segments.find((x) => x.id === s.id)
-      if (now) cur.updateSegment(applyAttempt(now, a.score_json?.overall))
+      if (!a.dropped && a.id != null) {
+        cur.markPractised(s.id); cur.recordTake(s.id, stored(a.id, duration, a.score_json))
+        const now = cur.lesson?.segments.find((x) => x.id === s.id)
+        if (now) cur.updateSegment(applyAttempt(now, a.score_json?.overall))
+      }
       // The take's warning, or clearing an earlier take's, belongs under its own sentence only (not the one moved to).
       if (currentSegment(cur)?.id !== s.id) return
       const why = warningText(a.score_json) ?? noticeText(a.score_json)
@@ -314,18 +318,30 @@ export default function Practice() {
       return
     }
     const url = URL.createObjectURL(wav)
-    const take: LastAttempt = { id: 0, url, duration, peaks: peaksOf(samples, 400) }
+    const peaks = peaksOf(samples, 400)
+    const take: LastAttempt = { id: 0, url, duration, peaks }
     ps.setLastAttempt(take); ps.bumpAttempts()
     if (usePractice.getState().attemptsThisSegment >= useSettings.getState().practice.moveOnAfter) ps.setHint(MOVE_ON)
+    const ctrl = new AbortController()
     const upload = api.segments.postAttempt(s.id, wav, { session_id: ps.sessionId ?? undefined, mode })
-      .then((a) => { uploaded(a); const cur = usePractice.getState(); if (cur.lastAttempt?.url === url) cur.setLastAttempt({ ...take, id: a.id, score: a.score_json }) })
+      .then((a) => {
+        uploaded(a)
+        const cur = usePractice.getState()
+        if (a.dropped || a.id == null) {
+          // Dropped: its playback stops (usually still on the reference), and the take and its count go.
+          if (seqCtrl.current === ctrl) stopPlayback()
+          if (cur.lastAttempt?.url === url) cur.setLastAttempt(null)
+          if (currentSegment(cur)?.id === s.id) usePractice.setState((x) => ({ attemptsThisSegment: Math.max(0, x.attemptsThisSegment - 1) }))
+        } else if (cur.lastAttempt?.url === url) cur.setLastAttempt({ ...take, id: a.id, score: a.score_json })
+      })
       .catch((e) => setError(`Upload failed: ${readable(e)}`))
     dispatch('UPLOADED')
-    const ctrl = new AbortController()
     seqCtrl.current = ctrl
     let heard = false
     try {
-      await playSequence(player, [{ url: api.segments.audioUrl(s.id), rate: ps.rate, onTime: setRefHead }, { url, rate: 1, onTime: setYouHead }], 250, ctrl.signal)
+      // The take plays from its voice to its end (Task 14); the You track still shows all of it.
+      const voice = speechBounds(peaks, duration) ?? {}
+      await playSequence(player, [{ url: api.segments.audioUrl(s.id), rate: ps.rate, onTime: setRefHead }, { url, rate: 1, onTime: setYouHead, ...voice }], 250, ctrl.signal)
       heard = !ctrl.signal.aborted
     } catch (e) {
       if (!ctrl.signal.aborted) setError(`Playback failed: ${message(e)}`)
@@ -405,19 +421,25 @@ export default function Practice() {
     stopPlayback()
     play().catch((e) => setError(`Could not play: ${message(e)}`))
   }
-  function playItems(items: { url: string; rate: number }[]) {
+  // `items` may still be on their way (a stored run's takes need their waveforms first); stopped meanwhile, nothing plays.
+  function playItems(items: SequenceItem[] | Promise<SequenceItem[]>) {
     if (busy()) return
     stopPlayback()
     const ctrl = new AbortController()
     seqCtrl.current = ctrl
-    playSequence(player, items, 250, ctrl.signal)
-      .catch((e) => { if (!ctrl.signal.aborted) setError(`Playback failed: ${message(e)}`) })
+    const play = (its: SequenceItem[]) => playSequence(player, its, 250, ctrl.signal)
+    const done = Array.isArray(items) ? play(items) : items.then((its) => (ctrl.signal.aborted ? undefined : play(its)))
+    done.catch((e) => { if (!ctrl.signal.aborted) setError(`Playback failed: ${message(e)}`) })
       .finally(() => { if (seqCtrl.current === ctrl) seqCtrl.current = null })
   }
-  // This visit's take of the sentence, or its stored one when that is newer; with neither, nothing.
+  // This visit's take of the sentence, or its stored one when that is newer; with neither, nothing. It plays from its
+  // voice to its end, found on the You track's waveform; before that has loaded, or with no clear voice, all of it.
   function replayYou() {
     const take = currentTake(usePractice.getState())
-    if (take) playSolo(() => player.play(take.url, 1, setYouHead))
+    if (!take) return
+    const peaks = 'peaks' in take ? take.peaks : storedPeaks?.url === take.url ? storedPeaks.peaks : null
+    const voice = peaks && speechBounds(peaks, take.duration)
+    playSolo(() => (voice ? player.playRange(take.url, 1, voice.from, voice.to, setYouHead) : player.play(take.url, 1, setYouHead)))
   }
   // One syllable of the user's own take; usr_contour spans are already on the raw take's timeline (backend adds the trim offset).
   function playYouSyllable(cell: number) {
@@ -490,11 +512,17 @@ export default function Practice() {
       api.segments.patch(r.segmentId, { difficulty_flag: true }).then(usePractice.getState().updateSegment).catch((e) => setError(`Could not flag: ${readable(e)}`))
     }
   }
-  // Original then take, for one sentence of a Flow run.
-  const pairOf = (segmentId: number, takeUrl: string) => [{ url: api.segments.audioUrl(segmentId), rate: usePractice.getState().rate }, { url: takeUrl, rate: 1 }]
-  const resultPair = (r: FlowResult) => pairOf(r.segmentId, r.url)
-  // A stored run, original → you per sentence (its items come in sentence order); stops like any playback.
-  const replayRun = (run: FlowRun) => playItems(run.items.flatMap((it) => pairOf(it.segment_id, api.attempts.audioUrl(it.attempt_id))))
+  // Original then take, for one sentence of a Flow run; the take from its voice to its end when that is known.
+  const pairOf = (segmentId: number, takeUrl: string, voice?: { from: number; to: number } | null): SequenceItem[] =>
+    [{ url: api.segments.audioUrl(segmentId), rate: usePractice.getState().rate }, { url: takeUrl, rate: 1, ...voice }]
+  const resultPair = (r: FlowResult) => pairOf(r.segmentId, r.url, r.voice)
+  // A stored run, original → you per sentence (its items come in sentence order); stops like any playback. Each
+  // take's voice is found on its waveform (cached, as the You track's); one that cannot be read plays whole.
+  const replayRun = (run: FlowRun) => playItems(Promise.all(run.items.map(async (it) => {
+    const url = api.attempts.audioUrl(it.attempt_id)
+    const peaks = await player.peaksFor(url, 400).catch(() => null)
+    return pairOf(it.segment_id, url, peaks && speechBounds(peaks, it.duration_s))
+  })).then((pairs) => pairs.flat()))
 
   // Edit, split and merge rebuild sentences on the server. Everything in flight stops first; afterwards the lesson
   // reloads and stays on the current sentence if it still exists, else on `fallbackId`, else the same position.

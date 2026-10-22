@@ -17,6 +17,7 @@ const h = vi.hoisted(() => ({
   clock: { t: 0 }, // AudioContext.currentTime
   toWav16k: vi.fn(() => new Blob(['wav'])),
   playSequence: vi.fn(() => Promise.resolve()),
+  takePeaks: new Float32Array(4), // what peaks() returns for a fresh take's You waveform
   player: { play: vi.fn(() => Promise.resolve()), playRange: vi.fn(() => Promise.resolve()), stop: vi.fn(), setVolume: vi.fn(), preload: vi.fn(() => Promise.resolve()), peaksFor: vi.fn<(url: string) => Promise<Float32Array>>(() => new Promise(() => {})) },
   ctxClose: vi.fn(() => Promise.resolve()),
   twoTrack: null as null | { onPlaySyllable: (i: number) => void; onPlayYouSyllable?: (i: number) => void; youPeaks: Float32Array | null; youDuration: number; score?: unknown },
@@ -37,13 +38,14 @@ vi.mock('../audio/recorder', () => ({
 vi.mock('../audio/player', () => ({
   ClipPlayer: class { constructor() { return h.player } },
   playSequence: h.playSequence,
-  peaks: () => new Float32Array(4),
+  peaks: () => h.takePeaks,
 }))
 vi.mock('../components/TwoTrack', () => ({
   default: (p: NonNullable<typeof h.twoTrack>) => { h.twoTrack = p; return <div data-testid="two-track" /> },
 }))
 
 import { ApiError } from '../api/client'
+import { speechBounds } from '../lib/speech'
 import Practice from './Practice'
 
 const seg = (id: number, idx: number, text: string): Segment => ({
@@ -194,6 +196,7 @@ describe('<Practice>', () => {
     h.player.stop.mockImplementation(() => {})
     h.player.peaksFor.mockImplementation(() => new Promise(() => {}))
     h.playSequence.mockImplementation(() => Promise.resolve())
+    h.takePeaks = new Float32Array(4)
     globalThis.AudioContext = class { sampleRate = 44100; close = h.ctxClose; get currentTime() { return h.clock.t } } as unknown as typeof AudioContext
     URL.createObjectURL = vi.fn(() => 'blob:take')
     URL.revokeObjectURL = vi.fn()
@@ -330,6 +333,76 @@ describe('<Practice>', () => {
     expect(screen.getByRole('button', { name: '● Enter' })).toBeInTheDocument()
   })
 
+  // 100 buckets, voice in 20..60: on a 1 s take that is 0.05..0.76 s with the padding.
+  const voiced = () => Float32Array.from({ length: 100 }, (_, b) => (b >= 20 && b <= 60 ? 0.5 : 0.001))
+
+  it('the take plays back from where the voice starts, after recording and on R', async () => {
+    h.takePeaks = voiced()
+    const b = speechBounds(h.takePeaks, 1)!
+    renderPractice()
+    await screen.findByText('你好', { selector: 'p.sentence' })
+    press('Enter'); await flush(); press('Enter'); await flush()
+    const [, items] = h.playSequence.mock.calls[0] as unknown as [unknown, { url: string; from?: number; to?: number }[]]
+    expect(items[0]).not.toHaveProperty('from')
+    expect(items[1]).toMatchObject({ url: 'blob:take', from: b.from, to: b.to })
+    press('r'); await flush()
+    expect(h.player.play).not.toHaveBeenCalled()
+    expect(h.player.playRange).toHaveBeenCalledWith('blob:take', 1, b.from, b.to, expect.any(Function))
+    expect(h.twoTrack!.youPeaks).toBe(h.takePeaks) // the waveform stays the whole take
+  })
+
+  it('R plays a stored take from speechBounds().from of its waveform; with no clear voice, the whole take', async () => {
+    const p = Float32Array.from({ length: 400 }, (_, i) => (i >= 100 && i < 300 ? 0.4 : 0))
+    h.api.lessons.takes.mockResolvedValue([{ segment_id: 11, attempt_id: 77, mode: 'echo', created_at: '', duration_s: 2 },
+      { segment_id: 12, attempt_id: 78, mode: 'echo', created_at: '', duration_s: 2 }])
+    h.player.peaksFor.mockImplementation((url: string) => Promise.resolve(url === '/att/77.wav' ? p : new Float32Array(400)))
+    renderPractice()
+    await screen.findByText('你好', { selector: 'p.sentence' })
+    await waitFor(() => expect(h.twoTrack!.youPeaks).toBe(p))
+    press('r'); await flush()
+    const b = speechBounds(p, 2)!
+    expect(b.from).toBeCloseTo(0.35, 5)
+    expect(h.player.playRange).toHaveBeenCalledWith('/att/77.wav', 1, b.from, b.to, expect.any(Function))
+    press('ArrowRight'); await screen.findByText('再见', { selector: 'p.sentence' })
+    await waitFor(() => expect(h.twoTrack!.youPeaks).not.toBeNull())
+    press('r'); await flush()
+    expect(h.player.play).toHaveBeenCalledWith('/att/78.wav', 1, expect.any(Function))
+  })
+
+  const dropped = { id: null, dropped: true, score_json: gated }
+
+  it('a dropped take shows the warning, has no take or replay, and the attempt count is unchanged', async () => {
+    h.api.segments.postAttempt.mockResolvedValue(dropped)
+    renderPractice()
+    await screen.findByText('你好', { selector: 'p.sentence' })
+    press('Enter'); await flush(); press('Enter'); await flush()
+    expect(await screen.findByText(QUIET)).toBeInTheDocument()
+    expect(usePractice.getState()).toMatchObject({ lastAttempt: null, attemptsThisSegment: 0, storedTakes: {}, practised: [] })
+    expect(usePractice.getState().lesson!.segments[0].attempts).toBe(0)
+    expect(h.twoTrack!.youPeaks).toBeNull()
+    expect(h.twoTrack!.youDuration).toBe(0)
+    h.player.play.mockClear()
+    press('r'); await flush()
+    expect(h.player.play).not.toHaveBeenCalled()
+    expect(h.player.playRange).not.toHaveBeenCalled()
+  })
+
+  it('a take dropped while the reference plays back stops that playback before the take', async () => {
+    const pending = deferred<typeof dropped>()
+    h.api.segments.postAttempt.mockReturnValue(pending.promise)
+    let signal: AbortSignal | undefined
+    h.playSequence.mockImplementation(((_p: unknown, _items: unknown, _gap: unknown, s: AbortSignal) => { signal = s; return new Promise(() => {}) }) as unknown as () => Promise<void>)
+    renderPractice()
+    await screen.findByText('你好', { selector: 'p.sentence' })
+    press('Enter'); await flush(); press('Enter'); await flush()
+    expect(signal!.aborted).toBe(false)
+    expect(usePractice.getState().attemptsThisSegment).toBe(1)
+    await act(async () => { pending.resolve(dropped) }); await flush()
+    expect(signal!.aborted).toBe(true)
+    expect(usePractice.getState()).toMatchObject({ lastAttempt: null, attemptsThisSegment: 0 })
+    expect(await screen.findByText(QUIET)).toBeInTheDocument()
+  })
+
   it('the take uploads to the sentence the recording started on even if the store moved meanwhile', async () => {
     renderPractice()
     await screen.findByText('你好', { selector: 'p.sentence' })
@@ -358,7 +431,7 @@ describe('<Practice>', () => {
 
     it("R replays the sentence's stored take when the lesson is opened again; the You track shows it, per sentence", async () => {
       h.api.lessons.takes.mockResolvedValue([take(11, 77, 1.5), take(12, 78, 2.5)])
-      const p77 = new Float32Array([0.5])
+      const p77 = new Float32Array([0, 0]) // no clear voice: R plays the whole take
       h.player.peaksFor.mockImplementation((url: string) => (url === '/att/77.wav' ? Promise.resolve(p77) : new Promise(() => {})))
       renderPractice()
       await screen.findByText('你好', { selector: 'p.sentence' })
@@ -610,6 +683,20 @@ describe('<Practice>', () => {
       expect(await screen.findByRole('alert')).toHaveTextContent('Upload failed: this lesson is being rebuilt — try again in a moment')
     })
 
+    it('a dropped flow slice leaves its sentence without a take in the run', async () => {
+      h.api.segments.postAttempt.mockImplementation((id: number) => Promise.resolve(id === 11 ? { id: null, dropped: true, score_json: gated } : { id: 99, score_json: scored }))
+      h.api.lessons.get.mockResolvedValueOnce(lesson).mockReturnValue(new Promise(() => {})) // keep this visit's counts after the run
+      clipsTake(2)
+      h.rec.stop.mockReturnValue(new Float32Array(44100 * 10))
+      await startFlow('along')
+      await waitFor(() => expect(h.api.lessons.get).toHaveBeenCalledTimes(2))
+      expect(await screen.findByText(/Flow finished · 1 sentences · 1 skipped/)).toBeInTheDocument()
+      expect(screen.getAllByRole('button', { name: '▶ ref+you' })).toHaveLength(1)
+      expect(usePractice.getState().storedTakes[11]).toBeUndefined()
+      expect(usePractice.getState().storedTakes[12]).toMatchObject({ id: 99 })
+      expect(usePractice.getState().lesson!.segments.map((s) => s.attempts)).toEqual([0, 1])
+    })
+
     it('stopping midway submits the finished sentences, each to its own sentence, and drops the unfinished one', async () => {
       clipsTake(2, (n) => n === 2)
       h.rec.stop.mockReturnValue(new Float32Array(44100 * 10))
@@ -771,10 +858,13 @@ describe('<Practice>', () => {
     })
 
     const storedRun: FlowRun = { started_at: '2026-10-07T09:00:00Z', ended_at: '2026-10-07T09:01:00Z', session_id: 3,
-      items: [{ segment_id: 11, idx: 0, attempt_id: 50 }, { segment_id: 12, idx: 1, attempt_id: 51 }] }
+      items: [{ segment_id: 11, idx: 0, attempt_id: 50, duration_s: 2 }, { segment_id: 12, idx: 1, attempt_id: 51, duration_s: 2 }] }
 
     it("entering Flow lists the last run; replay plays each sentence's original then its take, and any key stops it", async () => {
       h.api.lessons.flowRuns.mockResolvedValue([storedRun])
+      // Take 51's voice is at 0.5..1.5 s; take 50 has none to go by and plays whole.
+      const p51 = Float32Array.from({ length: 400 }, (_, i) => (i >= 100 && i < 300 ? 0.4 : 0))
+      h.player.peaksFor.mockImplementation((url: string) => Promise.resolve(url === '/att/51.wav' ? p51 : new Float32Array(400)))
       let signal: AbortSignal | undefined
       h.playSequence.mockImplementation(((_p: unknown, _items: unknown, _gap: unknown, s: AbortSignal) => { signal = s; return new Promise(() => {}) }) as unknown as () => Promise<void>)
       renderPractice()
@@ -783,9 +873,10 @@ describe('<Practice>', () => {
       await enterFlow()
       expect(await screen.findByTestId('last-run')).toHaveTextContent('Last run')
       expect(h.api.lessons.flowRuns).toHaveBeenCalledWith(1)
-      fireEvent.click(screen.getByRole('button', { name: '▶ replay' }))
+      fireEvent.click(screen.getByRole('button', { name: '▶ replay' })); await flush()
       const [, items] = h.playSequence.mock.calls.at(-1) as unknown as [unknown, { url: string; rate: number }[]]
-      expect(items).toEqual([{ url: '/seg/11.opus', rate: 1 }, { url: '/att/50.wav', rate: 1 }, { url: '/seg/12.opus', rate: 1 }, { url: '/att/51.wav', rate: 1 }])
+      const b = speechBounds(p51, 2)!
+      expect(items).toEqual([{ url: '/seg/11.opus', rate: 1 }, { url: '/att/50.wav', rate: 1 }, { url: '/seg/12.opus', rate: 1 }, { url: '/att/51.wav', rate: 1, from: b.from, to: b.to }])
       expect(signal!.aborted).toBe(false)
       press(' '); await flush()
       expect(signal!.aborted).toBe(true)

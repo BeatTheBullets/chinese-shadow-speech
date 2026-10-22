@@ -12,8 +12,9 @@ const h = vi.hoisted(() => ({
   rec: { start: vi.fn(), stop: vi.fn(), sampleRate: 44100 },
   toWav16k: vi.fn(() => new Blob(['wav'])),
   playSequence: vi.fn(() => Promise.resolve()),
+  takePeaks: new Float32Array(4), // what peaks() returns for a fresh take's You waveform
   player: { play: vi.fn(() => Promise.resolve()), playRange: vi.fn(() => Promise.resolve()), stop: vi.fn(), setVolume: vi.fn(), preload: vi.fn(() => Promise.resolve()), peaksFor: vi.fn(() => new Promise(() => {})) },
-  twoTrack: null as null | { highlight?: number[]; score?: unknown; segment: { id: number } },
+  twoTrack: null as null | { highlight?: number[]; score?: unknown; segment: { id: number }; youPeaks?: Float32Array | null },
 }))
 vi.mock('../api/client', async (importOriginal) => ({ ...(await importOriginal<typeof import('../api/client')>()), api: { drill: h.drill, segments: h.segments } }))
 vi.mock('../audio/recorder', () => ({
@@ -30,11 +31,12 @@ vi.mock('../audio/recorder', () => ({
 vi.mock('../audio/player', () => ({
   ClipPlayer: class { constructor() { return h.player } },
   playSequence: h.playSequence,
-  peaks: () => new Float32Array(4),
+  peaks: () => h.takePeaks,
 }))
 vi.mock('../components/TwoTrack', () => ({
   default: (p: NonNullable<typeof h.twoTrack>) => { h.twoTrack = p; return <div data-testid="two-track" /> },
 }))
+import { speechBounds } from '../lib/speech'
 import Drill from './Drill'
 
 const focus = (kind: DrillFocus['kind'], key: string, label: string, mean: number, n: number): DrillFocus => ({ kind, key, label, mean, n })
@@ -86,6 +88,7 @@ beforeEach(() => {
   h.rec.stop.mockReturnValue(new Float32Array(44100))
   h.player.play.mockImplementation(() => Promise.resolve())
   h.playSequence.mockImplementation(() => Promise.resolve())
+  h.takePeaks = new Float32Array(4)
   h.twoTrack = null
   useSettings.setState({ referenceVolume: 1, guideLevel: 0.5, practice: { ...useSettings.getState().practice, hideTextWhileRecording: true } })
   globalThis.AudioContext = class { sampleRate = 44100; close = () => Promise.resolve(); get currentTime() { return 0 } } as unknown as typeof AudioContext
@@ -232,6 +235,52 @@ describe('<Drill> runner', () => {
     expect(await screen.findByRole('button', { name: 'Next' })).toBeInTheDocument()
     expect(screen.getByText('Try 1 / 3')).toBeInTheDocument()
     expect(screen.queryByText(QUIET)).not.toBeInTheDocument()
+  })
+
+  const dropped = { id: null, dropped: true, score_json: gated }
+
+  it('a dropped take shows the warning, costs no try, and leaves no take to show or replay', async () => {
+    h.segments.postAttempt.mockResolvedValueOnce(dropped).mockResolvedValueOnce({ id: 99, score_json: green })
+    await startRun()
+    await take()
+    expect(await screen.findByText(QUIET)).toBeInTheDocument()
+    expect(screen.getByText('Try 1 / 3')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Again' })).toBeInTheDocument()
+    expect(h.twoTrack?.youPeaks).toBeNull()
+    expect(screen.getByRole('button', { name: '▶ R' })).toBeDisabled()
+    h.player.play.mockClear()
+    press('r'); await flush()
+    expect(h.player.play).not.toHaveBeenCalled()
+    expect(h.player.playRange).not.toHaveBeenCalled()
+    await take()
+    expect(await screen.findByRole('button', { name: 'Next' })).toBeInTheDocument()
+    expect(screen.getByText('Try 1 / 3')).toBeInTheDocument()
+  })
+
+  it('a take dropped while the reference plays back stops that playback', async () => {
+    let answer!: (a: typeof dropped) => void
+    h.segments.postAttempt.mockReturnValueOnce(new Promise((r) => { answer = r }))
+    let signal: AbortSignal | undefined
+    h.playSequence.mockImplementation(((_p: unknown, _items: unknown, _gap: unknown, s: AbortSignal) => { signal = s; return new Promise(() => {}) }) as unknown as () => Promise<void>)
+    await startRun()
+    await take()
+    expect(signal!.aborted).toBe(false)
+    await act(async () => { answer(dropped) }); await flush()
+    expect(signal!.aborted).toBe(true)
+    expect(await screen.findByText(QUIET)).toBeInTheDocument()
+  })
+
+  it('plays your take back from where your voice starts, after recording and on R', async () => {
+    h.takePeaks = Float32Array.from({ length: 100 }, (_, b) => (b >= 20 && b <= 60 ? 0.5 : 0.001))
+    const b = speechBounds(h.takePeaks, 1)!
+    await startRun()
+    await take()
+    const [, items] = h.playSequence.mock.calls[0] as unknown as [unknown, { url: string; from?: number; to?: number }[]]
+    expect(items[1]).toMatchObject({ url: 'blob:take', from: b.from, to: b.to })
+    await screen.findByRole('button', { name: 'Next' })
+    press('r')
+    expect(h.player.playRange).toHaveBeenLastCalledWith('blob:take', 1, b.from, b.to, expect.any(Function))
+    expect(h.twoTrack?.youPeaks).toBe(h.takePeaks)
   })
 
   it('outlines the target syllables of the current sentence', async () => {

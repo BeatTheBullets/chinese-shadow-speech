@@ -11,6 +11,7 @@ import { MIN_TAKE_S } from '../lib/echo'
 import { clipSpans, stageWipe } from '../lib/karaoke'
 import { actionForKey, type Action } from '../lib/keys'
 import { applyAttempt, noticeText, warningText } from '../lib/score'
+import { speechBounds } from '../lib/speech'
 import { clamp01, playbackVolume } from '../lib/volume'
 import { defaultTextPrefs, useSettings } from '../store/settings'
 import CueLine, { WithMicLevel } from './CueLine'
@@ -173,28 +174,37 @@ export default function DrillRunner({ session, onFinish }: { session: DrillSessi
     const i = stRef.current.i, it = session.items[i]
     const wav = toWav16k(got.samples, got.rec.sampleRate)
     const url = URL.createObjectURL(wav)
-    setTake({ url, duration, peaks: peaksOf(got.samples, 400) }); setHint('')
+    const peaks = peaksOf(got.samples, 400)
+    setTake({ url, duration, peaks }); setHint('')
     const mine = ++takeNo.current
     setUploading(mine)
+    const ctrl = new AbortController()
     // The take counts once scored: a gate warning costs no try. A failed upload (e.g. 409 while the lesson rebuilds)
-    // leaves the run at record with the take still playable.
+    // leaves the run at record with the take still playable. A dropped take (the gates rejected it and the server
+    // kept nothing) is a gated one with no take left: its playback stops, it is no attempt and has nothing to replay.
     const upload = api.segments.postAttempt(it.segment.id, wav, { mode: 'drill', drill_session_id: session.id })
       .then((a) => {
         if (!alive.current || finished.current || stRef.current.i !== i) return
         const sc = a.score_json
-        if (takeRef.current?.url === url) setTake({ ...takeRef.current, score: sc })
-        setSegs((ss) => ss.map((s) => (s.id === it.segment.id ? applyAttempt(s, sc?.overall) : s)))
+        if (a.dropped || a.id == null) {
+          if (seqCtrl.current === ctrl) stopPlayback()
+          if (takeRef.current?.url === url) setTake(null)
+        } else {
+          if (takeRef.current?.url === url) setTake({ ...takeRef.current, score: sc })
+          setSegs((ss) => ss.map((s) => (s.id === it.segment.id ? applyAttempt(s, sc?.overall) : s)))
+        }
         setHint(warningText(sc) ?? noticeText(sc) ?? '')
         setSt(scored(stRef.current, { gated: sc?.overall == null, allGreen: targetsGreen(sc, it.targets, session.kind) }, maxTries))
       })
       .catch((e) => { if (alive.current && stRef.current.i === i) setError(`Upload failed: ${readable(e)}`) })
       .finally(() => { inflight.current.delete(upload); if (alive.current && uploadRef.current === mine) setUploading(0) })
     inflight.current.add(upload)
-    const ctrl = new AbortController()
     seqCtrl.current = ctrl
     setPlayback(true)
     try {
-      await playSequence(player, [{ url: api.segments.audioUrl(it.segment.id), rate: 1, onTime: setRefHead }, { url, rate: 1, onTime: setYouHead }], 250, ctrl.signal)
+      // The take plays from its voice to its end (Task 14); the You track still shows all of it.
+      const voice = speechBounds(peaks, duration) ?? {}
+      await playSequence(player, [{ url: api.segments.audioUrl(it.segment.id), rate: 1, onTime: setRefHead }, { url, rate: 1, onTime: setYouHead, ...voice }], 250, ctrl.signal)
     } catch (e) {
       if (!ctrl.signal.aborted) setError(`Playback failed: ${message(e)}`)
     } finally {
@@ -211,7 +221,11 @@ export default function DrillRunner({ session, onFinish }: { session: DrillSessi
     p.catch((e) => setError(`Could not play: ${message(e)}`))
   }
   const playRef = () => { const s = segRef.current; if (s) playSolo(api.segments.audioUrl(s.id), setRefHead) }
-  const replayYou = () => { const t = takeRef.current; if (t) playSolo(t.url, setYouHead) }
+  // The take from its voice to its end; with no clear voice in its waveform, all of it.
+  const replayYou = () => {
+    const t = takeRef.current, voice = t && speechBounds(t.peaks, t.duration)
+    if (t) playSolo(t.url, setYouHead, voice?.from, voice?.to)
+  }
   // One syllable of the user's take (usr_contour spans are already on the raw take's timeline).
   function playYouSyllable(cell: number) {
     const t = takeRef.current, span = t?.score?.usr_contour?.spans[cell]

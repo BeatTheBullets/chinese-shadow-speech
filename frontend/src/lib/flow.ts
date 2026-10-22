@@ -1,7 +1,8 @@
 export type FlowSub = 'after' | 'along'
 export interface ActualPlay { segmentId: number; idx: number; playStart: number; playEnd?: number; refDuration: number }
 export interface SliceRange { segmentId: number; idx: number; t0: number; t1: number }
-export interface FlowResult { segmentId: number; idx: number; attemptId: number | null; url: string; duration: number }
+// `voice`: where the take's voice is (speechBounds of its waveform), what its replay plays; null: all of it.
+export interface FlowResult { segmentId: number; idx: number; attemptId: number | null; url: string; duration: number; voice?: { from: number; to: number } | null }
 const r3 = (x: number) => Math.round(x * 1000) / 1000
 export const gapAfter = (refDuration: number, gapFactor: number) => refDuration * gapFactor
 // Recording-clock windows to cut from a continuous Flow recording, one per sentence whose clip finished playing.

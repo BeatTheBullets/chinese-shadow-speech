@@ -52,12 +52,12 @@ def test_gated_take_has_no_rows_and_null_overall(client, tmp_path):
         assert db.exec(select(SyllableScore)).all() == [] and db.exec(select(VoiceProfile)).all() == []
 
 
-def test_null_overall_is_skipped_by_lessons_and_stats(client, tmp_path):
+def test_null_overall_is_skipped_by_lessons_and_stats(client, tmp_path, monkeypatch):
+    import shadow.scoring as scoring
     lid, seg = _first_segment(client, tmp_path)
     good = _post(client, make_tone_wav(tmp_path / "t.wav", 2.6), seg["id"]).json()["score_json"]["overall"]
-    silent = tmp_path / "s.wav"
-    sf.write(silent, np.zeros(16000 * 2, dtype="float32"), 16000)
-    _post(client, silent, seg["id"])
+    monkeypatch.setattr(scoring, "score_take", lambda **kw: 1 / 0)   # unscored but kept (a gated take is dropped)
+    assert _post(client, make_tone_wav(tmp_path / "t.wav", 2.6), seg["id"]).status_code == 201
     out = client.get(f"/lessons/{lid}").json()["segments"][0]
     assert (out["last_score"], out["best_score"], out["attempts"]) == (good, good, 2)
     assert client.get("/stats/sentences").status_code == 200
@@ -124,17 +124,16 @@ def test_a_failing_score_write_still_saves_the_take(client, tmp_path, monkeypatc
         assert db.exec(select(SyllableScore)).all() == [] and db.exec(select(VoiceProfile)).all() == []
 
 
-def test_a_take_of_other_words_is_saved_but_not_scored(client, tmp_path):
+def test_a_take_of_other_words_is_dropped_and_not_scored(client, tmp_path):
     from shadow.ingest.asr import FakeHearer
     client.app.state.deps.hearer = FakeHearer("我是学生。")
     lid, seg = _first_segment(client, tmp_path)
     r = _post(client, make_tone_wav(tmp_path / "t.wav", 2.6), seg["id"])
-    assert r.status_code == 201
+    assert r.status_code == 200 and r.json()["dropped"] is True
     sj = r.json()["score_json"]
     assert sj["warnings"] == ["different_words"] and sj["overall"] is None and sj["heard_text"] == "我是学生。"
-    assert client.get(f"/attempts/{r.json()['id']}/audio").status_code == 200
     with Session(client.app.state.engine) as db:
-        assert db.exec(select(SyllableScore)).all() == []
+        assert db.exec(select(SyllableScore)).all() == [] and db.exec(select(Attempt)).all() == []
 
 
 def test_a_take_during_an_import_is_scored_without_the_words_check(client, tmp_path, monkeypatch, caplog):

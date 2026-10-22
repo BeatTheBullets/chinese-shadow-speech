@@ -285,6 +285,19 @@ describe('ClipPlayer', () => {
     clearSpy.mockRestore()
   })
 
+  it('a sequence item with from/to plays that range of its clip', async () => {
+    const range = vi.spyOn(player, 'playRange').mockResolvedValue()
+    const play = vi.spyOn(player, 'play').mockResolvedValue()
+    const onTime = vi.fn()
+    vi.useFakeTimers()
+    const seq = playSequence(player, [{ url: 'ref.mp3', rate: 0.75 }, { url: 'you.wav', rate: 1, from: 0.4, to: 1.3, onTime }], 100)
+    await vi.advanceTimersByTimeAsync(300)
+    await seq
+    expect(play).toHaveBeenCalledTimes(1)
+    expect(play).toHaveBeenCalledWith('ref.mp3', 0.75, undefined)
+    expect(range).toHaveBeenCalledWith('you.wav', 1, 0.4, 1.3, onTime)
+  })
+
   describe('playRange', () => {
     const flushRaf = () => { for (const item of rafQueue.splice(0)) item.callback(0) }
     const pauseMock = () => HTMLMediaElement.prototype.pause as ReturnType<typeof vi.fn>

@@ -116,10 +116,15 @@ export class ClipPlayer {
   }
 }
 
-export async function playSequence(player: ClipPlayer, items: { url: string; rate: number; onTime?: (t: number) => void }[], gapMs = 250, signal?: AbortSignal) {
+// One clip of a sequence; with `from`/`to` (clip seconds) only that range plays, e.g. a take without its silences.
+export interface SequenceItem { url: string; rate: number; onTime?: (t: number) => void; from?: number; to?: number }
+
+export async function playSequence(player: ClipPlayer, items: SequenceItem[], gapMs = 250, signal?: AbortSignal) {
   for (const it of items) {
     if (signal?.aborted) { player.stop(); return }
-    const playPromise = player.play(it.url, it.rate, it.onTime)
+    const playPromise = it.from != null || it.to != null
+      ? player.playRange(it.url, it.rate, it.from ?? 0, it.to ?? Infinity, it.onTime)
+      : player.play(it.url, it.rate, it.onTime)
     const abortHandler = () => { player.stop() }
     const removeAbortHandler = () => { if (signal) signal.removeEventListener('abort', abortHandler) }
     try {

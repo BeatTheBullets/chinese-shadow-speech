@@ -62,13 +62,14 @@ class LessonDetail(LessonOut):
 
 
 class AttemptOut(BaseModel):
-    id: int
+    id: int | None                  # None when dropped: a take the gates rejected is not stored
     segment_id: int
     session_id: int | None
     created_at: datetime
     mode: str
     duration_s: float
     score_json: dict[str, Any] | None
+    dropped: bool = False
 
 
 class SessionOut(BaseModel):
@@ -97,6 +98,7 @@ class FlowRunItem(BaseModel):
     segment_id: int
     idx: int
     attempt_id: int
+    duration_s: float
 
 
 class FlowRunOut(BaseModel):

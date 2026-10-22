@@ -117,6 +117,7 @@ def test_flow_runs_only_count_flow_attempts(client, tmp_path):
     runs = _runs(client, lid)
     assert [[(i["segment_id"], i["idx"], i["attempt_id"]) for i in r["items"]] for r in runs] == [[(s1, 1, flow)]]
     assert runs[0]["session_id"] == sess
+    assert runs[0]["items"][0]["duration_s"] == 1.5         # the replay trims each take's silence from its waveform
 
 
 def test_flow_run_items_in_sentence_order_with_the_latest_take_of_a_repeated_sentence(client, tmp_path):

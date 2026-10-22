@@ -31,10 +31,11 @@ export interface Score {
   sounds_checked?: number | null  // syllables the sound check covered (absent in older score JSON)
   notices?: string[]          // a scored take's remarks, e.g. 'words_differ' (absent in older score JSON)
 }
-export interface Attempt { id: number; segment_id: number; session_id: number | null; created_at: string; mode: string; duration_s: number; score_json: Score | null }
+// `dropped`: the recording gates rejected the take, so the server kept nothing (id null); score_json says why.
+export interface Attempt { id: number | null; segment_id: number; session_id: number | null; created_at: string; mode: string; duration_s: number; score_json: Score | null; dropped?: boolean }
 // A sentence's newest stored attempt (GET /lessons/{id}/takes), and a past Flow run's takes in sentence order.
 export interface Take { segment_id: number; attempt_id: number; mode: string; created_at: string; duration_s: number; score_json?: Score | null }
-export interface FlowRun { started_at: string; ended_at: string; session_id: number | null; items: { segment_id: number; idx: number; attempt_id: number }[] }
+export interface FlowRun { started_at: string; ended_at: string; session_id: number | null; items: { segment_id: number; idx: number; attempt_id: number; duration_s: number }[] }
 export interface PracticeSession { id: number; lesson_id: number; mode: string; started_at: string; ended_at: string | null; attempts_count: number }
 export interface Job { id: string; stage: string; fraction: number; status: 'queued' | 'running' | 'done' | 'error'; error: string | null; lesson_id: number | null }
 export type Mode = 'echo' | 'chorus' | 'flow' | 'guided' | 'drill'

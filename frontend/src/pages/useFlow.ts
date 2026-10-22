@@ -3,13 +3,14 @@ import { api, ApiError } from '../api/client'
 import type { Segment } from '../api/types'
 import { sleep } from '../audio/abortable'
 import { sliceSamples } from '../audio/pcm'
-import type { ClipPlayer } from '../audio/player'
+import { peaks as peaksOf, type ClipPlayer } from '../audio/player'
 import { toWav16k } from '../audio/recorder'
 import type { Mic } from '../audio/useMic'
 import { MIN_TAKE_S } from '../lib/echo'
 import { sliceRangesFromActual, type FlowResult, type FlowSub } from '../lib/flow'
 import { playFlow, type FlowClip } from '../lib/flowRun'
 import { applyAttempt } from '../lib/score'
+import { speechBounds } from '../lib/speech'
 import { usePractice } from '../store/practice'
 import { useSettings } from '../store/settings'
 
@@ -90,7 +91,8 @@ export function useFlow(deps: FlowDeps) {
     const takes = ranges.map((rg) => ({ rg, samples: sliceSamples(got.samples, got.rec.startTime, sr, rg.t0, rg.t1) }))
       .filter((t) => t.samples.length / sr >= MIN_TAKE_S)
       .map((t) => ({ ...t, wav: toWav16k(t.samples, sr) }))
-    const results: FlowResult[] = takes.map((t) => ({ segmentId: t.rg.segmentId, idx: t.rg.idx, attemptId: null, url: URL.createObjectURL(t.wav), duration: t.samples.length / sr }))
+    const results: FlowResult[] = takes.map((t) => ({ segmentId: t.rg.segmentId, idx: t.rg.idx, attemptId: null, url: URL.createObjectURL(t.wav), duration: t.samples.length / sr,
+      voice: speechBounds(peaksOf(t.samples, 400), t.samples.length / sr) }))
     urls.current = results.map((x) => x.url)
     results.forEach((x) => sliced.current.add(x.segmentId))
     done(results.map((x) => x.segmentId))
@@ -100,19 +102,25 @@ export function useFlow(deps: FlowDeps) {
     const mine = (f: () => void) => { if (token.current === my) f() }
     const session_id = usePractice.getState().sessionId ?? undefined
     for (const t of takes) {
-      let attemptId: number | null = null
+      let attemptId: number | null = null, dropped = false
       try {
         const a = await api.segments.postAttempt(t.rg.segmentId, t.wav, { session_id, mode: 'flow' })
-        attemptId = a.id
-        const ps = usePractice.getState()
-        ps.markPractised(t.rg.segmentId)
-        ps.recordTake(t.rg.segmentId, { id: attemptId, url: api.attempts.audioUrl(attemptId), duration: t.samples.length / sr, score: a.score_json })
-        const now = ps.lesson?.segments.find((x) => x.id === t.rg.segmentId)
-        if (now) ps.updateSegment(applyAttempt(now, a.score_json?.overall))
+        // The gates rejected the slice and the server kept nothing: the sentence has no take in this run.
+        if (a.dropped || a.id == null) dropped = true
+        else {
+          attemptId = a.id
+          const ps = usePractice.getState()
+          ps.markPractised(t.rg.segmentId)
+          ps.recordTake(t.rg.segmentId, { id: attemptId, url: api.attempts.audioUrl(attemptId), duration: t.samples.length / sr, score: a.score_json })
+          const now = ps.lesson?.segments.find((x) => x.id === t.rg.segmentId)
+          if (now) ps.updateSegment(applyAttempt(now, a.score_json?.overall))
+        }
       }
       catch (e) { mine(() => setError(`Upload failed: ${readable(e)}`)) }
       mine(() => setState((f) => {
         const pending = new Set(f.pending); pending.delete(t.rg.segmentId)
+        // A dropped slice leaves the summary and counts as skipped (its blob: URL is freed with the others on clear).
+        if (dropped) return { ...f, pending, results: f.results.filter((x) => x.segmentId !== t.rg.segmentId), skipped: f.skipped + 1 }
         return { ...f, pending, results: f.results.map((x) => (x.segmentId === t.rg.segmentId ? { ...x, attemptId } : x)) }
       }))
     }

@@ -78,7 +78,7 @@ describe('<FlowSetup>', () => {
   afterEach(cleanup)
   const at = (d: number, h: number, m: number) => new Date(2026, 9, d, h, m).toISOString()
   const run = (d: number, h: number, m: number, n: number): FlowRun => ({
-    started_at: at(d, h, m), ended_at: at(d, h, m + 1), session_id: 1, items: Array.from({ length: n }, (_, k) => ({ segment_id: k + 1, idx: k, attempt_id: 100 + k })),
+    started_at: at(d, h, m), ended_at: at(d, h, m + 1), session_id: 1, items: Array.from({ length: n }, (_, k) => ({ segment_id: k + 1, idx: k, attempt_id: 100 + k, duration_s: 2 })),
   })
   const setup = (runs: FlowRun[], onReplay = vi.fn()) => {
     render(<FlowSetup segments={base.segments} from={0} to={2} sub="after" onChange={() => {}} onStart={() => {}} runs={runs} onReplay={onReplay} />)
