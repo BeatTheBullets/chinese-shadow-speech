@@ -445,7 +445,7 @@ git commit -m "feat: pause splitting by default; laptop budget met with int8 on 
 
 | Item | Result |
 |---|---|
-| Baseline budget run (Task 1) | |
+| Baseline budget run (Task 1) | `--device cpu --threads 4`, hard cap 5000 MB: startup peaked 738 MB (models load lazily); killed with exit 137 (SIGKILL, OOM) in the build phase while the job loaded the ASR and punctuation models. The hard-cap sampler did not fire first (RSS probably jumped past the cap between samples, or the sampler thread was starved by native model loading). Build, practice and build+practice not reached. |
 | Gate videos and verdict (Task 4) | |
 | User's go on pause splitting | |
 | int8: alignment / words / CER + gate / sounds / tone (Task 6) | |
