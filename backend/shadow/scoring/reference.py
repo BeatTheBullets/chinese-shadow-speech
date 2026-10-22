@@ -15,8 +15,11 @@ def segment_syllables(seg: Segment) -> list[dict]:
 
 
 def sound_ref_key(seg: Segment, syllables: list[dict]) -> str:
-    """The sound detector caches the reference's side by this key."""
-    return f"{seg.clip_wav_path}|{seg.text}|" + " ".join(s["pinyin_toneless"] for s in syllables)
+    """The sound detector caches the reference's side by this key. The clip's mtime is in it (0 when missing): a
+    rebuild re-cuts the clip at the same path, and must not reuse the old clip's reference GOPs."""
+    clip = Path(seg.clip_wav_path) if seg.clip_wav_path else None
+    mtime = clip.stat().st_mtime_ns if clip is not None and clip.exists() else 0
+    return f"{seg.clip_wav_path}|{seg.text}|" + " ".join(s["pinyin_toneless"] for s in syllables) + f"|{mtime}"
 
 
 def reference_spans(seg: Segment) -> list[tuple[float, float]]:

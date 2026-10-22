@@ -183,3 +183,19 @@ def test_charctc_column_covers_the_inventory_without_loading():
     assert m.column(inv[0]) == 1 and m.column(inv[-1]) == len(inv)
     assert m.column("xyz") is None
     assert m._model is None
+
+
+def test_sound_ref_key_changes_when_the_clip_is_rebuilt(tmp_path):
+    # a rebuilt clip at the same path must not reuse the cached reference GOPs of the old one
+    import os
+    from shadow.scoring.reference import sound_ref_key
+    from shadow.store.models import Segment
+    clip = tmp_path / "c.wav"
+    seg = Segment(lesson_id=1, idx=0, start_s=0, end_s=1, text="吃", clip_wav_path=str(clip))
+    syls = [{"pinyin_toneless": "chi"}]
+    assert sound_ref_key(seg, syls) == f"{clip}|吃|chi|0"                  # missing clip: 0
+    clip.write_bytes(b"x"); os.utime(clip, ns=(1, 1_000))
+    first = sound_ref_key(seg, syls)
+    assert first == f"{clip}|吃|chi|1000"
+    os.utime(clip, ns=(1, 2_000))
+    assert sound_ref_key(seg, syls) != first
