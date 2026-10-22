@@ -102,8 +102,10 @@ class ParaformerASR:
     def _load(self):
         if self._model is None:
             from funasr import AutoModel
-            self._model = AutoModel(model=self.model_id, vad_model="fsmn-vad", punc_model="ct-punc",
-                                    device=self.device, disable_update=True)
+            from shadow.hf import model_load_lock
+            with model_load_lock:
+                self._model = AutoModel(model=self.model_id, vad_model="fsmn-vad", punc_model="ct-punc",
+                                        device=self.device, disable_update=True)
         return self._model
 
     def warm_up(self) -> threading.Thread:

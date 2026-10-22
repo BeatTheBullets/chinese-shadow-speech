@@ -50,11 +50,13 @@ class CharCtc:
 
     def _load(self):
         if self._model is None:
-            from transformers import Wav2Vec2CTCTokenizer, Wav2Vec2ForCTC
+            from shadow.hf import model_load_lock, wav2vec2_classes
             import torch
             from .contrasts import inventory
-            model = Wav2Vec2ForCTC.from_pretrained(self.name, revision=self.revision, low_cpu_mem_usage=True)
-            vocab = Wav2Vec2CTCTokenizer.from_pretrained(self.name, revision=self.revision).get_vocab()
+            _, Wav2Vec2ForCTC, Wav2Vec2CTCTokenizer = wav2vec2_classes()
+            with model_load_lock:
+                model = Wav2Vec2ForCTC.from_pretrained(self.name, revision=self.revision, low_cpu_mem_usage=True)
+                vocab = Wav2Vec2CTCTokenizer.from_pretrained(self.name, revision=self.revision).get_vocab()
             syls = sorted(inventory())
             M = group_matrix(vocab, model.config.vocab_size, model.config.pad_token_id, syls)
             self._sid = {s: i + 1 for i, s in enumerate(syls) if M[:, i + 1].sum() > 0}

@@ -99,10 +99,12 @@ class MmsAligner:
     def _load(self):
         if self._model is None:
             import torchaudio
-            self._bundle = torchaudio.pipelines.MMS_FA
-            self._model = self._bundle.get_model(with_star=False).to(self.device).eval()
-            self._tok = self._bundle.get_tokenizer()
-            self._al = self._bundle.get_aligner()
+            from shadow.hf import model_load_lock
+            with model_load_lock:
+                self._bundle = torchaudio.pipelines.MMS_FA
+                self._model = self._bundle.get_model(with_star=False).to(self.device).eval()
+                self._tok = self._bundle.get_tokenizer()
+                self._al = self._bundle.get_aligner()
         return self._model
 
     def emissions(self, wav: np.ndarray, sr: int):
@@ -146,9 +148,11 @@ class Qwen3Aligner:
         if self._model is None:
             import torch
             from qwen_asr import Qwen3ForcedAligner
-            self._model = Qwen3ForcedAligner.from_pretrained(
-                "Qwen/Qwen3-ForcedAligner-0.6B", dtype=torch.bfloat16,
-                device_map=self._device_map())
+            from shadow.hf import model_load_lock
+            with model_load_lock:
+                self._model = Qwen3ForcedAligner.from_pretrained(
+                    "Qwen/Qwen3-ForcedAligner-0.6B", dtype=torch.bfloat16,
+                    device_map=self._device_map())
         return self._model
 
     def align(self, wav: np.ndarray, sr: int, text: str) -> list[Span]:

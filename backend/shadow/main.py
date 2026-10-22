@@ -1,6 +1,7 @@
 import logging
 import os
 import threading
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI
@@ -10,9 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from shadow.config import Settings, load_settings
 from shadow.deps import Deps, build_deps
 from shadow.jobs import JobManager
-from shadow.ingest.asr import ParaformerASR
 from shadow.ingest.rebuild import recover_rebuild
-from shadow.scoring.embed import Wav2Vec2Embedder
 from shadow.scoring.sounds.charctc import CharCtc
 from sqlalchemy import Engine
 from sqlmodel import Session, select
@@ -33,6 +32,34 @@ def watch_sounds_warm_up(deps: Deps, warm: threading.Thread) -> None:
         deps.sounds = None
 
 
+def warm_up_steps(deps: Deps, device: str) -> list[Callable[[], threading.Thread]]:
+    """The warm-ups to run at startup, in order. Fakes have no `warm_up`, so tests never download. On the CPU only
+    the recogniser warms (every take's words check and every ingest need it); the tone embedder and the sound model
+    load on the first take, which keeps a small laptop's startup memory low."""
+    steps: list[Callable[[], threading.Thread]] = []
+    objs = [deps.asr]
+    if device != "cpu":
+        objs += [deps.embedder, getattr(deps.sounds, "chars", None)]
+    for obj in objs:
+        warm = getattr(obj, "warm_up", None)
+        if callable(warm):
+            steps.append(warm)
+    return steps
+
+
+def start_warm_ups(deps: Deps, device: str) -> threading.Thread:
+    """Run the warm-ups one after another in one daemon thread (each step's thread is joined before the next starts):
+    concurrent first imports of transformers, and concurrent model builds, fail intermittently."""
+    steps = warm_up_steps(deps, device)
+
+    def run():
+        for step in steps:
+            step().join()
+    t = threading.Thread(target=run, name="warm-ups", daemon=True)
+    t.start()
+    return t
+
+
 def create_app(settings: Settings | None = None, deps: Deps | None = None) -> FastAPI:
     settings = settings or load_settings()
 
@@ -40,13 +67,10 @@ def create_app(settings: Settings | None = None, deps: Deps | None = None) -> Fa
     async def lifespan(app: FastAPI):
         recover_interrupted(app.state.engine, app.state.deps)
         app.state.jobs.start()
-        if isinstance(app.state.deps.embedder, Wav2Vec2Embedder):     # real deps only: tests never download
-            app.state.deps.embedder.warm_up()
-        if isinstance(app.state.deps.asr, ParaformerASR):          # the words check of every take uses it
-            app.state.deps.asr.warm_up()
+        device = settings.resolved_device()
+        warm = start_warm_ups(app.state.deps, device)
         sounds = app.state.deps.sounds
-        if isinstance(getattr(sounds, "chars", None), CharCtc):          # real deps only
-            warm = sounds.chars.warm_up()
+        if device != "cpu" and isinstance(getattr(sounds, "chars", None), CharCtc):          # real deps only
             threading.Thread(target=watch_sounds_warm_up, args=(app.state.deps, warm), name="charctc-warm-up-watch",
                              daemon=True).start()
         yield
