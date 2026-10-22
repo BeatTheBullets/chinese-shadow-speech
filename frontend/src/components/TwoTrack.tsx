@@ -51,8 +51,8 @@ export default function TwoTrack(p: Props) {
           <span className="flex items-center gap-2">{p.scoreHeader}<button onClick={p.onPlayYou} disabled={!p.youDuration}>▶ R</button></span></div>
         {p.youDuration ? (
           <div className="relative inline-block">
-            <Waveform peaks={p.youPeaks} duration={p.youDuration} pxPerSec={pxPerSec} playhead={p.youPlayhead} color={TOKENS.accent} />
-            {usrPts.length > 0 && <PitchLine series={[{ points: ghost, className: 'stroke-ref opacity-30' }, { points: usrPts, className: 'stroke-warn' }]} pxPerSec={pxPerSec} duration={p.youDuration} height={44} range={range} />}
+            <Waveform peaks={p.youPeaks} duration={p.youDuration} pxPerSec={pxPerSec} playhead={p.youPlayhead} color={TOKENS.you} />
+            {usrPts.length > 0 && <PitchLine series={[{ points: ghost, className: 'stroke-ref opacity-30' }, { points: usrPts, className: 'stroke-you' }]} pxPerSec={pxPerSec} duration={p.youDuration} height={44} range={range} />}
           </div>
         ) : <div className="h-11 text-center text-fgdim text-sm leading-[44px]">record to compare</div>}
         <CellRow cells={youCells} variant="you" onCellClick={p.onPlayYouSyllable} highlight={p.highlight} />
