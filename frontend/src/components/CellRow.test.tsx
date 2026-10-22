@@ -36,4 +36,13 @@ describe('<CellRow>', () => {
     expect(a).toHaveClass('ring-2', 'ring-sound'); expect(b).not.toHaveClass('ring-sound')
     b.click(); expect(calls).toEqual([1])
   })
+
+  it('gives a cell that is both highlighted and sound-marked only the purple ring', () => {
+    render(<CellRow variant="ref" highlight={[0, 1]} soundMarks={[0]} cells={[
+      { ch: '你', pinyin: 'nǐ', tone: 3 }, { ch: '好', pinyin: 'hǎo', tone: 3 },
+    ]} />)
+    const [a, b] = screen.getAllByRole('button')
+    expect(a).toHaveClass('ring-sound'); expect(a).not.toHaveClass('ring-accent')
+    expect(b).toHaveClass('ring-accent'); expect(b).not.toHaveClass('ring-sound')
+  })
 })

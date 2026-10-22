@@ -446,9 +446,10 @@ describe('<Practice>', () => {
     })
   })
 
-  it('clicking a You cell plays that span of the take', async () => {
-    const usr_contour = { t0_s: 0, step_ms: 10, f0_st: [], spans: [[0.1, 0.4], [0.4, 0.9]] }
-    const score = { overall: 0.8, tone_overall: 0.8, segmental_overall: null, rate_ratio: 1, ref_contour: null, usr_contour, syllables: [], warnings: [] }
+  it('clicking a You cell plays that span of the take; missing and unvoiced cells play nothing', async () => {
+    const usr_contour = { t0_s: 0, step_ms: 10, f0_st: [], spans: [[0.1, 0.4], [0.4, 0.9], [0.9, 0.91]] }
+    const syl = (status: string) => ({ ch: '你', pinyin: 'nǐ', tone: 3, target_tone: 3, heard_tone: 3, status, tone_score: 0.9, p_target: 0.9, contour: 0.9 })
+    const score = { overall: 0.8, tone_overall: 0.8, segmental_overall: null, rate_ratio: 1, ref_contour: null, usr_contour, syllables: [syl('ok'), syl('unvoiced'), syl('missing')], warnings: [] }
     h.api.segments.postAttempt.mockResolvedValue({ id: 99, score_json: score })
     renderPractice()
     await screen.findByText('你好', { selector: 'p.sentence' })
@@ -456,9 +457,13 @@ describe('<Practice>', () => {
     press('Enter'); await screen.findByRole('button', { name: '■ stop' }); await flush()
     press('Enter'); await flush()
     await waitFor(() => expect(h.twoTrack?.score).toEqual(score))
-    act(() => h.twoTrack!.onPlayYouSyllable!(1)); await flush()
     const url = currentTake(usePractice.getState())!.url
-    expect(h.player.playRange).toHaveBeenCalledWith(url, 1, 0.4, 0.9, expect.any(Function))
+    act(() => h.twoTrack!.onPlayYouSyllable!(0)); await flush()
+    expect(h.player.playRange).toHaveBeenCalledTimes(1)
+    expect(h.player.playRange).toHaveBeenCalledWith(url, 1, 0.1, 0.4, expect.any(Function))
+    act(() => h.twoTrack!.onPlayYouSyllable!(1)); await flush()
+    act(() => h.twoTrack!.onPlayYouSyllable!(2)); await flush()
+    expect(h.player.playRange).toHaveBeenCalledTimes(1)
   })
 
   it('ArrowRight moves to the next sentence and cancels playback', async () => {

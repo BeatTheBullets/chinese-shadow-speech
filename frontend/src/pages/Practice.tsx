@@ -422,7 +422,9 @@ export default function Practice() {
   // One syllable of the user's own take; usr_contour spans are already on the raw take's timeline (backend adds the trim offset).
   function playYouSyllable(cell: number) {
     const take = currentTake(usePractice.getState()), span = take?.score?.usr_contour?.spans[cell]
-    if (take && span) playSolo(() => player.playRange(take.url, 1, span[0], span[1], setYouHead))
+    // The backend gives every syllable a span, but a missing or unvoiced one has nothing of the user's to play.
+    const status = take?.score?.syllables[cell]?.status
+    if (take && span && status !== 'missing' && status !== 'unvoiced') playSolo(() => player.playRange(take.url, 1, span[0], span[1], setYouHead))
   }
   // Plays one syllable of the reference once (addendum §1.2); clicking again plays it again.
   // Alignment times are source-absolute, the clip starts at seg.start_s.

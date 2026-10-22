@@ -215,7 +215,9 @@ export default function DrillRunner({ session, onFinish }: { session: DrillSessi
   // One syllable of the user's take (usr_contour spans are already on the raw take's timeline).
   function playYouSyllable(cell: number) {
     const t = takeRef.current, span = t?.score?.usr_contour?.spans[cell]
-    if (t && span) playSolo(t.url, setYouHead, span[0], span[1])
+    // Every syllable has a span, but a missing or unvoiced one has nothing of the user's to play.
+    const status = t?.score?.syllables[cell]?.status
+    if (t && span && status !== 'missing' && status !== 'unvoiced') playSolo(t.url, setYouHead, span[0], span[1])
   }
   // One syllable of the reference (alignment times are source-absolute; the clip starts at start_s).
   function playSyllable(cell: number) {
