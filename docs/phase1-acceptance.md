@@ -1,3 +1,5 @@
+> Note: Chorus and Guided were removed on 2026-10-22; items that mention them are historical.
+
 # Phase 1 acceptance (manual, Brave on Windows, backend in WSL)
 
 Items 1-8 are the checks automated tests and reviewers could not run; do them first.

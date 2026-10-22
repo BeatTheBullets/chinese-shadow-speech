@@ -41,14 +41,14 @@ When a YouTube video has real Chinese subtitles, their text is used, with the ti
 recogniser. Machine-translated auto-captions are refused, and so are subtitles that don't match the audio. A plain
 `.txt` transcript works too.
 
-### Four practice modes
+### Two practice modes
 
 | Mode | What you do |
 |---|---|
 | **Echo** | One sentence at a time: listen, then repeat it on your own. You hear the original and your take back to back. |
-| **Chorus** | Speak at the same time as the sentence, several times in a row. The last pass is recorded. |
 | **Flow** | Shadow a whole passage without stopping. *After*: each sentence plays, then you repeat it in the pause. *Along*: speak at the same time as the audio (use headphones). |
-| **Guided** | Four steps per sentence: listen → whisper along with the text → say it with the text hidden → next. |
+
+Chorus and Guided were removed on 2026-10-22; old Chorus and Guided takes still show.
 
 The stage shows the sentence with pinyin and a translation. Below it, a **two-track feedback block** puts the
 reference and your take on the same time scale, with a cell per syllable. Click a cell to hear that syllable once.
@@ -67,7 +67,7 @@ neighbouring sentence that shares most of its words with the one shown can still
 ### It always tells you what to do
 
 - **Cue line:** above the sentence it always shows what to do now, in the track colours: 🎧 **Listen**,
-  🗣 **Your turn — speak now**, 🎤 **Speak along**, ✓ **Done**.
+  🗣 **Your turn** (red frame, red dot, timer and a live waveform), **Get ready** 3·2·1 (Flow only; in *along* it shows inside the Speak-along frame), 🎤 **Speak along**, ✓ **Done**.
 - **Mic level meter:** shows that your voice is being picked up.
 - **Karaoke cues:**
   - The sentence fills with colour in time with the speaker.
@@ -88,7 +88,7 @@ Hover over a mode tab for a one-line explanation, or press `?` for the full help
 - Every take is kept. When you reopen a lesson, **R** plays your latest take of the current sentence and
   **Space** plays the original.
 - In Flow mode the setup panel offers your **last runs**. **▶ replay** plays each sentence as original → you.
-- The **reference volume** is adjustable. While you speak along, in Chorus and Flow *along*, the reference drops to
+- The **reference volume** is adjustable. While you speak along, in Flow *along*, the reference drops to
   a quieter **guide level**, 50 % by default.
 
 ![Flow setup with the last run ready to replay](docs/screenshots/flow-setup.png)
@@ -170,7 +170,7 @@ Tune it in `config.toml` under `[drill]`: `window_days` 30, `min_rows` 8, `queue
 
 You can set:
 - the AnkiConnect address, import queries and the export note type;
-- practice preferences: hide the text while recording, chorus passes, the Flow pause length, the "move on" hint and the default speed;
+- practice preferences: hide the text while recording, the Flow pause length, the "move on" hint and the default speed;
 - the YouTube bookmarklet;
 - your **Voice profile**, the pitch baseline tones are normalised to, with a **Reset voice profile** button.
 
@@ -201,18 +201,26 @@ translate. Without an API key, sentences are split at punctuation and there are 
 
 ---
 
+## Look
+
+The app uses one dark, lacquer-style look on every page and dialog. Characters are set in a serif face, lesson tiles
+and the sentence card have window-frame corners, and the waveforms are rounded and filled in the speaker's and your
+colours. The control bar is `‹ n/N ›`, ▶ Listen, ● Record, Me, Anki and a Sound pop-up (speed, the 0.75× preset,
+speaker volume and guide level). ⚑ Difficult and 字/pīn/EN sit on the sentence card. In the Drill the bar is the same,
+with Anki hidden and Next in the accent colour. There is no Finish session button: the session Anki offer appears
+when you leave via ⌂ Library, and on the Flow summary's Done.
+
 ## Keyboard shortcuts
 
 | Key | Action |
 |---|---|
-| `Space` | Play the reference |
-| `Enter` | Record / stop (Echo), start Chorus or Flow, next Guided step |
-| `C` | Chorus |
+| `Space` | Listen (play the reference) |
+| `Enter` | Record / stop |
 | `←` `→` | Previous / next sentence |
-| `R` | Replay your take |
+| `R` | Replay your take (Me) |
 | `S` | 0.75× speed |
 | `T` `P` `E` | Hide or show hanzi, pinyin, translation |
-| `F` | Flag the sentence for Review |
+| `F` | Mark the sentence Difficult (⚑) |
 | `A` | Send to Anki |
 | `L` | Collapse the lesson drawer |
 | `?` | Help |

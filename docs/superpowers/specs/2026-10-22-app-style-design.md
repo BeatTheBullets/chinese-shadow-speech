@@ -53,7 +53,7 @@ the user's two anchor colours from his reference picture are **佛手黄 #F5CB00
 | `warn` | `#f0a020` (杏黄, apricot) | tone close |
 | `bad` | `#ff5a3c` (朱, vermilion) | tone wrong |
 | `sound` | `#cca4e3` (丁香, lilac) | a wrong sound (replaces `#c678dd`); still reserved for sounds only |
-| `record` | `#e0301e` | the Record button and the "your turn" frame |
+| `record` | `#cb2c1b` | the Record button and the "your turn" frame (nudged from `#e0301e` for AA contrast) |
 
 - Verdict cells use their colour as border plus a ~18 % tint as background.
 - Text on any token background meets WCAG AA (4.5:1). The builder checks every pair and may nudge values slightly to get there, keeping the hue.
