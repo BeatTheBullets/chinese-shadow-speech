@@ -4,6 +4,7 @@ from shadow.config import Settings
 from shadow.ingest.align import Aligner, FakeAligner, LockedAligner, MmsAligner, make_aligner
 from shadow.ingest.asr import ASR, AsrHearer, FakeASR, Hearer, ParaformerASR
 from shadow.ingest.transcript import Transcript
+from shadow.quant import cpu_threads, int8_wanted
 from shadow.ingest.youtube import Downloader, YtDlpDownloader
 from shadow.scoring.embed import Embedder, FakeEmbedder, Wav2Vec2Embedder
 from shadow.scoring.sounds.charctc import CharCtc
@@ -42,15 +43,19 @@ class Deps:
 def build_deps(settings: Settings) -> Deps:
     """Real adapters. Models load lazily on first use."""
     device = settings.resolved_device()
+    if device == "cpu":
+        import torch
+        torch.set_num_threads(cpu_threads(settings))
+    int8 = int8_wanted(settings)
     files = FileLayout(settings.data_dir)
     asr = ParaformerASR(settings.models.asr, device, punctuation=settings.models.punctuation,
-                       segmentation=settings.segmentation)
-    aligner = LockedAligner(make_aligner(settings.resolved_aligner(), device))
+                       segmentation=settings.segmentation, int8=int8)
+    aligner = LockedAligner(make_aligner(settings.resolved_aligner(), device, int8))
     sounds, sounds_error = None, None
     if settings.sounds.enabled:
         cfg = settings.sounds
         if isinstance(aligner.inner, MmsAligner):
-            sounds = SoundDetector(aligner, CharCtc(cfg.model, cfg.revision, device), cfg)
+            sounds = SoundDetector(aligner, CharCtc(cfg.model, cfg.revision, device, int8), cfg)
         else:
             sounds_error = "sounds need the MMS aligner"
     return Deps(asr=asr, hearer=AsrHearer(asr), sounds=sounds, sounds_error=sounds_error,

@@ -11,6 +11,8 @@ tone_embedder = "TencentGameMate/chinese-wav2vec2-base"
 tone_embedder_revision = "3991242c806928916fff4a8c0e4f76acf661b743"
 tone_layer = 6
 punctuation = true                  # false: drop the punctuation model, cut sentences at pauses instead
+int8 = false                        # true: 8-bit recogniser, aligner and sounds model on the CPU (half the RAM); the GPU keeps fp32
+threads = 0                         # CPU threads for the models; 0 = physical cores minus one
 
 [segmentation]
 pad_ms = 120

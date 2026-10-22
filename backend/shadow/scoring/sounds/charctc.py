@@ -39,8 +39,8 @@ class CharModel(Protocol):
 class CharCtc:
     blank = 0
 
-    def __init__(self, name: str, revision: str, device: str):
-        self.name, self.revision, self.device = name, revision, device
+    def __init__(self, name: str, revision: str, device: str, int8: bool = False):
+        self.name, self.revision, self.device, self.int8 = name, revision, device, int8
         self._model = None
         self.load_error: str | None = None   # the last warm-up failure's text, for /health
         self._Mt = None
@@ -71,7 +71,11 @@ class CharCtc:
         M = group_matrix(vocab, model.config.vocab_size, model.config.pad_token_id, syls)
         self._sid = {s: i + 1 for i, s in enumerate(syls) if M[:, i + 1].sum() > 0}
         self._Mt = torch.from_numpy(M).to(self.device)
-        self._model = model.to(self.device).eval()
+        model = model.to(self.device).eval()
+        if self.int8:
+            from shadow.quant import quantize_linear
+            model = quantize_linear(model)
+        self._model = model
 
     def warm_up(self) -> threading.Thread:
         """Load (first run: download) the model in a daemon thread; under the lock, so a take arriving meanwhile waits

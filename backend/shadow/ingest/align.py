@@ -75,8 +75,8 @@ class FakeAligner:
 
 
 class MmsAligner:
-    def __init__(self, device: str):
-        self.device = device
+    def __init__(self, device: str, int8: bool = False):
+        self.device, self.int8 = device, int8
         self._bundle = self._model = self._tok = self._al = None
         self._dict: dict[str, int] | None = None
 
@@ -102,7 +102,11 @@ class MmsAligner:
             from shadow.hf import model_load_lock
             with model_load_lock:
                 self._bundle = torchaudio.pipelines.MMS_FA
-                self._model = self._bundle.get_model(with_star=False).to(self.device).eval()
+                model = self._bundle.get_model(with_star=False).to(self.device).eval()
+                if self.int8:
+                    from shadow.quant import quantize_linear
+                    model = quantize_linear(model)
+                self._model = model
                 self._tok = self._bundle.get_tokenizer()
                 self._al = self._bundle.get_aligner()
         return self._model
@@ -202,11 +206,11 @@ def _map_items_to_chars(items, chars: list[str]) -> list[Span] | None:
     return out  # type: ignore[return-value]
 
 
-def make_aligner(name: str, device: str) -> Aligner:
+def make_aligner(name: str, device: str, int8: bool = False) -> Aligner:
     if name == "qwen3_fa":
         return Qwen3Aligner(device)
     if name == "mms_fa":
-        return MmsAligner(device)
+        return MmsAligner(device, int8)
     if name == "fake":
         return FakeAligner()
     raise ValueError(f"unknown aligner {name}")

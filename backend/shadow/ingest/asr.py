@@ -119,8 +119,8 @@ def transcript_from_funasr(result: dict[str, Any], pauses: SegmentationCfg | Non
 class ParaformerASR:
     """One recogniser shared by ingest jobs and attempt scoring: calls run one at a time."""
     def __init__(self, model_id: str, device: str, punctuation: bool = True,
-                 segmentation: SegmentationCfg | None = None):
-        self.model_id, self.device = model_id, device
+                 segmentation: SegmentationCfg | None = None, int8: bool = False):
+        self.model_id, self.device, self.int8 = model_id, device, int8
         self.punctuation, self.segmentation = punctuation, segmentation
         self._model = None
         self._lock = threading.Lock()
@@ -138,7 +138,11 @@ class ParaformerASR:
                                           "disable_update": True}
                 if self.punctuation:
                     kwargs["punc_model"] = "ct-punc"
-                self._model = AutoModel(**kwargs)
+                model = AutoModel(**kwargs)
+                if self.int8:
+                    from shadow.quant import quantize_linear
+                    model.model = quantize_linear(model.model)
+                self._model = model
         return self._model
 
     def warm_up(self) -> threading.Thread:
