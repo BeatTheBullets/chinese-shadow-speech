@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { charRects, type Rect } from '../lib/charRects'
 import { charFill, type Wipe } from '../lib/karaoke'
+import { isPunct } from '../lib/text'
 import Sentence, { type SentenceProps } from './Sentence'
 import { WIPE_FILL } from '../theme/tokens'
 import Card from '../ui/Card'
@@ -12,8 +13,11 @@ const FILL: Record<Wipe['tone'], string> = WIPE_FILL
 // into the light glyphs (and invisible on the dark background), so Yomitan still scans the real text underneath.
 // The boxes are measured again when the sentence resizes, the window resizes and the web font has loaded.
 // With `tools` (Practice, Drill) it is the notched sentence card: the sentence, then `children` (the ghost line),
-// then the tools (SentenceTools) that act on it. Without (a Flow run's current line) just the sentence.
-export default function KaraokeSentence({ wipe, tools, children, ...props }: SentenceProps & { wipe: Wipe | null; tools?: ReactNode; children?: ReactNode }) {
+// then the tools (SentenceTools) that act on it, and the sentence large (the one big text on screen). Without (a Flow
+// run's current line) just the sentence, at its normal size.
+// onSyllableClick: clicking a character plays that syllable of the reference (the Echo review has no reference cells).
+// The sentence stays one text run per word, so the click is placed by the measured character boxes, not by elements.
+export default function KaraokeSentence({ wipe, tools, children, onSyllableClick, ...props }: SentenceProps & { wipe: Wipe | null; tools?: ReactNode; children?: ReactNode; onSyllableClick?: (i: number) => void }) {
   const pRef = useRef<HTMLParagraphElement>(null)
   const boxRef = useRef<HTMLDivElement>(null)
   const [rects, setRects] = useState<(Rect | null)[]>([])
@@ -31,9 +35,22 @@ export default function KaraokeSentence({ wipe, tools, children, ...props }: Sen
     return () => { live = false; window.removeEventListener('resize', measure); ro?.disconnect() }
   }, [text, words, showHanzi, showPinyin])
   const fill = wipe ? charFill(text, wipe.progress) : []
+  // The character under the pointer, as its syllable (speech characters before it); punctuation and the space around
+  // the text play nothing, nor does a click that ends a text selection (looking a word up, copying).
+  const onClick = (e: React.MouseEvent) => {
+    const p = pRef.current, box = boxRef.current, sel = window.getSelection()
+    if (!onSyllableClick || !p || !box || (sel && !sel.isCollapsed)) return
+    const base = box.getBoundingClientRect(), x = e.clientX - base.left, y = e.clientY - base.top
+    const hit = charRects(p, box).findIndex((r) => r != null && x >= r.left && x < r.left + r.width && y >= r.top && y < r.top + r.height)
+    const chars = [...text]
+    if (hit < 0 || isPunct(chars[hit])) return
+    onSyllableClick(chars.slice(0, hit).filter((c) => !isPunct(c)).length)
+  }
+  const clickable = onSyllableClick != null && props.showHanzi
   const sentence = (
-    <div ref={boxRef} className="relative">
-      <Sentence {...props} pRef={pRef} />
+    <div ref={boxRef} className={`relative${clickable ? ' cursor-pointer' : ''}`} onClick={clickable ? onClick : undefined}
+      title={clickable ? 'Click a character to hear it' : undefined}>
+      <Sentence {...props} pRef={pRef} large={tools != null} />
       {wipe && showHanzi && (
         <div aria-hidden="true" data-testid="wipe" className="absolute inset-0 pointer-events-none" style={{ mixBlendMode: 'multiply' }}>
           {rects.map((r, i) => (r && fill[i] > 0

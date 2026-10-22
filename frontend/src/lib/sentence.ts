@@ -17,9 +17,11 @@ export function sentenceRuns(text: string, words: Word[] | null | undefined): Ru
   return runs
 }
 
-export function fontSizeClass(len: number): string {
-  if (len <= 10) return 'text-[40px]'
-  if (len <= 18) return 'text-[32px]'
-  if (len <= 25) return 'text-[28px]'
-  return 'text-[24px]'
+// Steps down with length. `large`: the sentence card's size (Echo, Drill), 1.5× each step, the one big text on screen.
+// Literal classes, so Tailwind sees them.
+export function fontSizeClass(len: number, large = false): string {
+  if (len <= 10) return large ? 'text-[60px]' : 'text-[40px]'
+  if (len <= 18) return large ? 'text-[48px]' : 'text-[32px]'
+  if (len <= 25) return large ? 'text-[42px]' : 'text-[28px]'
+  return large ? 'text-[36px]' : 'text-[24px]'
 }

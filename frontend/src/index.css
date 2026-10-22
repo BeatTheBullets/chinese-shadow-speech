@@ -9,6 +9,8 @@ body { @apply bg-bg text-fg font-ui; }
 .sentence { @apply font-hanzi text-fg text-center leading-snug; }
 .sentence.hide-pinyin rt { display: none; }
 .sentence rt { @apply text-ref font-ui text-sm tracking-wide; }
+/* The sentence card's large sentence (1.5×): its pinyin scales along, 14 px -> 21 px. */
+.sentence.sentence-lg rt { @apply text-[21px]; }
 .cell-ok { background: color-mix(in srgb, theme('colors.ok') 18%, transparent); @apply border-ok; }
 .cell-warn { background: color-mix(in srgb, theme('colors.warn') 18%, transparent); @apply border-warn; }
 .cell-bad { background: color-mix(in srgb, theme('colors.bad') 18%, transparent); @apply border-bad; }

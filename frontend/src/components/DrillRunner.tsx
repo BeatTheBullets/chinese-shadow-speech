@@ -265,7 +265,8 @@ export default function DrillRunner({ session, onFinish }: { session: DrillSessi
     const status = t?.score?.syllables[cell]?.status
     if (t && span && status !== 'missing' && status !== 'unvoiced') playSolo(t.url, setYouHead, span[0], span[1])
   }
-  // One syllable of the reference (alignment times are source-absolute; the clip starts at start_s).
+  // One syllable of the reference, from a click on its character on the sentence card (alignment times are
+  // source-absolute; the clip starts at start_s).
   function playSyllable(cell: number) {
     const s = segRef.current, span = s?.ref_alignment_json?.[cell]
     if (s && span) playSolo(api.segments.audioUrl(s.id, 'wav'), setRefHead, Math.max(0, span.start - s.start_s), Math.max(0, span.end - s.start_s), rateRef.current)
@@ -341,12 +342,12 @@ export default function DrillRunner({ session, onFinish }: { session: DrillSessi
         <span className="ml-auto"><Button label="Finish drill" onClick={finish} /></span>
       </div>
       <StageState {...stage} startedAt={recAt} autoStop wave={<LiveWave mic={mic} color={TOKENS.you} />}>
-        <KaraokeSentence wipe={wipe} text={seg.text} words={seg.words_json} showHanzi={prefs.hanzi && show} showPinyin={prefs.pinyin && show}
+        <KaraokeSentence wipe={wipe} onSyllableClick={playSyllable} text={seg.text} words={seg.words_json} showHanzi={prefs.hanzi && show} showPinyin={prefs.pinyin && show}
           translation={seg.translation} showTranslation={prefs.translation && show} tools={tools} />
       </StageState>
       <TwoTrack segment={seg} refPeaks={refPeaks} refDuration={seg.end_s - seg.start_s} refPlayhead={refHead}
         youPeaks={take?.peaks ?? null} youDuration={take?.duration ?? 0} youPlayhead={youHead}
-        onPlayRef={playRef} onPlayYou={replayYou} onPlaySyllable={playSyllable} onPlayYouSyllable={playYouSyllable} highlight={item.targets}
+        onPlayRef={playRef} onPlayYou={replayYou} onPlayYouSyllable={playYouSyllable} highlight={item.targets}
         score={take?.score ?? null} scoreHeader={<ScoreHeader score={take?.score} best={seg.best_score} attempts={seg.attempts} />} />
       {/* The Practice bar, minus Anki: position n / N with › skipping (no going back), Listen, Record (Again when
           reviewing; Next goes on, in accent), Me, Sound. Record pulses while the step waits for a take. */}

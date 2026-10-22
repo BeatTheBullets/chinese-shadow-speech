@@ -20,7 +20,7 @@ const h = vi.hoisted(() => ({
   takePeaks: new Float32Array(4), // what peaks() returns for a fresh take's You waveform
   player: { play: vi.fn(() => Promise.resolve()), playRange: vi.fn(() => Promise.resolve()), stop: vi.fn(), setVolume: vi.fn(), preload: vi.fn(() => Promise.resolve()), peaksFor: vi.fn<(url: string) => Promise<Float32Array>>(() => new Promise(() => {})) },
   ctxClose: vi.fn(() => Promise.resolve()),
-  twoTrack: null as null | { onPlaySyllable: (i: number) => void; onPlayYouSyllable?: (i: number) => void; youPeaks: Float32Array | null; youDuration: number; score?: unknown },
+  twoTrack: null as null | { onPlayYouSyllable?: (i: number) => void; youPeaks: Float32Array | null; youDuration: number; score?: unknown },
 }))
 vi.mock('../api/client', async (importOriginal) => ({ ...(await importOriginal<typeof import('../api/client')>()), api: h.api }))
 vi.mock('../anki/export', async (importOriginal) => ({ ...(await importOriginal<typeof import('../anki/export')>()), exportAndRecord: h.exportAndRecord }))
@@ -516,12 +516,19 @@ describe('<Practice>', () => {
       segments: [{ ...seg(11, 0, '你好'), start_s: 10, end_s: 12, ref_alignment_json: [{ ch: '你', start: 10.2, end: 10.5, conf: 1 }, { ch: '好', start: 10.5, end: 11.25, conf: 1 }] }],
     }
     const sleep = (ms: number) => act(() => new Promise((r) => setTimeout(r, ms)))
-    beforeEach(() => { h.api.lessons.get.mockResolvedValue(aligned) })
+    // jsdom does no layout: each character gets a 40 px box at 40 px × its offset, so a click at x = 40 i + 20 is on character i.
+    const origRects = Range.prototype.getClientRects
+    beforeEach(() => {
+      h.api.lessons.get.mockResolvedValue(aligned)
+      Range.prototype.getClientRects = function (this: Range) { return [{ left: this.startOffset * 40, top: 0, width: 40, height: 40 }] as unknown as DOMRectList }
+    })
+    afterEach(() => { Range.prototype.getClientRects = origRects })
+    const clickChar = (i: number) => act(() => { fireEvent.click(screen.getByText('你好', { selector: 'p.sentence' }), { clientX: 40 * i + 20, clientY: 20 }) })
 
-    it('plays the clip-relative span of the clicked syllable once', async () => {
+    it('clicking a character on the sentence card plays the clip-relative span of its syllable once', async () => {
       renderPractice()
       await screen.findByText('你好', { selector: 'p.sentence' })
-      act(() => h.twoTrack!.onPlaySyllable(1))
+      clickChar(1)
       await flush()
       expect(h.player.playRange).toHaveBeenCalledTimes(1)
       const [url, rate, from, to] = h.player.playRange.mock.calls[0] as unknown as [string, number, number, number]
@@ -534,12 +541,17 @@ describe('<Practice>', () => {
     it('clicking again plays it again; a click while recording does nothing', async () => {
       renderPractice()
       await screen.findByText('你好', { selector: 'p.sentence' })
-      act(() => h.twoTrack!.onPlaySyllable(0)); await flush()
-      act(() => h.twoTrack!.onPlaySyllable(0)); await flush()
+      clickChar(0); await flush()
+      clickChar(0); await flush()
       expect(h.player.playRange).toHaveBeenCalledTimes(2)
-      press('Enter'); await flush()
-      act(() => h.twoTrack!.onPlaySyllable(0)); await flush()
-      expect(h.player.playRange).toHaveBeenCalledTimes(2)
+      // The text stays up while recording here, so there is a character to click.
+      const practice = useSettings.getState().practice
+      useSettings.setState({ practice: { ...practice, hideTextWhileRecording: false } })
+      try {
+        press('Enter'); await flush()
+        clickChar(0); await flush()
+        expect(h.player.playRange).toHaveBeenCalledTimes(2)
+      } finally { cleanup(); useSettings.setState({ practice }) }
     })
   })
 

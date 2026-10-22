@@ -383,7 +383,8 @@ export default function Practice() {
     const status = take?.score?.syllables[cell]?.status
     if (take && span && status !== 'missing' && status !== 'unvoiced') playSolo(() => player.playRange(take.url, 1, span[0], span[1], setYouHead))
   }
-  // Plays one syllable of the reference once (addendum §1.2); clicking again plays it again.
+  // Plays one syllable of the reference once (addendum §1.2), from a click on its character on the sentence card;
+  // clicking again plays it again.
   // Alignment times are source-absolute, the clip starts at seg.start_s.
   function playSyllable(cell: number) {
     const ps = usePractice.getState(), s = currentSegment(ps), span = s?.ref_alignment_json?.[cell]
@@ -688,14 +689,14 @@ export default function Practice() {
                   onDone={() => offerExport(flow.clear)} />
               </>) : (<>
                 <StageState stage={stage} startedAt={echoTurn ?? undefined} autoStop wave={<LiveWave mic={mic} color={TOKENS.you} />}>
-                  <KaraokeSentence wipe={wipe} text={seg.text} words={seg.words_json} showHanzi={st.textPrefs.hanzi && show} showPinyin={st.textPrefs.pinyin && show} translation={seg.translation} showTranslation={st.textPrefs.translation && show}
+                  <KaraokeSentence wipe={wipe} onSyllableClick={playSyllable} text={seg.text} words={seg.words_json} showHanzi={st.textPrefs.hanzi && show} showPinyin={st.textPrefs.pinyin && show} translation={seg.translation} showTranslation={st.textPrefs.translation && show}
                     tools={<SentenceTools flagged={seg.difficulty_flag} onFlag={() => act('flag')} prefs={st.textPrefs} onToggle={(k) => act(TOGGLE[k])} />}>
                     {!(st.textPrefs.hanzi && show) && wipe && <GhostLine count={spans.length} wipe={wipe} />}
                   </KaraokeSentence>
                 </StageState>
                 <TwoTrack segment={seg} refPeaks={refPeaks} refDuration={seg.end_s - seg.start_s} refPlayhead={refHead}
                   youPeaks={youPeaks} youDuration={take?.duration ?? 0} youPlayhead={youHead}
-                  onPlayRef={() => act('play')} onPlayYou={() => act('replayYou')} onPlaySyllable={playSyllable} onPlayYouSyllable={playYouSyllable}
+                  onPlayRef={() => act('play')} onPlayYou={() => act('replayYou')} onPlayYouSyllable={playYouSyllable}
                   score={take?.score ?? null} scoreHeader={<ScoreHeader score={take?.score} best={seg.best_score} attempts={seg.attempts} />} />
               </>)}
             </div>
