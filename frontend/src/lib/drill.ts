@@ -27,7 +27,10 @@ export const advance = (s: DrillState): DrillState =>
   s.outcome === 'retry' ? { ...s, step: 'record', outcome: null } : skip(s)
 
 // Green = every target syllable came out `ok`. An unscored take (overall null) or a stale index never counts.
-export function targetsGreen(score: Score | null | undefined, targets: number[]): boolean {
+// A sound drill is green on the wrong-sound check instead: tone status is irrelevant, and a target with no sound result
+// (not checked) is not green.
+export function targetsGreen(score: Score | null | undefined, targets: number[], kind: string = 'tone'): boolean {
   if (score?.overall == null) return false
+  if (kind === 'sound') return targets.every((t) => score.syllables[t]?.sound?.status === 'ok')
   return targets.every((t) => score.syllables[t]?.status === 'ok')
 }

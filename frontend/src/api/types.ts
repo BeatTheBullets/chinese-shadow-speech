@@ -17,14 +17,18 @@ export interface LessonDetail extends Lesson { segments: Segment[]; passages?: P
 // Phase 2 score JSON (spec §5.1). `overall` is null when the take was not scored; `warnings` then says why.
 export type SylStatus = 'ok' | 'close' | 'wrong' | 'unvoiced' | 'missing'
 export interface Contour { t0_s: number; step_ms: number; f0_st: (number | null)[]; spans: [number, number][] }
+export interface SoundResult { status: 'ok' | 'slip'; heard: string | null; heard_pinyin: string | null; z: number; rule: 'fused' | 'b_only' }
 export interface ScoredSyllable {
   ch: string; pinyin: string; tone: number; target_tone: number | null; heard_tone: number | null; status: SylStatus
   tone_score: number | null; p_target: number | null; contour: number | null
+  sound?: SoundResult | null  // the wrong-sound check's verdict (absent in older score JSON)
 }
 export interface Score {
   overall: number | null; tone_overall: number | null; segmental_overall: number | null; rate_ratio: number | null
   ref_contour: Contour | null; usr_contour: Contour | null; syllables: ScoredSyllable[]; warnings: string[]
   heard_text?: string | null  // what the recogniser heard (null when the words check did not run)
+  sounds_off?: number | null      // syllables whose sound slipped
+  sounds_checked?: number | null  // syllables the sound check covered (absent in older score JSON)
   notices?: string[]          // a scored take's remarks, e.g. 'words_differ' (absent in older score JSON)
 }
 export interface Attempt { id: number; segment_id: number; session_id: number | null; created_at: string; mode: string; duration_s: number; score_json: Score | null }
@@ -44,6 +48,10 @@ export interface LessonStats {
 export interface ActivityStats { days: { date: string; minutes: number; attempts: number }[] }
 export interface SentenceStats { regressed: SentenceStat[]; by_last: SentenceStat[] }
 export interface SyllableStats { syllables: { ch: string; pinyin: string; tone: number; mean: number; n: number; trend: number | null }[] }
+export interface SoundStats {
+  sounds: { key: string; label: string; slips: number; chances: number; rate: number }[]
+  weeks: { week: string; key: string; rate: number; slips: number; chances: number }[]
+}
 export interface ToneStats {
   tones: { tone: number; mean: number; n: number }[]
   pairs: { prev_tone: number; tone: number; mean: number; n: number }[]
@@ -55,7 +63,7 @@ export interface UnexportedItem {
   last_attempt_at: string; segment: Segment
 }
 
-export interface DrillFocus { kind: 'tone' | 'pair' | 'char'; key: string; label: string; mean: number; n: number }
+export interface DrillFocus { kind: 'tone' | 'pair' | 'char' | 'sound'; key: string; label: string; mean: number; n: number }
 export interface DrillItem { segment: Segment; lesson_id: number; lesson_title: string; targets: number[] }
 // max_tries: the backend's [drill] max_tries (optional: the runner falls back to MAX_TRIES).
 export interface DrillSession { id: number; kind: string; key: string; label: string; short: boolean; max_tries?: number; items: DrillItem[] }

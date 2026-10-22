@@ -185,7 +185,7 @@ export default function DrillRunner({ session, onFinish }: { session: DrillSessi
         if (takeRef.current?.url === url) setTake({ ...takeRef.current, score: sc })
         setSegs((ss) => ss.map((s) => (s.id === it.segment.id ? applyAttempt(s, sc?.overall) : s)))
         setHint(warningText(sc) ?? noticeText(sc) ?? '')
-        setSt(scored(stRef.current, { gated: sc?.overall == null, allGreen: targetsGreen(sc, it.targets) }, maxTries))
+        setSt(scored(stRef.current, { gated: sc?.overall == null, allGreen: targetsGreen(sc, it.targets, session.kind) }, maxTries))
       })
       .catch((e) => { if (alive.current && stRef.current.i === i) setError(`Upload failed: ${readable(e)}`) })
       .finally(() => { inflight.current.delete(upload); if (alive.current && uploadRef.current === mine) setUploading(0) })
@@ -251,7 +251,7 @@ export default function DrillRunner({ session, onFinish }: { session: DrillSessi
   }, [])
 
   if (!item || !seg) return null
-  const green = st.step === 'review' && targetsGreen(take?.score, item.targets)
+  const green = st.step === 'review' && targetsGreen(take?.score, item.targets, session.kind)
   const tryNo = Math.min(maxTries, st.step === 'review' && take?.score?.overall != null ? st.tries : st.tries + 1)
   const show = !(recording && settings.practice.hideTextWhileRecording)
   const spans = clipSpans(seg.ref_alignment_json, seg.start_s)

@@ -37,4 +37,15 @@ describe('drill steps', () => {
     expect(targetsGreen({ ...sc(['ok']), overall: null, warnings: ['too_quiet'] }, [0])).toBe(false)
     expect(targetsGreen(null, [0])).toBe(false)
   })
+  it('sound kind needs every target sound ok', () => {
+    const snd = (status: 'ok' | 'slip') => ({ status, heard: null, heard_pinyin: null, z: 0, rule: 'fused' as const })
+    const withSounds = (tone: string, sounds: ({ status: 'ok' | 'slip' } | null)[]): Score => {
+      const base = sc(sounds.map(() => tone))
+      return { ...base, syllables: base.syllables.map((y, k) => ({ ...y, sound: sounds[k] ? snd(sounds[k]!.status) : null })) }
+    }
+    expect(targetsGreen(withSounds('ok', [snd('ok'), null]), [0, 1], 'sound')).toBe(false)
+    expect(targetsGreen(withSounds('wrong', [snd('ok'), snd('ok')]), [0, 1], 'sound')).toBe(true)
+    expect(targetsGreen(withSounds('ok', [snd('ok'), snd('slip')]), [0, 1], 'sound')).toBe(false)
+    expect(targetsGreen({ ...withSounds('ok', [snd('ok')]), overall: null }, [0], 'sound')).toBe(false)
+  })
 })
