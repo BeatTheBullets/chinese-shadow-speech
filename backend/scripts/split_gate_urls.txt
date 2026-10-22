@@ -1,0 +1,6 @@
+# Natural-speed Mandarin videos with uploaded Chinese subtitles (the human reference for scripts/split_gate.py).
+https://www.youtube.com/watch?v=zbbXDcuILDs   # channel 阿家家家家家Lily, zh, 8.5 min
+https://www.youtube.com/watch?v=Zp1yfsb2SDQ   # channel 阿家家家家家Lily, zh, 7.9 min
+https://www.youtube.com/watch?v=idp4-PtVymY   # channel Rhia's channel, zh-Hant, 9.4 min
+https://www.youtube.com/watch?v=kjPqqvaaFgk   # channel Aillyzi, zh-Hans, 9.8 min
+https://www.youtube.com/watch?v=GygMxLFJYwc   # channel MakeLens-official, zh, 19.8 min

@@ -446,7 +446,7 @@ git commit -m "feat: pause splitting by default; laptop budget met with int8 on 
 | Item | Result |
 |---|---|
 | Baseline budget run (Task 1) | `--device cpu --threads 4`, default adaptive cap (about 4100 MB on this machine). Startup peaks 738 MB (models load lazily). Build phase: the watchdog aborted with exit 3 at 4143 MB (cap 4104 MB), phase build. Earlier runs with the 5000 MB cap were killed by the kernel (exit 137) at a watched peak of 3689 MB, and some runs (also with the adaptive cap) ended early with a job error (funasr "Cannot copy out of meta tensor", peak about 2.6 GB), which is attributed to concurrent model loading. Practice and build+practice never reached. |
-| Gate videos and verdict (Task 4) | |
+| Gate videos and verdict (Task 4) | Videos chosen (5, about 55 min, uploaded zh subtitles; see `scripts/split_gate_urls.txt`). Gate run not finished: the watchdog aborted at the 3250 MB cap while the recogniser loaded (exit 3); needs the dev server stopped. Verdict pending. |
 | User's go on pause splitting | |
 | int8: alignment / words / CER + gate / sounds / tone (Task 6) | |
 | Budget run with int8 (Task 7) | |
