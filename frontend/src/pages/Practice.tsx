@@ -135,7 +135,8 @@ export default function Practice() {
     api.lessons.get(lessonId).then((l) => {
       if (cancelled) return
       const ps = usePractice.getState(), s = useSettings.getState()
-      ps.setLesson(l); ps.setTextPrefs(s.textPrefs[String(lessonId)] ?? defaultTextPrefs); ps.setRate(s.practice.defaultRate)
+      ps.setLesson(l); usePractice.setState({ drawerOpen: false }) // closed on each visit
+      ps.setTextPrefs(s.textPrefs[String(lessonId)] ?? defaultTextPrefs); ps.setRate(s.practice.defaultRate)
       const seg = new URLSearchParams(window.location.search).get('seg')   // Review links here with ?seg=idx
       if (seg != null && Number.isInteger(Number(seg)) && Number(seg) >= 0 && Number(seg) < l.segments.length) ps.setIdx(Number(seg))
       const ix = idxParam.current
@@ -665,8 +666,12 @@ export default function Practice() {
   const pulse = echo !== 'idle' ? undefined
     : st.mode === 'flow' ? (fs.phase === 'setup' ? 'record' : undefined)
     : st.lastAttempt == null ? 'record' : st.idx < segments.length - 1 ? 'next' : undefined
+  // Picking a sentence or opening an edit/split dialog from the list closes it (the dialog is modal over the page anyway); a merge keeps it open.
+  const closeList = () => usePractice.setState({ drawerOpen: false })
+  const lessonList = <Drawer segments={segments} idx={st.idx} open={st.drawerOpen} pendingIds={fs.pending} onJump={(i) => { closeList(); goTo(i) }} onClose={closeList}
+    onEdit={(i) => { closeList(); openDialog('edit', i) }} onSplit={(i) => { closeList(); openDialog('split', i) }} onMerge={mergeNext} passages={passages} practised={st.practised} />
   const bar = <Transport onAction={act} idx={st.idx} total={segments.length} recording={echo === 'recording'} busy={echo === 'uploading'} hint={st.hint} error={error} recordLabel={recordLabel} sound={sound}
-    canNext={st.idx < segments.length - 1} pulse={pulse} />
+    canNext={st.idx < segments.length - 1} pulse={pulse} list={{ open: st.drawerOpen, onToggle: st.toggleDrawer, panel: lessonList }} />
   return (
     <div className="h-full flex flex-col">
       <TopBar title={st.lesson.title} speaker={st.lesson.speaker} mode={st.mode}
@@ -710,8 +715,6 @@ export default function Practice() {
             {bar}
           </>)}
         </main>
-        {!flowRunning && <Drawer segments={segments} idx={st.idx} open={st.drawerOpen} pendingIds={fs.pending} onJump={goTo} onToggle={st.toggleDrawer}
-          onEdit={(i) => openDialog('edit', i)} onSplit={(i) => openDialog('split', i)} onMerge={mergeNext} passages={passages} practised={st.practised} />}
       </div>
       {dialog && segments[dialog.idx] && (
         <EditDialog key={`${dialog.mode}-${segments[dialog.idx].id}`} segment={segments[dialog.idx]} mode={dialog.mode} busy={dialogBusy} error={dialogError}

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { Passage, Segment } from '../api/types'
 import { groupByPassage, passageDone } from '../lib/passages'
 import Button from '../ui/Button'
@@ -9,22 +9,31 @@ export function dotClass(seg: Segment, pending: boolean): string {
   return seg.last_score >= 0.8 ? 'bg-ok' : seg.last_score >= 0.6 ? 'bg-warn' : 'bg-bad'
 }
 interface Props {
-  segments: Segment[]; idx: number; open: boolean; pendingIds: Set<number>; onJump: (i: number) => void; onToggle: () => void
+  segments: Segment[]; idx: number; open: boolean; pendingIds: Set<number>; onJump: (i: number) => void; onClose: () => void
   onEdit: (i: number) => void; onSplit: (i: number) => void; onMerge: (i: number) => void
   passages?: Passage[]; practised?: readonly number[]
 }
 // The lesson's sentences, grouped under passage headers (✓ when every sentence of the passage has an attempt).
-export default function Drawer({ segments, idx, open, pendingIds, onJump, onToggle, onEdit, onSplit, onMerge, passages = [], practised = [] }: Props) {
+// A panel opened from the navigator (rendered inside its pill's wrapper, so it sits just above it) over a dimming scrim.
+// Non-modal like the Sound pop-up (role="group", never "dialog"): Space/Enter/arrows keep working for the page; Esc closes.
+export default function Drawer({ segments, idx, open, pendingIds, onJump, onClose, onEdit, onSplit, onMerge, passages = [], practised = [] }: Props) {
   const [menu, setMenu] = useState<number | null>(null) // the row whose ⋯ menu is open
-  if (!open) return <button className="w-6 border-l border-line bg-panel text-fgdim hover:text-fg text-xs" onClick={onToggle} title="Open lesson list (L)">▸</button>
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [open, onClose])
+  if (!open) return null
   const pick = (fn: (i: number) => void, i: number) => () => { setMenu(null); fn(i) }
   const item = 'px-2 py-0.5 rounded-lg border border-line bg-card hover:text-fg disabled:opacity-40'
-  return (
-    <aside className="w-80 border-l border-line bg-panel overflow-y-auto">
+  return (<>
+    <div data-testid="drawer-scrim" className="fixed inset-0 z-30 bg-bg/60" onClick={onClose} />
+    <aside data-testid="lesson-drawer" role="group" aria-label="Lesson list" className="absolute bottom-full left-0 mb-2 z-40 w-[360px] max-w-[calc(100vw-1.5rem)] max-h-[70vh] overflow-y-auto rounded-xl border border-line bg-panel shadow-lg">
       {/* closing it: a labelled button with its key as the hint, never a key face (spec §2) */}
       <div className="flex items-center justify-between px-3 py-2">
         <span className="text-[10px] uppercase tracking-widest text-fgdim">Lesson</span>
-        <Button label="Lesson list" keyHint="L" variant="ghost" ariaLabel="Close lesson list (L)" onClick={onToggle} />
+        <Button label="Lesson list" keyHint="L" variant="ghost" ariaLabel="Close lesson list (L)" onClick={onClose} />
       </div>
       {groupByPassage(segments, passages).map((g, gi) => (
         <div key={g.passage ? `p${g.passage.idx}` : `loose${gi}`} data-testid={g.passage ? `passage-${g.passage.idx}` : 'passage-none'}>
@@ -55,5 +64,5 @@ export default function Drawer({ segments, idx, open, pendingIds, onJump, onTogg
             </div>))}
         </div>))}
     </aside>
-  )
+  </>)
 }

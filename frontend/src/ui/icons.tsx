@@ -13,6 +13,7 @@ function Svg({ children, filled = false }: { children: ReactNode; filled?: boole
 
 export const IconChevronLeft = () => <Svg><path d="M15 18l-6-6 6-6" /></Svg>
 export const IconChevronRight = () => <Svg><path d="M9 6l6 6-6 6" /></Svg>
+export const IconList = () => <Svg><path d="M8 7h11M8 12h11M8 17h11M4.5 7h.01M4.5 12h.01M4.5 17h.01" /></Svg>
 export const IconPlay = () => <Svg filled><path d="M8 5l11 7-11 7z" /></Svg>
 export const IconRecord = () => <Svg filled><circle cx="12" cy="12" r="6" /></Svg>
 export const IconStop = () => <Svg filled><rect x="6" y="6" width="12" height="12" rx="2" /></Svg>

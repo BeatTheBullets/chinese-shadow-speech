@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import type { Action } from '../lib/keys'
 import Button from '../ui/Button'
-import { IconAnki, IconChevronLeft, IconChevronRight, IconMe, IconPlay, IconRecord, IconStop } from '../ui/icons'
+import { IconAnki, IconChevronLeft, IconChevronRight, IconList, IconMe, IconPlay, IconRecord, IconStop } from '../ui/icons'
 import SoundPopover, { type SoundControls } from './SoundPopover'
 
 interface Props {
@@ -13,19 +13,30 @@ interface Props {
   canPrev?: boolean       // false where the run only goes forward (a drill, a Flow run); default: not on the first sentence
   canNext?: boolean       // false on Practice's last sentence; default true, since a drill's or Flow run's › skips (and may end) it
   showAnki?: boolean      // the drill has no Anki
+  // The lesson list: the position becomes its button, and the panel renders just above it (see Drawer).
+  list?: { open: boolean; onToggle: () => void; panel: ReactNode }
   pulse?: 'record' | 'next' // the next expected action pulses (Record / Enter, or › to move on); never while recording
 }
 
 // The control bar (spec §2), three groups left to right: where am I (‹ n / N ›), what do I do (Listen, Record, Me),
 // extras (Anki, Sound). Every button says what it does; its key is the small grey hint under the label.
 // recordLabel: what Enter does when not recording (Flow's start, the drill's Again/Next).
-export default function Transport({ onAction, idx, total, recording, busy, hint, error, recordLabel, advance = false, sound, canPrev = idx > 0, canNext = true, showAnki = true, pulse }: Props) {
+export default function Transport({ onAction, idx, total, recording, busy, hint, error, recordLabel, advance = false, sound, canPrev = idx > 0, canNext = true, showAnki = true, pulse, list }: Props) {
   return (
     <div data-testid="transport" className="border-t border-line bg-panel px-3.5 py-3 space-y-1">
       <div className="flex flex-wrap items-center justify-between gap-2.5">
         <div className="flex items-center gap-0.5 rounded-xl border border-line bg-card p-1">
           <Chevron icon={<IconChevronLeft />} name="Previous sentence" keyHint="←" disabled={!canPrev} onClick={() => onAction('prev')} />
-          <span data-testid="position" className="px-1.5 text-xs text-accent tabular-nums" title={`Sentence ${idx + 1} of ${total}`}>{idx + 1} / {total}</span>
+          {list ? (
+            // z above the scrim: clicking it again closes the list
+            <div className="relative z-40">
+              <button type="button" data-testid="position" aria-expanded={list.open} aria-label="Lesson list (L)" title="Lesson list (L)" onClick={list.onToggle}
+                className="flex items-center gap-1 rounded-lg px-1.5 py-1 text-xs text-accent tabular-nums hover:bg-panel">
+                {idx + 1} / {total}<span className="text-fgdim"><IconList /></span>
+              </button>
+              {list.panel}
+            </div>
+          ) : <span data-testid="position" className="px-1.5 text-xs text-accent tabular-nums" title={`Sentence ${idx + 1} of ${total}`}>{idx + 1} / {total}</span>}
           <Chevron icon={<IconChevronRight />} name="Next sentence" keyHint="→" disabled={!canNext} pulse={pulse === 'next' && !recording} onClick={() => onAction('next')} />
         </div>
         <div className="flex items-center gap-2">

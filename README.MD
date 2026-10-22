@@ -98,7 +98,7 @@ Hover over a mode tab for a one-line explanation, or press `?` for the full help
 
 ### Fix the text when the machine got it wrong
 
-From the lesson drawer you can **edit** a sentence's text, **split** it in two, or **merge** it with the next one.
+From the lesson drawer (click the "n / N" position) you can **edit** a sentence's text, **split** it in two, or **merge** it with the next one.
 Each change re-aligns the audio, rebuilds the pinyin, and cuts new clips.
 
 ### Works with Yomitan
@@ -223,7 +223,7 @@ when you leave via ⌂ Library, and on the Flow summary's Done.
 | `T` `P` `E` | Hide or show hanzi, pinyin, translation |
 | `F` | Mark the sentence Difficult (⚑) |
 | `A` | Send to Anki |
-| `L` | Lesson list (toggles the drawer) |
+| `L` | Lesson list (opens or closes the drawer above the sentence navigator; Esc also closes it) |
 | `?` | Help |
 
 ---

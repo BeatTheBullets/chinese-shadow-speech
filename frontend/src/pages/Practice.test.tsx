@@ -202,7 +202,7 @@ describe('<Practice>', () => {
   const origCreate = URL.createObjectURL, origRevoke = URL.revokeObjectURL
   beforeEach(() => {
     vi.clearAllMocks()
-    usePractice.setState({ lesson: null, idx: 0, mode: 'echo', sessionId: null, drawerOpen: true, attemptsThisSegment: 0, lastAttempt: null, recordingNow: false, hint: '', storedTakes: {} })
+    usePractice.setState({ lesson: null, idx: 0, mode: 'echo', sessionId: null, drawerOpen: false, attemptsThisSegment: 0, lastAttempt: null, recordingNow: false, hint: '', storedTakes: {} })
     // helpSeen: the help would otherwise open on every render and switch the shortcuts off. The volumes are reset here,
     // not at the end of a test, so no store update reaches a page that is still mounted (act() warnings).
     useSettings.setState({ helpSeen: true, referenceVolume: 1, guideLevel: 0.5, textPrefs: {} })
@@ -340,9 +340,9 @@ describe('<Practice>', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Sound' }))
     fireEvent.keyDown(screen.getByLabelText('Playback speed'), { key: 'l' })
     press('l', { ctrlKey: true })
-    expect(usePractice.getState().drawerOpen).toBe(true)
-    press('l')
     expect(usePractice.getState().drawerOpen).toBe(false)
+    press('l')
+    expect(usePractice.getState().drawerOpen).toBe(true)
   })
 
   it('a take under 0.2 s is discarded: no upload, no attempt counted, back to idle', async () => {
@@ -446,7 +446,7 @@ describe('<Practice>', () => {
     press('Enter'); press('l')
     await flush()
     expect(h.rec.start).not.toHaveBeenCalled()
-    expect(usePractice.getState().drawerOpen).toBe(true)
+    expect(usePractice.getState().drawerOpen).toBe(false)
   })
 
   describe('stored takes', () => {
@@ -946,8 +946,62 @@ describe('<Practice>', () => {
     })
   })
 
+  describe('lesson list drawer', () => {
+    const pos = () => screen.getByRole('button', { name: /^Lesson list/ })
+    const list = () => screen.queryByTestId('lesson-drawer')
+    it('is closed on load, even if the store said open; the position is a button with aria-expanded', async () => {
+      usePractice.setState({ drawerOpen: true })
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      expect(list()).toBeNull()
+      expect(pos()).toHaveAttribute('aria-expanded', 'false')
+      expect(pos()).toHaveAttribute('title', 'Lesson list (L)')
+      expect(pos()).toHaveTextContent('1 / 2')
+    })
+    it('the position opens it and again closes it; L, Esc, the scrim and × close it', async () => {
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      const open = () => { fireEvent.click(pos()); expect(list()).not.toBeNull(); expect(pos()).toHaveAttribute('aria-expanded', 'true') }
+      open(); fireEvent.click(pos()); expect(list()).toBeNull()
+      open(); press('l'); expect(list()).toBeNull()
+      open(); fireEvent.keyDown(document.body, { key: 'Escape' }); expect(list()).toBeNull()
+      open(); fireEvent.click(screen.getByTestId('drawer-scrim')); expect(list()).toBeNull()
+      open(); fireEvent.click(screen.getByRole('button', { name: 'Close lesson list (L)' })); expect(list()).toBeNull()
+      expect(usePractice.getState().drawerOpen).toBe(false)
+    })
+    it('picking a sentence jumps to it and closes the drawer', async () => {
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      fireEvent.click(pos())
+      fireEvent.click(within(screen.getByTestId('lesson-drawer')).getAllByRole('button', { name: /再见/ })[0])
+      expect(usePractice.getState().idx).toBe(1)
+      expect(list()).toBeNull()
+    })
+    it('is not a dialog: Space still plays and arrows still move while it is open', async () => {
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      fireEvent.click(pos())
+      expect(screen.queryByRole('dialog')).toBeNull()
+      press(' ')
+      expect(h.player.play).toHaveBeenCalled()
+      press('ArrowRight')
+      expect(usePractice.getState().idx).toBe(1)
+      expect(list()).not.toBeNull()
+    })
+    it('the edit dialog opens from a row menu (the drawer steps aside)', async () => {
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      fireEvent.click(pos())
+      fireEvent.click(screen.getByRole('button', { name: 'Actions for sentence 1' }))
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Edit text' }))
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
+      expect(list()).toBeNull()
+    })
+  })
+
   describe('drawer actions', () => {
     const openMenu = (row: number, item: string) => {
+      if (!screen.queryByRole('button', { name: `Actions for sentence ${row}` })) fireEvent.click(screen.getByRole('button', { name: /^Lesson list/ }))
       fireEvent.click(screen.getByRole('button', { name: `Actions for sentence ${row}` }))
       fireEvent.click(screen.getByRole('menuitem', { name: item }))
     }
@@ -1006,7 +1060,7 @@ describe('<Practice>', () => {
       fireEvent.keyDown(within(dialog).getByRole('button', { name: 'Cancel' }), { key: 'ArrowRight' })
       press('l'); press('ArrowRight'); press(' ')
       expect(h.player.play).not.toHaveBeenCalled()
-      expect(usePractice.getState()).toMatchObject({ idx: 0, drawerOpen: true })
+      expect(usePractice.getState()).toMatchObject({ idx: 0, drawerOpen: false })
       fireEvent.keyDown(dialog, { key: 'Escape' })
       expect(screen.queryByRole('dialog')).toBeNull()
       press('ArrowRight')
@@ -1035,6 +1089,7 @@ describe('<Practice>', () => {
       renderPractice()
       await screen.findByText('你好', { selector: 'p.sentence' })
       act(() => usePractice.getState().setIdx(1))
+      fireEvent.click(screen.getByRole('button', { name: /^Lesson list/ }))
       expect(screen.getByRole('button', { name: 'Actions for sentence 2' })).toBeInTheDocument()
       fireEvent.click(screen.getByRole('button', { name: 'Actions for sentence 2' }))
       expect(screen.getByRole('menuitem', { name: 'Merge with next' })).toBeDisabled() // the last row has no next
@@ -1181,7 +1236,7 @@ describe('<Practice>', () => {
   })
 
   describe('control bar', () => {
-    const BAR = ['Previous sentence (←)', 'Next sentence (→)', 'Listen (Space)', 'Record (Enter)', 'Me (R)', 'Anki (A)', 'Sound']
+    const BAR = ['Previous sentence (←)', 'Lesson list (L)', 'Next sentence (→)', 'Listen (Space)', 'Record (Enter)', 'Me (R)', 'Anki (A)', 'Sound']
     const bar = () => screen.getByTestId('transport')
 
     it('the bar has prev · position · next, Listen, Record, Me, Anki and Sound', async () => {
@@ -1302,7 +1357,7 @@ describe('<Practice>', () => {
     fireEvent.keyDown(got, { key: 'Escape' })
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
     press('l')
-    expect(usePractice.getState().drawerOpen).toBe(false)
+    expect(usePractice.getState().drawerOpen).toBe(true)
   })
 
   it('a key another handler has already taken (default prevented) is not a page shortcut', async () => {
@@ -1312,7 +1367,7 @@ describe('<Practice>', () => {
       renderPractice()
       await screen.findByText('你好', { selector: 'p.sentence' })
       press('l')
-      expect(usePractice.getState().drawerOpen).toBe(true)
+      expect(usePractice.getState().drawerOpen).toBe(false)
     } finally { window.removeEventListener('keydown', taken) }
   })
 
