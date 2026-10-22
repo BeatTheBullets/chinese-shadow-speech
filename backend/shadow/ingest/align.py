@@ -147,8 +147,12 @@ class Qwen3Aligner:
     def _load(self):
         if self._model is None:
             import torch
-            from qwen_asr import Qwen3ForcedAligner
-            from shadow.hf import model_load_lock
+            from shadow.hf import guarded_import, model_load_lock
+
+            def _import_qwen():
+                from qwen_asr import Qwen3ForcedAligner
+                return Qwen3ForcedAligner
+            Qwen3ForcedAligner = guarded_import(_import_qwen)
             with model_load_lock:
                 self._model = Qwen3ForcedAligner.from_pretrained(
                     "Qwen/Qwen3-ForcedAligner-0.6B", dtype=torch.bfloat16,

@@ -24,6 +24,15 @@ def _hear(deps: Deps, attempt: Attempt) -> str | None:
     return heard
 
 
+def _drop_failed_sounds(deps: Deps) -> None:
+    """A sounds model whose (lazy) load failed switches sounds off for this process and shows on /health, so the
+    failing load is not retried on every take."""
+    chars = getattr(deps.sounds, "chars", None)
+    if chars is not None and getattr(chars, "_model", True) is None and getattr(chars, "load_error", None):
+        deps.sounds_error = chars.load_error
+        deps.sounds = None
+
+
 def score_attempt(deps: Deps, db: Session, segment: Segment, attempt: Attempt) -> None:
     """Sets attempt.score_json, adds its SyllableScore rows and feeds the voice profile. Never raises: a failure
     leaves `overall: null` with a warning and no rows (spec §7). The caller has committed the attempt (its audio)
@@ -54,6 +63,7 @@ def score_attempt(deps: Deps, db: Session, segment: Segment, attempt: Attempt) -
                                     profile=profile_baseline(prof), profile_voiced_s=prof.voiced_s or 0.0, cfg=cfg,
                                     hear=(lambda: _hear(deps, attempt)) if deps.hearer else None,
                                     sounds=deps.sounds, ref_key=ref_key)
+                _drop_failed_sounds(deps)
             attempt.score_json = result.json
             for row in result.rows:
                 db.add(SyllableScore(attempt_id=attempt.id, segment_id=segment.id, **row))

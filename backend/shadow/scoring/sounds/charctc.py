@@ -50,19 +50,28 @@ class CharCtc:
 
     def _load(self):
         if self._model is None:
-            from shadow.hf import model_load_lock, wav2vec2_classes
-            import torch
-            from .contrasts import inventory
-            _, Wav2Vec2ForCTC, Wav2Vec2CTCTokenizer = wav2vec2_classes()
-            with model_load_lock:
-                model = Wav2Vec2ForCTC.from_pretrained(self.name, revision=self.revision, low_cpu_mem_usage=True)
-                vocab = Wav2Vec2CTCTokenizer.from_pretrained(self.name, revision=self.revision).get_vocab()
-            syls = sorted(inventory())
-            M = group_matrix(vocab, model.config.vocab_size, model.config.pad_token_id, syls)
-            self._sid = {s: i + 1 for i, s in enumerate(syls) if M[:, i + 1].sum() > 0}
-            self._Mt = torch.from_numpy(M).to(self.device)
-            self._model = model.to(self.device).eval()
+            if self.load_error:                # a load already failed: fail fast, do not retry a ~1.2 GB load per take
+                raise RuntimeError(self.load_error)
+            try:
+                self._build()
+            except Exception as e:
+                self.load_error = str(e) or type(e).__name__
+                raise
         return self._model
+
+    def _build(self):
+        from shadow.hf import model_load_lock, wav2vec2_classes
+        import torch
+        from .contrasts import inventory
+        _, Wav2Vec2ForCTC, Wav2Vec2CTCTokenizer = wav2vec2_classes()
+        with model_load_lock:
+            model = Wav2Vec2ForCTC.from_pretrained(self.name, revision=self.revision, low_cpu_mem_usage=True)
+            vocab = Wav2Vec2CTCTokenizer.from_pretrained(self.name, revision=self.revision).get_vocab()
+        syls = sorted(inventory())
+        M = group_matrix(vocab, model.config.vocab_size, model.config.pad_token_id, syls)
+        self._sid = {s: i + 1 for i, s in enumerate(syls) if M[:, i + 1].sum() > 0}
+        self._Mt = torch.from_numpy(M).to(self.device)
+        self._model = model.to(self.device).eval()
 
     def warm_up(self) -> threading.Thread:
         """Load (first run: download) the model in a daemon thread; under the lock, so a take arriving meanwhile waits

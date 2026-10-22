@@ -14,6 +14,13 @@ _import_lock = threading.Lock()
 _classes: tuple[type, type, type] | None = None
 
 
+def guarded_import(fn):
+    """Run `fn` (a function doing a model-library import) under the import lock. Libraries such as funasr and
+    qwen_asr import transformers themselves, so every such import shares one lock with `wav2vec2_classes`."""
+    with _import_lock:
+        return fn()
+
+
 def _import() -> tuple[type, type, type]:
     from transformers import Wav2Vec2Model, Wav2Vec2ForCTC, Wav2Vec2CTCTokenizer
     return Wav2Vec2Model, Wav2Vec2ForCTC, Wav2Vec2CTCTokenizer
@@ -21,8 +28,9 @@ def _import() -> tuple[type, type, type]:
 
 def wav2vec2_classes() -> tuple[type, type, type]:
     """(Wav2Vec2Model, Wav2Vec2ForCTC, Wav2Vec2CTCTokenizer), imported once."""
-    global _classes
-    with _import_lock:
+    def load():
+        global _classes
         if _classes is None:
             _classes = _import()
         return _classes
+    return guarded_import(load)

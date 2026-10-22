@@ -101,8 +101,12 @@ class ParaformerASR:
 
     def _load(self):
         if self._model is None:
-            from funasr import AutoModel
-            from shadow.hf import model_load_lock
+            from shadow.hf import guarded_import, model_load_lock
+
+            def _import_funasr():
+                from funasr import AutoModel
+                return AutoModel
+            AutoModel = guarded_import(_import_funasr)
             with model_load_lock:
                 self._model = AutoModel(model=self.model_id, vad_model="fsmn-vad", punc_model="ct-punc",
                                         device=self.device, disable_update=True)
