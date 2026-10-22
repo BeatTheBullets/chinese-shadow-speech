@@ -62,20 +62,22 @@ class CharCtc:
             self._model = model.to(self.device).eval()
         return self._model
 
+    def warm(self) -> None:
+        """Blocking load (first run: download) under the lock, so a take arriving meanwhile waits for this load
+        instead of starting another. A failure is logged and kept in `load_error`; the next take tries again."""
+        try:
+            with self._lock:
+                self._load()
+            self.load_error = None
+        except Exception as e:
+            self.load_error = str(e) or type(e).__name__
+            log.exception("warming up the char-CTC model %s failed", self.name)
+        finally:
+            trim_heap()
+
     def warm_up(self) -> threading.Thread:
-        """Load (first run: download) the model in a daemon thread; under the lock, so a take arriving meanwhile waits
-        for this load instead of starting another. A failure is logged and the next take tries again."""
-        def run():
-            try:
-                with self._lock:
-                    self._load()
-                self.load_error = None
-            except Exception as e:
-                self.load_error = str(e) or type(e).__name__
-                log.exception("warming up the char-CTC model %s failed", self.name)
-            finally:
-                trim_heap()
-        t = threading.Thread(target=run, name="charctc-warm-up", daemon=True)
+        """`warm` in a daemon thread."""
+        t = threading.Thread(target=self.warm, name="charctc-warm-up", daemon=True)
         t.start()
         return t
 

@@ -1,6 +1,7 @@
 import logging
 import os
 import threading
+from typing import Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI
@@ -10,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from shadow.config import Settings, load_settings
 from shadow.deps import Deps, build_deps
 from shadow.jobs import JobManager
+from shadow.memory import release_freed_memory_eagerly
 from shadow.ingest.asr import ParaformerASR
 from shadow.ingest.rebuild import recover_rebuild
 from shadow.scoring.embed import Wav2Vec2Embedder
@@ -33,21 +35,38 @@ def watch_sounds_warm_up(deps: Deps, warm: threading.Thread) -> None:
         deps.sounds = None
 
 
+def warm_up_in_order(steps: list[Callable[[], None]]) -> None:
+    """Models load one after another, not in parallel: their loads peak at once (Paraformer 3.6 GB, punctuation
+    4.4 GB) and the VM OOM-killed the worker; transformers' lazy imports are not thread-safe either, which once
+    failed the sound model. A step logs and swallows its own failure, and a surprise here must not skip the rest."""
+    for step in steps:
+        try:
+            step()
+        except Exception:  # noqa: BLE001
+            log.exception("a model warm-up step failed")
+
+
 def create_app(settings: Settings | None = None, deps: Deps | None = None) -> FastAPI:
+    release_freed_memory_eagerly()          # before any model can load (see its docstring)
     settings = settings or load_settings()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         recover_interrupted(app.state.engine, app.state.deps)
         app.state.jobs.start()
-        if isinstance(app.state.deps.embedder, Wav2Vec2Embedder):     # real deps only: tests never download
-            app.state.deps.embedder.warm_up()
-        if isinstance(app.state.deps.asr, ParaformerASR):          # the words check of every take uses it
-            app.state.deps.asr.warm_up()
-        sounds = app.state.deps.sounds
-        if isinstance(getattr(sounds, "chars", None), CharCtc):          # real deps only
-            warm = sounds.chars.warm_up()
-            threading.Thread(target=watch_sounds_warm_up, args=(app.state.deps, warm), name="charctc-warm-up-watch",
+        d = app.state.deps
+        steps: list[Callable[[], None]] = []                       # real deps only: tests never download
+        if isinstance(d.asr, ParaformerASR):                       # biggest first; the words check of every take uses it
+            steps.append(d.asr.warm)
+        if isinstance(d.embedder, Wav2Vec2Embedder):
+            steps.append(d.embedder.warm)
+        chars = getattr(d.sounds, "chars", None)
+        if isinstance(chars, CharCtc):
+            steps.append(chars.warm)
+        warm = threading.Thread(target=warm_up_in_order, args=(steps,), name="model-warm-up", daemon=True)
+        warm.start()
+        if isinstance(chars, CharCtc):
+            threading.Thread(target=watch_sounds_warm_up, args=(d, warm), name="charctc-warm-up-watch",
                              daemon=True).start()
         yield
         await app.state.jobs.stop()
