@@ -28,7 +28,7 @@ export default function Transport({ onAction, idx, total, recording, busy, hint,
         <div className="flex items-center gap-0.5 rounded-xl border border-line bg-card p-1">
           <Chevron icon={<IconChevronLeft />} name="Previous sentence" keyHint="←" disabled={!canPrev} onClick={() => onAction('prev')} />
           {list ? (
-            // z above the scrim: clicking it again closes the list
+            // this wrapper (button and panel) stacks above the scrim (z-30), so the button stays clickable as the toggle
             <div className="relative z-40">
               <button type="button" data-testid="position" aria-expanded={list.open} aria-label="Lesson list (L)" title="Lesson list (L)" onClick={list.onToggle}
                 className="flex items-center gap-1 rounded-lg px-1.5 py-1 text-xs text-accent tabular-nums hover:bg-panel">

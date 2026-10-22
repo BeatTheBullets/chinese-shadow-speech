@@ -23,7 +23,7 @@ function release(prev: LastAttempt | null, next: LastAttempt | null) {
 }
 
 export const usePractice = create<PracticeState>((set) => ({
-  lesson: null, idx: 0, mode: 'echo', sessionId: null, rate: 1.0, drawerOpen: true, attemptsThisSegment: 0, lastAttempt: null,
+  lesson: null, idx: 0, mode: 'echo', sessionId: null, rate: 1.0, drawerOpen: false, attemptsThisSegment: 0, lastAttempt: null,
   textPrefs: defaultTextPrefs, recordingNow: false, hint: '', practised: [], storedTakes: {},
   setLesson: (lesson) => set((s) => { release(s.lastAttempt, null); return { lesson, idx: 0, attemptsThisSegment: 0, lastAttempt: null, hint: '', practised: [], storedTakes: {} } }),
   setIdx: (idx) => set((s) => { release(s.lastAttempt, null); return { idx, attemptsThisSegment: 0, lastAttempt: null, hint: '' } }),

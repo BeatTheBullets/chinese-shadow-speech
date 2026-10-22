@@ -439,6 +439,7 @@ export default function Practice() {
   }
   function startFlow(from: number, to: number) {
     cancelActivity()
+    usePractice.setState({ drawerOpen: false }) // a run starts with the list closed
     usePractice.getState().setHint('') // a stale move-on or Anki hint would show through the run
     if (flow.state.sub === 'along') hintHeadphones()
     void flow.start(from, to, flow.state.sub)

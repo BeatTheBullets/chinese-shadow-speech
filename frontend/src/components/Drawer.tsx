@@ -20,7 +20,9 @@ export default function Drawer({ segments, idx, open, pendingIds, onJump, onClos
   const [menu, setMenu] = useState<number | null>(null) // the row whose ⋯ menu is open
   useEffect(() => {
     if (!open) return
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    // One Esc closes only the topmost thing: a dialog/help overlay or the Sound pop-up is still in the DOM while its own
+    // handler runs (state updates are async), so the drawer leaves the key to it.
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !document.querySelector('[role="dialog"], [data-popover-open]')) onClose() }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [open, onClose])

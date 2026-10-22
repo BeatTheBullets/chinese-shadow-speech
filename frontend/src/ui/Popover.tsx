@@ -16,7 +16,7 @@ export default function Popover({ open, onClose, anchor, children }: { open: boo
   return (
     <div ref={ref} className="relative inline-block">
       {anchor}
-      {open && <div role="group" className="absolute bottom-full right-0 mb-2 z-20 rounded-xl border border-line bg-panel p-3 text-fg shadow-lg">{children}</div>}
+      {open && <div role="group" data-popover-open className="absolute bottom-full right-0 mb-2 z-20 rounded-xl border border-line bg-panel p-3 text-fg shadow-lg">{children}</div>}
     </div>
   )
 }
