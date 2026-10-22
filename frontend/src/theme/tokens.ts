@@ -2,7 +2,7 @@
 export const TOKENS = {
   bg: '#2b0510', panel: '#3d0a1b', card: '#4E001B', line: '#6b1a33',
   fg: '#f6ead8', fgdim: '#c7a9a0', accent: '#F5CB00', ref: '#d6e6ea', you: '#F5CB00',
-  ok: '#2bae85', warn: '#f0a020', bad: '#ff5a3c', sound: '#cca4e3', record: '#e0301e',
+  ok: '#2bae85', warn: '#f0a020', bad: '#ff5a3c', sound: '#cca4e3', record: '#cb2c1b',
 } as const satisfies Record<string, string>
 
 function lum(hex: string): number {
