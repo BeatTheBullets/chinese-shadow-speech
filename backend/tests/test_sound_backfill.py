@@ -81,3 +81,38 @@ def test_dry_run_writes_nothing(client, tmp_path):
         for aid in ids:
             assert db.get(Attempt, aid).score_json.get("sounds_checked") is None
             assert all(r.sound_status is None and r.heard_syllable is None and r.seg_score is None for r in _rows(db, aid))
+
+
+def _backfill_script():
+    import importlib.util
+    from pathlib import Path
+    path = Path(__file__).parents[1] / "scripts" / "backfill_sounds.py"
+    spec = importlib.util.spec_from_file_location("backfill_sounds", path)
+    mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+    return mod
+
+
+def test_backfill_script_dry_run_is_read_only(tmp_path, monkeypatch):
+    import sys
+    from types import SimpleNamespace
+    import pytest
+    from shadow.store.db import init_db, make_engine
+    mod = _backfill_script()
+    monkeypatch.setattr(mod, "build_deps", lambda settings: SimpleNamespace(sounds=FakeSounds(), sounds_error=None))
+    # no database: a clean exit, and nothing is created
+    monkeypatch.setattr(sys, "argv", ["backfill_sounds.py", "--data-dir", str(tmp_path / "none"), "--dry-run"])
+    with pytest.raises(SystemExit, match="no database at"):
+        mod.main()
+    assert not (tmp_path / "none").exists()
+    # a database: opened read-only, and no schema upgrade (init_db would write)
+    init_db(make_engine(tmp_path))
+    seen = {}
+
+    def fake_backfill_all(deps, db, *, dry_run, every, after_commit):
+        seen["url"], seen["dry_run"] = str(db.get_bind().url), dry_run
+        return {"done": 0, "skipped": 0, "failed": 0, "slips": 0}
+    monkeypatch.setattr(mod, "backfill_all", fake_backfill_all)
+    monkeypatch.setattr(mod, "init_db", lambda engine: pytest.fail("init_db on a dry run"))
+    monkeypatch.setattr(sys, "argv", ["backfill_sounds.py", "--data-dir", str(tmp_path), "--dry-run"])
+    mod.main()
+    assert seen["dry_run"] is True and "mode=ro" in seen["url"]
