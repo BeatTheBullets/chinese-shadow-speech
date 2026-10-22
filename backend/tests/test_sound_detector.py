@@ -59,7 +59,8 @@ class FakeLetters:
 
 class FakeChars:
     blank = 0
-    SID = {"ta": 1, "chi": 2, "ci": 3, "er": 4, "ding": 5, "a": 6}           # "din" has no characters: no group
+    SID = {"ta": 1, "chi": 2, "ci": 3, "er": 4, "ding": 5, "a": 6}           # "din" has no characters: no sid
+    COL = {**SID, "din": 7}                                                   # ...but it has a column
 
     def __init__(self, spoken: dict[float, list[str]]):
         self.spoken = spoken
@@ -68,10 +69,13 @@ class FakeChars:
     def sid(self, s: str) -> int | None:
         return self.SID.get(s)
 
+    def column(self, s: str) -> int | None:
+        return self.COL.get(s)
+
     def group_logp(self, wav, sr):
         self.calls.append(float(wav[0]))
         with torch.inference_mode():       # the real model hands back inference-mode tensors
-            lp, _ = _spell([[self.SID[s]] for s in self.spoken[float(wav[0])]], len(self.SID) + 1)
+            lp, _ = _spell([[self.COL[s]] for s in self.spoken[float(wav[0])]], len(self.COL) + 1)
             return lp.clone()
 
 
@@ -150,3 +154,32 @@ def test_fake_sounds_returns_or_raises():
     import pytest
     with pytest.raises(RuntimeError):
         FakeSounds(error=True).check(**kw)
+
+
+def test_b_sequence_keeps_the_column_of_a_syllable_without_characters(monkeypatch):
+    # spike: SID covers every inventory syllable, so "din" (no characters) is its own column, not blank; "xyz" is
+    # outside the inventory and becomes blank
+    import shadow.scoring.sounds.detector as detector
+    seqs = []
+    real = detector.utt_gops
+
+    def spy(logp, blank, seq, alts):
+        seqs.append(seq)
+        return real(logp, blank, seq, alts)
+
+    monkeypatch.setattr(detector, "utt_gops", spy)
+    det, _, _, wins = _detector(["din", "chi", "a"], ["din", "chi", "a"])
+    out = _check(det, wins, [_syl("din", 1), _syl("chi", 1), _syl("xyz", 1)])
+    assert seqs == [[[7], [2], [0]]] * 2               # reference and take
+    assert out[1]["status"] == "ok" and out[2] is None
+
+
+def test_charctc_column_covers_the_inventory_without_loading():
+    from shadow.scoring.sounds.charctc import CharCtc
+    from shadow.scoring.sounds.contrasts import inventory
+    m = CharCtc("unused", "unused", "cpu")
+    inv = sorted(inventory())
+    assert m.column("din") == inv.index("din") + 1
+    assert m.column(inv[0]) == 1 and m.column(inv[-1]) == len(inv)
+    assert m.column("xyz") is None
+    assert m._model is None

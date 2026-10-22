@@ -45,9 +45,10 @@ class SoundDetector:
         inv = inventory()
         chars = self.chars
         part = [[p for p, _ in partners(s)] for s in syl]
-        # B: a syllable B has no group for stays in the sequence as blank (the spike's `ids(s) or [0]`); only
-        # partners B can say are alternatives, so heard is always one of these.
-        seq_b = [[chars.sid(s) or 0] for s in syl]
+        # B, as the spike's `ids(s) or [0]`: every inventory syllable keeps its own column in the sequence, even one
+        # without characters (all-zero column); only non-inventory syllables become blank. Alternatives are partners
+        # B can say (sid), so heard is always one of these.
+        seq_b = [[chars.column(s) or 0] for s in syl]
         said_b = [[p for p in ps if chars.sid(p)] for ps in part]
         alts_b = [[[chars.sid(p)] for p in ps] for ps in said_b]
         judged = [statuses[i] not in SKIP_STATUSES and syllables[i]["tone"] >= 0 and s in inv
