@@ -16,9 +16,9 @@ body { @apply bg-bg text-fg font-ui; }
 .cell-neutral { @apply bg-card border-line; }
 .cell-missing { @apply bg-transparent border-dashed border-fgdim; }
 /* The look of the shared Button's default variant, for links that act as buttons (a Button cannot be a link). */
-.btn { @apply inline-flex items-center justify-center gap-1 px-3 py-[7px] rounded-xl border border-line bg-panel text-fg text-xs disabled:opacity-40; }
-/* Focus rings in accent everywhere (spec §7). */
-:focus-visible { outline: 2px solid theme('colors.accent'); outline-offset: 2px; }
+.btn { @apply inline-flex items-center justify-center gap-1 px-3 py-[7px] rounded-xl border border-line bg-card text-fg text-xs disabled:opacity-40; }
+/* Focus rings in accent everywhere (spec §7). In the base layer, so an element's own outline utility (outline-none) wins. */
+@layer base { :focus-visible { outline: 2px solid theme('colors.accent'); outline-offset: 2px; } }
 .inp { @apply bg-card border border-line rounded-xl px-2 py-1 text-fg text-sm; }
 select, option { @apply bg-card text-fg; }
 input[type=range], input[type=checkbox] { accent-color: theme('colors.accent'); }

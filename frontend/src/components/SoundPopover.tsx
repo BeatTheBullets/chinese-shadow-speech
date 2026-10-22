@@ -14,7 +14,7 @@ export default function SoundPopover({ sound }: { sound: SoundControls }) {
   const close = useCallback(() => setOpen(false), []) // stable: Popover re-attaches its listeners when onClose changes
   return (
     <Popover open={open} onClose={close}
-      anchor={<Button icon={<IconSound />} label="Sound" variant="ghost" onClick={() => setOpen((o) => !o)} />}>
+      anchor={<Button icon={<IconSound />} label="Sound" variant="ghost" ariaExpanded={open} onClick={() => setOpen((o) => !o)} />}>
       <div className="w-56 space-y-3 text-xs text-fgdim">
         <div className="space-y-1">
           <div className="flex items-center justify-between"><span className="text-fg">Speed</span><span>{rate.toFixed(2)}×</span></div>

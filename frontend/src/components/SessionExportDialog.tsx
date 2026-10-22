@@ -3,10 +3,10 @@ import type { Segment } from '../api/types'
 import Button from '../ui/Button'
 import ExportList, { type ExportItem } from './ExportList'
 
-// End of a session (Finish session, closing the Flow summary, the back link): this session's practised sentences that
+// End of a session (leaving by ⌂ Library, closing the Flow summary): this session's practised sentences that
 // are not in Anki yet. Closing without sending loses nothing: they stay in Review → Practised, not in Anki.
 export default function SessionExportDialog({ items, onSent, onClose }: { items: ExportItem[]; onSent: (seg: Segment) => void; onClose: () => void }) {
-  // Focus moves into the dialog, so Enter or Space no longer reaches the button that opened it (Finish session).
+  // Focus moves into the dialog, so Enter or Space no longer reaches the button that opened it (⌂ Library, Done).
   const box = useRef<HTMLDivElement>(null)
   // While a send is in flight the dialog stays open: closing it would let the next one offer the same sentences again.
   const [busy, setBusy] = useState(false)

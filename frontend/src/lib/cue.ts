@@ -15,7 +15,7 @@ export interface PageActivity {
 export function stageOf(a: PageActivity): Stage {
   if (a.mode === 'flow') {
     if (a.flowPhase === 'running') return a.flowSub === 'along' ? 'along' : a.flowTurn ? 'yourTurn' : 'listen'
-    return 'idle'
+    return a.echo === 'playing' ? 'listen' : 'idle'   // setup or summary: Space still plays the sentence
   }
   if (a.echo === 'recording') return 'yourTurn'
   if (a.echo === 'playing') return 'listen'

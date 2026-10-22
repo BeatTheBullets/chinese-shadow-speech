@@ -14,10 +14,10 @@ export function tail(chunks: Float32Array[], n: number): Float32Array {
   let need = n
   for (let i = chunks.length - 1; i >= 0 && need > 0; i--) {
     const c = chunks[i]
-    parts.unshift(c.length > need ? c.subarray(c.length - need) : c)
+    parts.push(c.length > need ? c.subarray(c.length - need) : c)   // newest first; reversed once below, not unshift per chunk
     need -= c.length
   }
-  return concat(parts)
+  return concat(parts.reverse())
 }
 
 // Samples between clock times t0..t1 of a recording whose first sample was taken at startTime.

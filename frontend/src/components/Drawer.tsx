@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import type { Passage, Segment } from '../api/types'
 import { groupByPassage, passageDone } from '../lib/passages'
+import Button from '../ui/Button'
+
 export function dotClass(seg: Segment, pending: boolean): string {
   if (pending) return 'border border-dashed border-fgdim'
   if (seg.last_score == null) return 'bg-line'
@@ -19,7 +21,11 @@ export default function Drawer({ segments, idx, open, pendingIds, onJump, onTogg
   const item = 'px-2 py-0.5 rounded-lg border border-line bg-card hover:text-fg disabled:opacity-40'
   return (
     <aside className="w-80 border-l border-line bg-panel overflow-y-auto">
-      <div className="flex justify-between px-3 py-2 text-[10px] uppercase tracking-widest text-fgdim"><span>Lesson</span><button className="hover:text-fg" onClick={onToggle} title="Close lesson list (L)">◂ L</button></div>
+      {/* closing it: a labelled button with its key as the hint, never a key face (spec §2) */}
+      <div className="flex items-center justify-between px-3 py-2">
+        <span className="text-[10px] uppercase tracking-widest text-fgdim">Lesson</span>
+        <Button label="Lesson list" keyHint="L" variant="ghost" ariaLabel="Close lesson list (L)" onClick={onToggle} />
+      </div>
       {groupByPassage(segments, passages).map((g, gi) => (
         <div key={g.passage ? `p${g.passage.idx}` : `loose${gi}`} data-testid={g.passage ? `passage-${g.passage.idx}` : 'passage-none'}>
           {g.passage && (

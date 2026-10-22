@@ -13,7 +13,6 @@ import { clipSpans, stageWipe } from '../lib/karaoke'
 import { actionForKey, type Action } from '../lib/keys'
 import { applyAttempt, noticeText, warningText } from '../lib/score'
 import { speechBounds } from '../lib/speech'
-import { useNow } from '../lib/useNow'
 import { clamp01, playbackVolume } from '../lib/volume'
 import { defaultTextPrefs, useSettings, type TextPrefs } from '../store/settings'
 import { TOKENS } from '../theme/tokens'
@@ -76,8 +75,7 @@ export default function DrillRunner({ session, onFinish }: { session: DrillSessi
   const [uploading, setUploadingState] = useState(false)
   const [playback, setPlayback] = useState(false)          // a take's reference-then-you playback is running
   const setRecording = (v: boolean) => { recRef.current = v; setRecordingState(v) }
-  const [recAt, setRecAt] = useState(0)                    // performance-clock second the take began: the stage's timer
-  const now = useNow(recording)
+  const [recAt, setRecAt] = useState(0)                    // performance-clock second the take began: the stage's timer (it ticks itself)
   const setUploading = (id: number) => { uploadRef.current = id; setUploadingState(id !== 0) }
   const takeNo = useRef(0)
   // Uploads not answered yet, of any sentence: finishing waits for them so the summary has every take.
@@ -342,10 +340,9 @@ export default function DrillRunner({ session, onFinish }: { session: DrillSessi
         <span>{item.lesson_title}</span>
         <span className="ml-auto"><Button label="Finish drill" onClick={finish} /></span>
       </div>
-      <StageState {...stage} recordingS={Math.max(0, now - recAt)}>
+      <StageState {...stage} startedAt={recAt} autoStop wave={<LiveWave mic={mic} color={TOKENS.you} />}>
         <KaraokeSentence wipe={wipe} text={seg.text} words={seg.words_json} showHanzi={prefs.hanzi && show} showPinyin={prefs.pinyin && show}
           translation={seg.translation} showTranslation={prefs.translation && show} tools={tools} />
-        {recording && <LiveWave mic={mic} color={TOKENS.you} />}
       </StageState>
       <TwoTrack segment={seg} refPeaks={refPeaks} refDuration={seg.end_s - seg.start_s} refPlayhead={refHead}
         youPeaks={take?.peaks ?? null} youDuration={take?.duration ?? 0} youPlayhead={youHead}

@@ -16,6 +16,9 @@ describe('stageOf', () => {
     [{ mode: 'flow', flowPhase: 'running', flowSub: 'along' }, 'along'],
     [{ mode: 'flow', flowPhase: 'summary' }, 'idle'],
     [{ mode: 'flow', hasTake: true }, 'idle'],
+    [{ mode: 'flow', echo: 'playing' }, 'listen'],                       // Space plays the sentence in the setup
+    [{ mode: 'flow', flowPhase: 'summary', echo: 'playing' }, 'listen'], // … and under the summary
+    [{ mode: 'flow', flowPhase: 'running', flowSub: 'along', echo: 'playing' }, 'along'], // a run's own stage wins
   ] as const)('%o → %s', (over, want) => {
     expect(stageOf({ ...base, ...over } as PageActivity)).toBe(want)
   })

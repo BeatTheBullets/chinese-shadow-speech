@@ -7,6 +7,8 @@ import type { Action } from '../lib/keys'
 import { clipSpans, flowWipe, lineLead, nextLineStart } from '../lib/karaoke'
 import { weekdayTime } from '../lib/time'
 import { TOKENS } from '../theme/tokens'
+import Button from '../ui/Button'
+import { IconReplay } from '../ui/icons'
 import { dotClass } from './Drawer'
 import KaraokeSentence, { GhostLine } from './KaraokeSentence'
 import LiveWave from './LiveWave'
@@ -17,7 +19,8 @@ import Transport from './Transport'
 export interface FlowViewProps {
   segments: Segment[]; current: number; pending: Set<number>; sub: FlowSub; showText: boolean
   first: number; last: number // the run's range (indexes into segments)
-  stage: Stage; mic: Pick<Mic, 'snapshot'>; recordingS: number; rate: number; now: number // stage: stageOf() (listen, yourTurn, along)
+  stage: Stage; mic: Pick<Mic, 'snapshot'>; rate: number; now: number // stage: stageOf() (listen, yourTurn, along)
+  startedAt: number // performance-clock second the take timer counts from: after's turn opened, or along's run began
   clipTime: number | null; turn: { startedAt: number; duration: number } | null
 }
 
@@ -39,7 +42,6 @@ export default function FlowView(p: FlowViewProps) {
     ? flowWipe({ spans, sub: p.sub, clipTime: p.clipTime, clipDuration: cur.end_s - cur.start_s, turn: p.turn, now: p.now, rate: p.rate,
       next: along && next ? nextLineStart(cur, next, p.rate) : null, lead: along && prev ? lineLead(prev, cur, p.rate) : null })
     : { wipe: null, count: null, turnLeft: null }
-  const speaking = along || p.turn != null
   return (
     <div className="flex-1 overflow-y-auto p-6 space-y-1">
       {p.segments.map((s, i) => {
@@ -48,12 +50,13 @@ export default function FlowView(p: FlowViewProps) {
           <div key={s.id} ref={curRef} className="flex gap-3 items-start px-3 rounded bg-card py-3">
             <RowMarks s={s} pending={p.pending.has(s.id)} />
             <div className="flex-1">
-              <StageState stage={k.count != null && p.stage !== 'along' ? 'getReady' : p.stage} count={k.count} recordingS={p.recordingS}>
+              <StageState stage={k.count != null && p.stage !== 'along' ? 'getReady' : p.stage} count={k.count} startedAt={p.startedAt}
+                wave={<LiveWave mic={p.mic} color={TOKENS.you} />}>
                 <KaraokeSentence wipe={k.wipe} text={s.text} words={s.words_json} showHanzi={p.showText} showPinyin={p.showText} />
                 {!p.showText && <GhostLine count={spans.length} wipe={k.wipe} />}
-                {k.turnLeft != null && (
-                  <div data-testid="turn-bar" className="h-1 bg-card rounded overflow-hidden"><div className="h-full bg-you" style={{ width: `${k.turnLeft * 100}%` }} /></div>)}
-                {speaking && <LiveWave mic={p.mic} color={TOKENS.you} />}
+                {/* after's turn bar keeps its slot while listening, so the turn opening moves nothing */}
+                {!along && <div className="h-1">{k.turnLeft != null && (
+                  <div data-testid="turn-bar" className="h-1 bg-card rounded overflow-hidden"><div className="h-full bg-you" style={{ width: `${k.turnLeft * 100}%` }} /></div>)}</div>}
               </StageState>
             </div>
           </div>)
@@ -80,8 +83,9 @@ const FlowRow = memo(function FlowRow({ s, pending, place }: { s: Segment; pendi
 })
 
 // Flow mode before a run: which sentences, which sub-mode; and the lesson's stored runs (newest first) to replay.
-export function FlowSetup({ segments, from, to, sub, onChange, onStart, runs, onReplay }: {
-  segments: Segment[]; from: number; to: number; sub: FlowSub; onChange: (p: { from?: number; to?: number; sub?: FlowSub }) => void; onStart: () => void
+// No Start button here: the bar's "Start flow" (Enter) is the one obvious start.
+export function FlowSetup({ segments, from, to, sub, onChange, runs, onReplay }: {
+  segments: Segment[]; from: number; to: number; sub: FlowSub; onChange: (p: { from?: number; to?: number; sub?: FlowSub }) => void
   runs: FlowRun[]; onReplay: (run: FlowRun) => void
 }) {
   const pick = (label: string, value: number, key: 'from' | 'to') => (
@@ -93,7 +97,6 @@ export function FlowSetup({ segments, from, to, sub, onChange, onStart, runs, on
     <div className="space-y-2">
       <div className="flex items-center justify-center gap-2 text-sm text-fgdim">
         Flow from {pick('Flow from', from, 'from')} to {pick('Flow to', to, 'to')} {tab('after')}{tab('along')}
-        <button className="btn" onClick={onStart}>Start</button>
       </div>
       {runs.length > 0 && <PastRuns key={`${runs[0].started_at}|${runs[0].session_id}`} runs={runs} onReplay={onReplay} />}
     </div>
@@ -108,7 +111,8 @@ function PastRuns({ runs, onReplay }: { runs: FlowRun[]; onReplay: (run: FlowRun
   return (
     <div data-testid="last-run" className="flex items-center justify-center gap-2 text-xs text-fgdim">
       {k === 0 ? 'Last run' : 'Earlier run'} · {runLabel(run)}
-      <button className="btn" onClick={() => onReplay(run)}>▶ replay</button>
+      {/* not ▶: that is Listen's (spec §2) */}
+      <Button icon={<IconReplay />} label="Replay run" onClick={() => onReplay(run)} />
       {runs.length > 1 && (
         <select aria-label="Run to replay" className="inp text-xs" value={k} onChange={(e) => setK(Number(e.target.value))}>
           {runs.map((r, i) => <option key={i} value={i}>{runLabel(r)}</option>)}

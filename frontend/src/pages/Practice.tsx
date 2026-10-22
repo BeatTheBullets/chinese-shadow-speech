@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { exportAndRecord, reexportQuestion } from '../anki/export'
 import { api, ApiError } from '../api/client'
@@ -111,11 +111,12 @@ export default function Practice() {
   const flow = useFlow({ lessonId, player, mic, beginRun: () => beginRun('flow'), endRun, setError,
     onUploaded: () => { if (usePractice.getState().mode === 'flow') loadFlowRuns() } })
   const [echoTurn, setEchoTurn] = useState<number | null>(null) // performance-clock second an Echo take began (ghost wipe, timer)
-  const [runFrom, setRunFrom] = useState(0)                     // session second (elapsed's clock) the Flow run began: along's timer
+  const [runFrom, setRunFrom] = useState(0)                     // performance-clock second the Flow run began: along's timer
   const [help, setHelp] = useState(() => !useSettings.getState().helpSeen)
   const helpOpen = useRef(false)
   helpOpen.current = help
-  // A frame clock only while something moves without media time: an Echo take's ghost wipe and timer, Flow after's turn.
+  // A frame clock only while something moves without media time: an Echo take's ghost wipe, Flow after's turn (wipe and
+  // bar). The take timers tick on their own (StageState), so they need none of this.
   const now = useNow(echoTurn != null || (flow.state.phase === 'running' && flow.state.turn != null))
 
   useEffect(() => { const t = setInterval(() => setElapsed((Date.now() - started) / 1000), 1000); return () => clearInterval(t) }, [started])
@@ -123,9 +124,10 @@ export default function Practice() {
   useEffect(() => { if (!useSettings.getState().helpSeen) useSettings.getState().set({ helpSeen: true }) }, [])
   // An Echo take's ghost wipe and timer last while it records.
   useEffect(() => { if (echo !== 'recording') setEchoTurn(null) }, [echo])
-  // Flow along records the whole run: its timer counts from the start, on the once-a-second session clock.
+  // Flow along records the whole run: its timer counts from the run's own start (not the once-a-second session clock).
+  // A layout effect, so the first running frame never shows the last run's time.
   const runPhase = flow.state.phase
-  useEffect(() => { if (runPhase === 'running') setRunFrom((Date.now() - started) / 1000) }, [runPhase, started])
+  useLayoutEffect(() => { if (runPhase === 'running') setRunFrom(performance.now() / 1000) }, [runPhase])
 
   useEffect(() => {
     let cancelled = false
@@ -649,7 +651,6 @@ export default function Practice() {
   // The stage (spec §3). Echo goes straight to "Your turn" (no countdown); Flow's countdown is FlowView's.
   const activity = { mode: st.mode, echo, runKind, hasTake: st.lastAttempt != null, flowPhase: fs.phase, flowSub: fs.sub, flowTurn: fs.turn != null }
   const stage = stageOf(activity), note = idleNote(activity)
-  const flowRecS = fs.turn ? now - fs.turn.startedAt : elapsed - runFrom
   return (
     <div className="h-full flex flex-col">
       <TopBar title={st.lesson.title} speaker={st.lesson.speaker} mode={st.mode}
@@ -661,7 +662,7 @@ export default function Practice() {
           {flowRunning ? (<>
             <FlowView segments={segments} current={fs.current} first={fs.range?.from ?? 0} last={fs.range?.to ?? segments.length - 1}
               pending={fs.pending} sub={fs.sub} rate={st.rate} now={now}
-              stage={stage} mic={mic} recordingS={Math.max(0, flowRecS)} clipTime={fs.clipTime} turn={fs.turn}
+              stage={stage} mic={mic} startedAt={fs.turn ? fs.turn.startedAt : runFrom} clipTime={fs.clipTime} turn={fs.turn}
               showText={!(settings.practice.hideTextWhileRecording && fs.sub === 'after')} />
             <FlowTransport onAction={act} idx={fs.current} total={segments.length} sound={sound} error={error} hint={st.hint} />
           </>) : (<>
@@ -674,14 +675,13 @@ export default function Practice() {
                   onFlagWeakest={flagWeakest} onExportWeakest={exportWeakest}
                   onDone={() => offerExport(flow.clear)} />
               </>) : (<>
-                {st.mode === 'flow' && <FlowSetup segments={segments} from={range.from} to={range.to} sub={fs.sub} onChange={flow.setForm} onStart={() => act('record')}
+                {st.mode === 'flow' && <FlowSetup segments={segments} from={range.from} to={range.to} sub={fs.sub} onChange={flow.setForm}
                   runs={flowRuns} onReplay={replayRun} />}
-                <StageState stage={stage} note={note} recordingS={echoTurn != null ? Math.max(0, now - echoTurn) : 0}>
+                <StageState stage={stage} note={note} startedAt={echoTurn ?? undefined} autoStop wave={<LiveWave mic={mic} color={TOKENS.you} />}>
                   <KaraokeSentence wipe={wipe} text={seg.text} words={seg.words_json} showHanzi={st.textPrefs.hanzi && show} showPinyin={st.textPrefs.pinyin && show} translation={seg.translation} showTranslation={st.textPrefs.translation && show}
                     tools={<SentenceTools flagged={seg.difficulty_flag} onFlag={() => act('flag')} prefs={st.textPrefs} onToggle={(k) => act(TOGGLE[k])} />}>
                     {!(st.textPrefs.hanzi && show) && wipe && <GhostLine count={spans.length} wipe={wipe} />}
                   </KaraokeSentence>
-                  {stage === 'yourTurn' && <LiveWave mic={mic} color={TOKENS.you} />}
                 </StageState>
                 <TwoTrack segment={seg} refPeaks={refPeaks} refDuration={seg.end_s - seg.start_s} refPlayhead={refHead}
                   youPeaks={youPeaks} youDuration={take?.duration ?? 0} youPlayhead={youHead}
@@ -689,7 +689,8 @@ export default function Practice() {
                   score={take?.score ?? null} scoreHeader={<ScoreHeader score={take?.score} best={seg.best_score} attempts={seg.attempts} />} />
               </>)}
             </div>
-            <Transport onAction={act} idx={st.idx} total={segments.length} recording={echo === 'recording'} busy={echo === 'uploading'} hint={st.hint} error={error} recordLabel={recordLabel} sound={sound} />
+            <Transport onAction={act} idx={st.idx} total={segments.length} recording={echo === 'recording'} busy={echo === 'uploading'} hint={st.hint} error={error} recordLabel={recordLabel} sound={sound}
+              canNext={st.idx < segments.length - 1} />
           </>)}
         </main>
         {!flowRunning && <Drawer segments={segments} idx={st.idx} open={st.drawerOpen} pendingIds={fs.pending} onJump={goTo} onToggle={st.toggleDrawer}

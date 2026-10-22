@@ -10,7 +10,7 @@ const seg = (id: number, idx: number, text: string, start: number): Segment => (
 })
 const base = {
   segments: [seg(1, 0, '你好', 0), seg(2, 1, '再见', 2), seg(3, 2, '谢谢', 4)], current: 0, first: 0, last: 2, pending: new Set<number>(), rate: 1, now: 100,
-  mic: { snapshot: () => null }, stage: 'listen' as const, recordingS: 0, clipTime: null, turn: null,
+  mic: { snapshot: () => null }, stage: 'listen' as const, startedAt: performance.now() / 1000, clipTime: null, turn: null,
 }
 const original = Range.prototype.getClientRects
 
@@ -18,7 +18,7 @@ describe('<FlowView>', () => {
   afterEach(() => { cleanup(); Range.prototype.getClientRects = original })
 
   it('along: the speak-along stage with the live waveform, the current line large and the next line dimmed below it', () => {
-    render(<FlowView {...base} stage="along" recordingS={3} sub="along" showText />)
+    render(<FlowView {...base} stage="along" startedAt={performance.now() / 1000 - 3} sub="along" showText />)
     expect(screen.getByTestId('stage')).toHaveTextContent('Speak along')
     expect(screen.getByTestId('stage')).toHaveClass('border-record')
     expect(screen.getByTestId('rec-timer')).toHaveTextContent('0:03')
@@ -27,6 +27,7 @@ describe('<FlowView>', () => {
     expect(screen.getByText('你好', { selector: 'p.sentence' })).toBeInTheDocument()
     expect(screen.getByTestId('next-line')).toHaveTextContent('再见')
     expect(screen.getByTestId('next-line').className).toContain('text-fgdim')
+    expect(screen.queryByText(/stops by itself/)).toBeNull()                      // Flow's turns end on their own clock
   })
   it('after, during the turn: the turn bar shrinks and the ghost line fills at the reference pace', () => {
     render(<FlowView {...base} stage="yourTurn" sub="after" showText={false} now={101} turn={{ startedAt: 99, duration: 4 }} />)
@@ -68,7 +69,7 @@ describe('<FlowView>', () => {
   })
   it('along with a countdown: the along frame, text, timer and live waveform stay, with 3·2·1 inside', () => {
     const late = { ...seg(2, 1, '再见', 2), ref_alignment_json: [{ ch: '再', start: 2.6, end: 3.0, conf: 1 }, { ch: '见', start: 3.0, end: 3.5, conf: 1 }] }
-    render(<FlowView {...base} segments={[seg(1, 0, '你好', 0), late]} stage="along" recordingS={4} sub="along" showText clipTime={1.5} />)
+    render(<FlowView {...base} segments={[seg(1, 0, '你好', 0), late]} stage="along" startedAt={performance.now() / 1000 - 4} sub="along" showText clipTime={1.5} />)
     const stage = screen.getByTestId('stage')
     expect(stage).toHaveAttribute('data-stage', 'along')
     expect(stage).toHaveClass('border-record')
@@ -106,7 +107,7 @@ describe('<FlowSetup>', () => {
     started_at: at(d, h, m), ended_at: at(d, h, m + 1), session_id: 1, items: Array.from({ length: n }, (_, k) => ({ segment_id: k + 1, idx: k, attempt_id: 100 + k, duration_s: 2 })),
   })
   const setup = (runs: FlowRun[], onReplay = vi.fn()) => {
-    render(<FlowSetup segments={base.segments} from={0} to={2} sub="after" onChange={() => {}} onStart={() => {}} runs={runs} onReplay={onReplay} />)
+    render(<FlowSetup segments={base.segments} from={0} to={2} sub="after" onChange={() => {}} runs={runs} onReplay={onReplay} />)
     return onReplay
   }
 
@@ -119,8 +120,13 @@ describe('<FlowSetup>', () => {
     const runs = [run(7, 14, 5, 3), run(6, 9, 30, 2)]
     const onReplay = setup(runs)
     expect(screen.getByTestId('last-run')).toHaveTextContent('Last run · Wed 14:05 · 3 sentences')
-    fireEvent.click(screen.getByRole('button', { name: '▶ replay' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Replay run' }))
     expect(onReplay).toHaveBeenCalledWith(runs[0])
+  })
+  it('has no Start of its own (the bar\'s Start flow is the one start) and no ▶ (that is Listen\'s)', () => {
+    setup([run(7, 14, 5, 3)])
+    expect(screen.queryByRole('button', { name: /^Start/ })).toBeNull()
+    expect(screen.getByTestId('last-run').textContent).not.toContain('▶')
   })
   it('an older run picked in the list is the one replayed', () => {
     const runs = [run(7, 14, 5, 3), run(6, 9, 30, 2)]
@@ -129,7 +135,7 @@ describe('<FlowSetup>', () => {
     expect([...pick.querySelectorAll('option')].map((o) => o.textContent)).toEqual(['Wed 14:05 · 3 sentences', 'Tue 09:30 · 2 sentences'])
     fireEvent.change(pick, { target: { value: '1' } })
     expect(screen.getByTestId('last-run')).toHaveTextContent('Earlier run · Tue 09:30 · 2 sentences')
-    fireEvent.click(screen.getByRole('button', { name: '▶ replay' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Replay run' }))
     expect(onReplay).toHaveBeenCalledWith(runs[1])
   })
   it('a single run needs no list', () => {

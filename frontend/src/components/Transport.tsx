@@ -11,20 +11,21 @@ interface Props {
   // record (spec §1.3: the same action has the same look).
   advance?: boolean
   canPrev?: boolean       // false where the run only goes forward (a drill, a Flow run); default: not on the first sentence
+  canNext?: boolean       // false on Practice's last sentence; default true, since a drill's or Flow run's › skips (and may end) it
   showAnki?: boolean      // the drill has no Anki
 }
 
 // The control bar (spec §2), three groups left to right: where am I (‹ n / N ›), what do I do (Listen, Record, Me),
 // extras (Anki, Sound). Every button says what it does; its key is the small grey hint under the label.
 // recordLabel: what Enter does when not recording (Flow's start, the drill's Again/Next).
-export default function Transport({ onAction, idx, total, recording, busy, hint, error, recordLabel, advance = false, sound, canPrev = idx > 0, showAnki = true }: Props) {
+export default function Transport({ onAction, idx, total, recording, busy, hint, error, recordLabel, advance = false, sound, canPrev = idx > 0, canNext = true, showAnki = true }: Props) {
   return (
     <div data-testid="transport" className="border-t border-line bg-panel px-3.5 py-3 space-y-1">
       <div className="flex flex-wrap items-center justify-between gap-2.5">
         <div className="flex items-center gap-0.5 rounded-xl border border-line bg-card p-1">
           <Chevron icon={<IconChevronLeft />} name="Previous sentence" keyHint="←" disabled={!canPrev} onClick={() => onAction('prev')} />
           <span data-testid="position" className="px-1.5 text-xs text-accent tabular-nums" title={`Sentence ${idx + 1} of ${total}`}>{idx + 1} / {total}</span>
-          <Chevron icon={<IconChevronRight />} name="Next sentence" keyHint="→" onClick={() => onAction('next')} />
+          <Chevron icon={<IconChevronRight />} name="Next sentence" keyHint="→" disabled={!canNext} onClick={() => onAction('next')} />
         </div>
         <div className="flex items-center gap-2">
           {/* ▶ is Listen (the speaker), never navigation: the chevrons are */}

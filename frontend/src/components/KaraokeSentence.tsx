@@ -2,10 +2,10 @@ import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { charRects, type Rect } from '../lib/charRects'
 import { charFill, type Wipe } from '../lib/karaoke'
 import Sentence, { type SentenceProps } from './Sentence'
-import { TOKENS } from '../theme/tokens'
+import { WIPE_FILL } from '../theme/tokens'
 import Card from '../ui/Card'
 
-const FILL: Record<Wipe['tone'], string> = { ref: TOKENS.ref, ghost: `color-mix(in srgb, ${TOKENS.accent} 55%, transparent)` }
+const FILL: Record<Wipe['tone'], string> = WIPE_FILL
 
 // The sentence with the karaoke wipe (addendum §6.5). The sentence DOM is Sentence's, unchanged (main spec §7.7); the
 // wipe is a sibling layer — aria-hidden, pointer-events none — of boxes over each character's rectangle, multiplied

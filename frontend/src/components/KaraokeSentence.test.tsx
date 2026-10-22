@@ -25,6 +25,7 @@ describe('<KaraokeSentence>', () => {
     expect(p.contains(layer)).toBe(false)
     const boxes = [...layer.children] as HTMLElement[]
     expect(boxes.map((b) => [b.style.left, b.style.width])).toEqual([['0px', '40px'], ['40px', '20px']]) // 你 full, 好 half
+    expect(boxes[0].style.background).toBe('rgb(143, 179, 217)') // WIPE_FILL.ref (#8fb3d9), not the ref token: visible at night
   })
 
   it('draws nothing without a wipe, or when the browser gives no character boxes', () => {

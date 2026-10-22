@@ -20,3 +20,4 @@ export const IconMe = () => <Svg><circle cx="12" cy="8" r="3.5" /><path d="M5 20
 export const IconAnki = () => <Svg><rect x="4" y="5" width="16" height="14" rx="2" /><path d="M8 9h8M8 13h5" /></Svg>
 export const IconSound = () => <Svg><path d="M11 5L6 9H3v6h3l5 4z" /><path d="M15.5 8.5a5 5 0 010 7M18.5 5.5a9 9 0 010 13" /></Svg>
 export const IconFlag = () => <Svg><path d="M5 21V4M5 4h11l-2 4 2 4H5" /></Svg>
+export const IconReplay = () => <Svg><path d="M4 12a8 8 0 108-8H8" /><path d="M10 1L7 4l3 3" /></Svg>

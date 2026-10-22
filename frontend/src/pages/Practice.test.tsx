@@ -593,7 +593,7 @@ describe('<Practice>', () => {
       await waitFor(() => expect(usePractice.getState().sessionId).toBe(5))
       await enterFlow()
       fireEvent.click(screen.getByRole('button', { name: sub }))
-      fireEvent.click(screen.getByRole('button', { name: 'Start' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Start flow (Enter)' }))
     }
 
     it('along plays every clip at the guide level and hints at headphones', async () => {
@@ -797,7 +797,7 @@ describe('<Practice>', () => {
       await enterFlow()
       fireEvent.click(screen.getByRole('button', { name: 'after' }))
       expect(screen.getByText('Sent to Anki')).toBeInTheDocument()
-      fireEvent.click(screen.getByRole('button', { name: 'Start' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Start flow (Enter)' }))
       await waitFor(() => expect(h.player.play).toHaveBeenCalledTimes(1))
       expect(screen.queryByText('Sent to Anki')).toBeNull()
     })
@@ -822,7 +822,7 @@ describe('<Practice>', () => {
       const dialog = await screen.findByRole('dialog', { name: 'Send what you practised to Anki?' })
       expect(within(dialog).getAllByRole('checkbox')).toHaveLength(2)
       fireEvent.click(within(dialog).getByRole('button', { name: 'Close (Esc)' }))
-      expect(await screen.findByRole('button', { name: 'Start' })).toBeInTheDocument()
+      expect(await screen.findByRole('button', { name: 'Start flow (Enter)' })).toBeInTheDocument()
       cleanup(); useSettings.setState({ exportNote: null }) // unmount first: a store update reaching the mounted page warns about act()
     })
 
@@ -842,7 +842,7 @@ describe('<Practice>', () => {
       await enterFlow()
       expect(await screen.findByTestId('last-run')).toHaveTextContent('Last run')
       expect(h.api.lessons.flowRuns).toHaveBeenCalledWith(1)
-      fireEvent.click(screen.getByRole('button', { name: '▶ replay' })); await flush()
+      fireEvent.click(screen.getByRole('button', { name: 'Replay run' })); await flush()
       const [, items] = h.playSequence.mock.calls.at(-1) as unknown as [unknown, { url: string; rate: number }[]]
       const b = speechBounds(p51, 2)!
       expect(items).toEqual([{ url: '/seg/11.opus', rate: 1 }, { url: '/att/50.wav', rate: 1 }, { url: '/seg/12.opus', rate: 1 }, { url: '/att/51.wav', rate: 1, from: b.from, to: b.to }])
@@ -1046,7 +1046,7 @@ describe('<Practice>', () => {
       await screen.findByText('你好', { selector: 'p.sentence' })
       await enterFlow()
       fireEvent.click(screen.getByRole('button', { name: 'along' }))
-      fireEvent.click(screen.getByRole('button', { name: 'Start' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Start flow (Enter)' }))
       const send = await screen.findByRole('button', { name: 'Send weakest 3 to Anki' })
       await waitFor(() => expect(send).toBeEnabled())
       fireEvent.click(send)
@@ -1107,6 +1107,7 @@ describe('<Practice>', () => {
       fireEvent.click(within(bar()).getByRole('button', { name: 'Next sentence (→)' }))
       expect(await screen.findByText('再见', { selector: 'p.sentence' })).toBeInTheDocument()
       expect(within(bar()).getByTestId('position')).toHaveTextContent('2 / 2')
+      expect(within(bar()).getByRole('button', { name: 'Next sentence (→)' })).toBeDisabled() // the last sentence: nowhere to go
       fireEvent.click(within(bar()).getByRole('button', { name: 'Listen (Space)' }))
       expect(h.player.play).toHaveBeenLastCalledWith('/seg/12.opus', 1, expect.any(Function))
       fireEvent.click(within(bar()).getByRole('button', { name: 'Previous sentence (←)' }))
@@ -1375,7 +1376,7 @@ describe('<Practice>', () => {
       await waitFor(() => expect(usePractice.getState().sessionId).toBe(5))
       await enterFlow()
       fireEvent.click(screen.getByRole('button', { name: 'along' }))
-      fireEvent.click(screen.getByRole('button', { name: 'Start' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Start flow (Enter)' }))
       await waitFor(() => expect(h.player.play).toHaveBeenCalledTimes(2))
       fireEvent.click(screen.getByTitle('Back to the library'))
       const dialog = await screen.findByRole('dialog', { name: 'Send what you practised to Anki?' })
@@ -1394,7 +1395,7 @@ describe('<Practice>', () => {
       await waitFor(() => expect(usePractice.getState().sessionId).toBe(5))
       await enterFlow()
       fireEvent.click(screen.getByRole('button', { name: 'along' }))
-      fireEvent.click(screen.getByRole('button', { name: 'Start' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Start flow (Enter)' }))
     }
     const rowsOf = (dialog: HTMLElement) => within(dialog).getAllByRole('checkbox').map((c) => [c.closest('label')!.textContent, (c as HTMLInputElement).checked])
 
@@ -1427,7 +1428,7 @@ describe('<Practice>', () => {
       const dialog = await screen.findByRole('dialog', { name: 'Send what you practised to Anki?' })
       expect(rowsOf(dialog)).toEqual([['我今天想学中文', true], ['再见filler', false]])
       fireEvent.click(within(dialog).getByRole('button', { name: 'Close (Esc)' }))
-      fireEvent.click(await screen.findByRole('button', { name: 'Start' }))
+      fireEvent.click(await screen.findByRole('button', { name: 'Start flow (Enter)' }))
       await waitFor(() => expect(h.player.play).toHaveBeenCalledTimes(3))
       const stops = h.rec.stop.mock.calls.length
       await act(async () => { upload.resolve({ id: 1 }) })
