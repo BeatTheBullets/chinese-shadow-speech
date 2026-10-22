@@ -14,8 +14,8 @@ import numpy as np
 from sqlmodel import Session, delete, select
 from shadow.config import load_settings
 from shadow.deps import build_deps
-from shadow.memory import release_freed_memory_eagerly
 from shadow.ingest import audio
+from shadow.memory import release_freed_memory_eagerly
 from shadow.scoring import score_attempt
 from shadow.scoring.pitch import trim_silence
 from shadow.scoring.gate import text_similarity

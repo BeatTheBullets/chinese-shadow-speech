@@ -665,6 +665,19 @@ describe('<Practice>', () => {
       expect(screen.getByText('再见', { selector: 'p.sentence' })).toBeInTheDocument()
     })
 
+    it('a chosen "to" the current sentence moves past goes back to the default (the end of the passage)', async () => {
+      h.api.lessons.get.mockResolvedValue({ ...lesson, passages: [{ idx: 0, title: 'P1', start_s: 0, end_s: 4, segment_ids: [11, 12], done: false }] })
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      await enterFlow()
+      const to = () => (screen.getByRole('combobox', { name: 'Flow to' }) as HTMLSelectElement).value
+      fireEvent.change(screen.getByRole('combobox', { name: 'Flow to' }), { target: { value: '0' } })
+      expect(to()).toBe('0')
+      press('ArrowRight')
+      await waitFor(() => expect(screen.getByTestId('position')).toHaveTextContent('2 / 2'))
+      expect(to()).toBe('1')
+    })
+
     it('along plays every clip at the guide level and hints at headphones', async () => {
       useSettings.setState({ referenceVolume: 0.8, guideLevel: 0.5 })
       const atPlay: number[] = []
@@ -988,6 +1001,19 @@ describe('<Practice>', () => {
       fireEvent.click(pos())
       fireEvent.click(screen.getByRole('button', { name: 'Sound' }))
       expect(screen.getByLabelText('Playback speed')).toBeInTheDocument()
+      fireEvent.keyDown(document.body, { key: 'Escape' })
+      expect(screen.queryByLabelText('Playback speed')).toBeNull()
+      expect(list()).not.toBeNull()
+      fireEvent.keyDown(document.body, { key: 'Escape' })
+      expect(list()).toBeNull()
+    })
+    it('with the drawer opened after the Sound pop-up, the first Esc closes only the pop-up', async () => {
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      fireEvent.click(screen.getByRole('button', { name: 'Sound' }))
+      expect(screen.getByLabelText('Playback speed')).toBeInTheDocument()
+      fireEvent.click(pos())
+      expect(list()).not.toBeNull()
       fireEvent.keyDown(document.body, { key: 'Escape' })
       expect(screen.queryByLabelText('Playback speed')).toBeNull()
       expect(list()).not.toBeNull()

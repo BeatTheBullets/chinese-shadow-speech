@@ -34,3 +34,17 @@ describe('<Drawer> close button', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('<Drawer> opening', () => {
+  it('scrolls the current sentence into view, centred', () => {
+    const scroll = vi.fn()
+    const orig = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = scroll
+    try {
+      render(<Drawer segments={[seg(10), seg(11), seg(12)]} idx={1} open pendingIds={new Set()} onJump={noop} onClose={noop} onEdit={noop} onSplit={noop} onMerge={noop} />)
+      expect(scroll).toHaveBeenCalledTimes(1)
+      expect(scroll).toHaveBeenCalledWith({ block: 'center' })
+      expect(scroll.mock.contexts[0]).toBe(screen.getByText('句子11').closest('div')!.parentElement)
+    } finally { Element.prototype.scrollIntoView = orig }
+  })
+})

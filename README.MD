@@ -50,10 +50,11 @@ recogniser. Machine-translated auto-captions are refused, and so are subtitles t
 
 Chorus and Guided were removed on 2026-10-22; old Chorus and Guided takes still show.
 
-The stage shows the sentence with pinyin (and a translation, for lessons imported from Anki notes that have one). Below it, a **two-track feedback block** puts the
-reference and your take on the same time scale, with a cell per syllable. Click a cell to hear that syllable once.
+The stage shows the sentence with pinyin (and a translation, for lessons imported from Anki notes that have one). Below it, a **two-track feedback block** shows the
+reference and your take as waveforms trimmed to the voice, on one shared time scale. Click a character on the sentence
+card to hear that syllable of the reference.
 
-After a take, the cells on your track show how each tone went: **green** is ok, **orange** is close, **red** is wrong and
+After a take, one row of verdict cells (yours) shows how each tone went, and clicking a cell plays your syllable: **green** is ok, **orange** is close, **red** is wrong and
 shows the target and the tone heard (for example `3→2`), **grey ∅** is unvoiced, and a **dashed outline** is a syllable
 that was missing. Pitch lines are drawn over both tracks: your curve with the speaker's warped faintly behind it, and
 the reference curve on the reference track. A score appears in the header. Takes that are silent, too quiet, clipped
@@ -62,7 +63,7 @@ take of a different sentence is not scored ("Heard different words — not score
 words sounded different is scored as usual and the hint line says "Some words sounded different — heard: …". A
 neighbouring sentence that shares most of its words with the one shown can still pass and be tone-scored.
 
-![Echo mode: the cue line says what to do, the reference is wiping](docs/screenshots/echo-listen.png)
+![Echo mode: the stage says what to do, the reference is wiping](docs/screenshots/echo-listen.png)
 
 ### It always tells you what to do
 
@@ -125,7 +126,7 @@ Speaking happens in the app; Anki is used for **listening** review.
 
 After a scored take, a Chinese character-level CTC model checks the **initial and final** of each syllable (goodness of
 pronunciation plus a bad-pronunciation score, fused). If you said a different sound, for example `cī` for 吃, the
-**HEARD** row under your track shows what was heard, the syllable is ringed in purple on the reference row, and the
+**HEARD** row under your track shows the heard pinyin, and the
 header chip reads "1 sound off" (or "sounds ok"). Click a cell on your track to hear that syllable of your take. Tones
 and sounds are judged separately: a syllable can be a green sound with an orange tone.
 

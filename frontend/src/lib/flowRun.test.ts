@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { AFTER_PAUSE_MS, CLIP_GRACE_MS, playFlow, type FlowClip } from './flowRun'
+import { AFTER_PAUSE_MS, CLIP_GRACE_MS, MIN_RATE, playFlow, type FlowClip } from './flowRun'
 
 const clips: FlowClip[] = [
   { segmentId: 1, idx: 0, url: '/1', duration: 2 },
@@ -35,6 +35,15 @@ describe('playFlow', () => {
     expect((r.error as Error).message).toMatch(/did not load/)
     expect(r.actual.filter((a) => a.playEnd != null).map((a) => a.idx)).toEqual([0])
     expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('the watchdog allows for the slowest mid-clip rate: a clip slowed to the slider minimum never trips it', async () => {
+    const run = start('along') // rate 1, the first clip 2 s: slowed to 0.6 it takes 2 / 0.6 = 3333 ms
+    await vi.advanceTimersByTimeAsync(0)
+    await vi.advanceTimersByTimeAsync(Math.floor(2000 / MIN_RATE) + CLIP_GRACE_MS - 1)
+    expect(player.stop).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(2)
+    expect(((await run).error as Error).message).toMatch(/did not load/)
   })
 
   it('a stop during a clip clears the watchdog timer', async () => {

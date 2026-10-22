@@ -28,10 +28,10 @@ export default function Transport({ onAction, idx, total, recording, busy, hint,
         <div className="flex items-center gap-0.5 rounded-xl border border-line bg-card p-1">
           <Chevron icon={<IconChevronLeft />} name="Previous sentence" keyHint="←" disabled={!canPrev} onClick={() => onAction('prev')} />
           {list ? (
-            // this wrapper (button and panel) stacks above the scrim (z-30), so the button stays clickable as the toggle
-            <div className="relative z-40">
+            // the wrapper only anchors the panel; the button itself stacks above the scrim (z-30), so it isn't dimmed and stays the toggle
+            <div className="relative">
               <button type="button" data-testid="position" aria-expanded={list.open} aria-label="Lesson list (L)" title="Lesson list (L)" onClick={list.onToggle}
-                className="flex items-center gap-1 rounded-lg px-1.5 py-1 text-xs text-accent tabular-nums hover:bg-panel">
+                className="relative z-40 flex items-center gap-1 rounded-lg px-1.5 py-1 text-xs text-accent tabular-nums hover:bg-panel">
                 {idx + 1} / {total}<span className="text-fgdim"><IconList /></span>
               </button>
               {list.panel}

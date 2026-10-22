@@ -424,6 +424,9 @@ export default function Practice() {
     const from = Math.max(0, Math.min(last, ps.idx))
     return { from, to: Math.max(from, Math.min(last, flow.state.to ?? passageSpanAt(ps.idx)?.to ?? last)) }
   }
+  // A "to" the current sentence has moved past is stale (its range would end before it): back to the default, the passage's end.
+  const flowTo = flow.state.to, setFlowTo = flow.setForm
+  useEffect(() => { if (flowTo != null && st.idx > flowTo) setFlowTo({ to: null }) }, [flowTo, st.idx, setFlowTo])
   // The Flow form: its "from" is the current sentence (see flowRange), so picking one goes there.
   function setFlowForm({ from, ...rest }: { from?: number; to?: number; sub?: FlowSub }) {
     if (from != null) goTo(from)
@@ -642,6 +645,8 @@ export default function Practice() {
   }, [])
 
   const back = <Link to="/library" className="underline">Back to the library</Link>
+  // stable, so the drawer's keydown listener isn't re-registered on every render
+  const closeList = useCallback(() => usePractice.setState({ drawerOpen: false }), [])
   if (loadError) return <div className="p-8 text-bad">{loadError} {back}</div>
   if (!st.lesson || st.lesson.id !== lessonId) return <div className="p-8 text-fgdim">Loading…</div>
   if (!seg) return <div className="p-8 text-fgdim">This lesson has no sentences yet. {back}</div>
@@ -668,7 +673,6 @@ export default function Practice() {
     : st.mode === 'flow' ? (fs.phase === 'setup' ? 'record' : undefined)
     : st.lastAttempt == null ? 'record' : st.idx < segments.length - 1 ? 'next' : undefined
   // Picking a sentence or opening an edit/split dialog from the list closes it (the dialog is modal over the page anyway); a merge keeps it open.
-  const closeList = () => usePractice.setState({ drawerOpen: false })
   const lessonList = <Drawer segments={segments} idx={st.idx} open={st.drawerOpen} pendingIds={fs.pending} onJump={(i) => { closeList(); goTo(i) }} onClose={closeList}
     onEdit={(i) => { closeList(); openDialog('edit', i) }} onSplit={(i) => { closeList(); openDialog('split', i) }} onMerge={mergeNext} passages={passages} practised={st.practised} />
   const bar = <Transport onAction={act} idx={st.idx} total={segments.length} recording={echo === 'recording'} busy={echo === 'uploading'} hint={st.hint} error={error} recordLabel={recordLabel} sound={sound}

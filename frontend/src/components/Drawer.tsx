@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Passage, Segment } from '../api/types'
 import { groupByPassage, passageDone } from '../lib/passages'
 import Button from '../ui/Button'
@@ -23,9 +23,13 @@ export default function Drawer({ segments, idx, open, pendingIds, onJump, onClos
     // One Esc closes only the topmost thing: a dialog/help overlay or the Sound pop-up is still in the DOM while its own
     // handler runs (state updates are async), so the drawer leaves the key to it.
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !document.querySelector('[role="dialog"], [data-popover-open]')) onClose() }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
+    // Capture phase: this runs before the pop-up's own (bubbling) Esc handler removes itself, so it still sees it open.
+    document.addEventListener('keydown', onKey, true)
+    return () => document.removeEventListener('keydown', onKey, true)
   }, [open, onClose])
+  // Opens at the current sentence: its row is scrolled into view, centred (the guard is for jsdom).
+  const curRow = useRef<HTMLDivElement>(null)
+  useEffect(() => { if (open) curRow.current?.scrollIntoView?.({ block: 'center' }) }, [open])
   if (!open) return null
   const pick = (fn: (i: number) => void, i: number) => () => { setMenu(null); fn(i) }
   const item = 'px-2 py-0.5 rounded-lg border border-line bg-card hover:text-fg disabled:opacity-40'
@@ -45,7 +49,7 @@ export default function Drawer({ segments, idx, open, pendingIds, onJump, onClos
               {passageDone(g.passage, segments, practised) && <span className="text-ok" aria-label="passage done">✓</span>}
             </div>)}
           {g.rows.map(({ i, seg: s }) => (
-            <div key={s.id}>
+            <div key={s.id} ref={i === idx ? curRow : undefined}>
               <div className={`flex items-center text-sm ${i === idx ? 'bg-card text-fg shadow-[inset_2px_0_0_theme(colors.accent)]' : 'text-fgdim hover:text-fg'}`}>
                 <button onClick={() => onJump(i)} title={`${s.text}${s.last_score != null ? `\nlast ${Math.round(s.last_score * 100)} · best ${Math.round((s.best_score ?? 0) * 100)}` : ''}`}
                   className="flex-1 min-w-0 flex items-center gap-2 pl-3 py-1 text-left">

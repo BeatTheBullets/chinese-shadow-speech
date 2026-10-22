@@ -41,7 +41,7 @@ def test_attempt_scoring_trims(client, tmp_path, monkeypatch):
     assert calls == [1]
 
 
-def test_release_freed_memory_eagerly_sets_both_thresholds(monkeypatch):
+def test_release_freed_memory_eagerly_sets_both_thresholds():
     calls = []
     memory._libc = SimpleNamespace(mallopt=lambda opt, val: calls.append((opt, val)) or 1)
     try:

@@ -9,6 +9,8 @@ export const AFTER_PAUSE_MS = 300
 // (dead backend behind an open socket) and `play()` stays pending, with neither `ended` nor `error`. Covers a slow
 // first-byte on a healthy server.
 export const CLIP_GRACE_MS = 5000
+// The slowest rate the Sound slider can switch to mid-clip: the watchdog allows for it, so a slowed clip never trips it.
+export const MIN_RATE = 0.6
 
 export interface FlowClip { segmentId: number; idx: number; url: string; duration: number }
 export interface PlayFlowOptions {
@@ -46,7 +48,7 @@ export async function playFlow(o: PlayFlowOptions): Promise<FlowPlayback> {
         watchdog = setTimeout(() => {
           o.player.stop() // releases the pending playClip too, so nothing is left hanging
           reject(new Error('the clip did not load — is the backend running?'))
-        }, (c.duration / rate) * 1000 + CLIP_GRACE_MS)
+        }, (c.duration / Math.min(rate, MIN_RATE)) * 1000 + CLIP_GRACE_MS)
       })
       const played = playClip(o.player, c.url, rate, skip.signal, o.onTime)
       void stalled.catch(() => {}) // a late rejection (clip finished first) must not be unhandled
