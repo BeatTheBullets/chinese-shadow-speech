@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from 'react'
+import { memo, useState, type ReactNode } from 'react'
 import type { FlowRun, Segment } from '../api/types'
 import type { Mic } from '../audio/useMic'
 import type { Stage } from '../lib/cue'
@@ -18,21 +18,26 @@ import Transport from './Transport'
 
 export interface FlowViewProps {
   segments: Segment[]; current: number; pending: Set<number>; sub: FlowSub; showText: boolean
-  first: number; last: number // the run's range (indexes into segments)
-  stage: Stage; mic: Pick<Mic, 'snapshot'>; rate: number; now: number // stage: stageOf() (listen, yourTurn, along)
+  first: number; last: number // the run's range (indexes into segments); before a run, the range Enter will start
+  stage: Stage; mic: Pick<Mic, 'snapshot'>; rate: number; now: number // stage: stageOf() (idle, listen, yourTurn, along)
   startedAt: number // performance-clock second the take timer counts from: after's turn opened, or along's run began
   clipTime: number | null; turn: { startedAt: number; duration: number } | null
+  running: boolean    // false: the Flow screen before a run (Enter starts it), with `controls` shown
+  controls?: ReactNode // the run's settings (FlowSetup): shown before a run, their space kept (hidden) while it runs
 }
 
-// Flow mode while running (main spec §7.3, addendum §6.5, style spec §3): the lesson as a transcript; the current
-// line large on the stage, with the karaoke wipe, the 3 · 2 · 1 countdown wherever the count-in window runs (after:
-// the stage is then getReady; along: the ring shows inside the speak-along frame, which stays, as the recording
-// does), and while the learner speaks (after's turn: ghost wipe and turn bar; along: throughout) the record frame
-// and the live waveform; the run's next line dimmed right below it.
+// The transcript round the stage: this many lines before the current one (above the stage) and after it (below).
+export const WINDOW = { before: 2, after: 3 } as const
+
+// Flow mode (main spec §7.3, addendum §6.5, style spec §3), from the moment it is chosen: a window of the lesson
+// (WINDOW lines before and after) centred above and below a compact stage with the current line large, with the
+// karaoke wipe, the 3 · 2 · 1 countdown wherever the count-in window runs (after: the stage is then getReady; along:
+// the ring shows inside the speak-along frame, which stays, as the recording does), and while the learner speaks
+// (after's turn: ghost wipe and turn bar; along: throughout) the record frame and the live waveform; the run's next
+// line dimmed right below it. The window advances with the run; at the lesson's ends empty slots keep the stage in
+// place. Before a run the stage shows the line Enter starts from, idle (or listening, when Space plays it).
 export default function FlowView(p: FlowViewProps) {
   const { current } = p
-  const curRef = useRef<HTMLDivElement | null>(null)
-  useEffect(() => { curRef.current?.scrollIntoView?.({ block: 'center', behavior: 'smooth' }) }, [current])
   const cur = p.segments[current]
   const next = current < p.last ? p.segments[current + 1] : undefined   // the run ends at `last`: nothing beyond it plays
   const prev = current > p.first ? p.segments[current - 1] : undefined  // played just before in this run
@@ -42,48 +47,58 @@ export default function FlowView(p: FlowViewProps) {
     ? flowWipe({ spans, sub: p.sub, clipTime: p.clipTime, clipDuration: cur.end_s - cur.start_s, turn: p.turn, now: p.now, rate: p.rate,
       next: along && next ? nextLineStart(cur, next, p.rate) : null, lead: along && prev ? lineLead(prev, cur, p.rate) : null })
     : { wipe: null, count: null, turnLeft: null }
+  // Lines from..to-1 of the window; one past either end of the lesson is an empty slot of the same height.
+  const lines = (from: number, to: number) => Array.from({ length: to - from }, (_, j) => {
+    const i = from + j, s = p.segments[i]
+    if (!s) return <div key={`pad${i}`} data-testid="flow-pad" aria-hidden="true" className="h-8" />
+    return <FlowRow key={s.id} s={s} pending={p.pending.has(s.id)} place={i < current ? 'past' : next && i === current + 1 ? 'next' : 'later'} />
+  })
   return (
-    <div className="flex-1 overflow-y-auto p-6 space-y-1">
-      {p.segments.map((s, i) => {
-        if (i !== current) return <FlowRow key={s.id} s={s} pending={p.pending.has(s.id)} place={i < current ? 'past' : next && i === current + 1 ? 'next' : 'later'} />
-        return (
-          <div key={s.id} ref={curRef} className="flex gap-3 items-start px-3 rounded bg-card py-3">
-            <RowMarks s={s} pending={p.pending.has(s.id)} />
-            <div className="flex-1">
-              <StageState stage={k.count != null && p.stage !== 'along' ? 'getReady' : p.stage} count={k.count} startedAt={p.startedAt}
+    <div className="flex-1 overflow-y-auto p-6">
+      <div data-testid="flow-transcript" className="mx-auto w-full max-w-2xl flex flex-col items-center gap-1">
+        {p.controls != null && <div aria-hidden={p.running || undefined} className={`w-full min-h-16 ${p.running ? 'invisible' : ''}`}>{p.controls}</div>}
+        {lines(current - WINDOW.before, current)}
+        {cur && (
+          <div data-testid="flow-current" className="w-full flex gap-3 items-start px-3 rounded bg-card py-2">
+            <span className="flex items-center gap-2 pt-2"><RowMarks s={cur} pending={p.pending.has(cur.id)} /></span>
+            <div className="flex-1 min-w-0">
+              <StageState compact stage={k.count != null && p.stage !== 'along' ? 'getReady' : p.stage} count={k.count} startedAt={p.startedAt}
                 wave={<LiveWave mic={p.mic} color={TOKENS.you} />}>
-                <KaraokeSentence wipe={k.wipe} text={s.text} words={s.words_json} showHanzi={p.showText} showPinyin={p.showText} />
+                <KaraokeSentence wipe={k.wipe} text={cur.text} words={cur.words_json} showHanzi={p.showText} showPinyin={p.showText} />
                 {!p.showText && <GhostLine count={spans.length} wipe={k.wipe} />}
                 {/* after's turn bar keeps its slot while listening, so the turn opening moves nothing */}
                 {!along && <div className="h-1">{k.turnLeft != null && (
                   <div data-testid="turn-bar" className="h-1 bg-card rounded overflow-hidden"><div className="h-full bg-you" style={{ width: `${k.turnLeft * 100}%` }} /></div>)}</div>}
               </StageState>
             </div>
-          </div>)
-      })}
+          </div>)}
+        {lines(current + 1, current + 1 + WINDOW.after)}
+      </div>
     </div>
   )
 }
 
 function RowMarks({ s, pending }: { s: Segment; pending: boolean }) {
   return (<>
-    <span className="w-6 text-right text-[10px] text-fgdim pt-1">{s.idx + 1}</span>
-    <span className={`w-2 h-2 mt-2 rounded-full flex-none ${dotClass(s, pending)}`} />
+    <span className="text-[10px] text-fgdim tabular-nums">{s.idx + 1}</span>
+    <span className={`w-2 h-2 rounded-full flex-none ${dotClass(s, pending)}`} />
   </>)
 }
 
 const PLACE = { past: 'text-fgdim', next: 'text-fgdim text-lg', later: 'text-fg text-sm' }
-// Any line but the current one. Memoised: its props only change when the run moves on, not on every frame of the wipe.
+// Any line but the current one, centred under (or over) the stage, one fixed height. Memoised: its props only change
+// when the run moves on, not on every frame of the wipe.
 const FlowRow = memo(function FlowRow({ s, pending, place }: { s: Segment; pending: boolean; place: keyof typeof PLACE }) {
   return (
-    <div className="flex gap-3 items-start px-3 py-1 rounded">
+    <div data-testid="flow-line" className="w-full h-8 flex justify-center items-center gap-2 px-3 min-w-0">
       <RowMarks s={s} pending={pending} />
       <span data-testid={place === 'next' ? 'next-line' : undefined} className={`font-hanzi truncate ${PLACE[place]}`}>{s.text}</span>
     </div>)
 })
 
-// Flow mode before a run: which sentences, which sub-mode; and the lesson's stored runs (newest first) to replay.
-// No Start button here: the bar's "Start flow" (Enter) is the one obvious start.
+// The Flow screen's settings, small, above the transcript (FlowView's `controls`): which sentences, which sub-mode; and
+// the lesson's stored runs (newest first) to replay. No Start button here: the bar's "Start flow" (Enter, pulsing) is
+// the one obvious start.
 export function FlowSetup({ segments, from, to, sub, onChange, runs, onReplay }: {
   segments: Segment[]; from: number; to: number; sub: FlowSub; onChange: (p: { from?: number; to?: number; sub?: FlowSub }) => void
   runs: FlowRun[]; onReplay: (run: FlowRun) => void
@@ -95,7 +110,7 @@ export function FlowSetup({ segments, from, to, sub, onChange, runs, onReplay }:
   const tab = (v: FlowSub) => <button aria-pressed={sub === v} className={`px-2.5 py-1 rounded-xl border ${sub === v ? 'border-accent text-accent' : 'border-line text-fgdim hover:text-fg'}`} onClick={() => onChange({ sub: v })}>{v}</button>
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-center gap-2 text-sm text-fgdim">
+      <div className="flex flex-wrap items-center justify-center gap-2 text-sm text-fgdim">
         Flow from {pick('Flow from', from, 'from')} to {pick('Flow to', to, 'to')} {tab('after')}{tab('along')}
       </div>
       {runs.length > 0 && <PastRuns key={`${runs[0].started_at}|${runs[0].session_id}`} runs={runs} onReplay={onReplay} />}

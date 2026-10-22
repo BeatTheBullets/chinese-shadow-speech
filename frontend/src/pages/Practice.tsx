@@ -238,8 +238,10 @@ export default function Practice() {
     dispatch('CANCEL')
   }
 
+  // Before a Flow run, the sentence on its stage: the one Enter starts from (not always the bar's, e.g. inside a passage).
   async function playRef() {
-    const s = currentSegment(usePractice.getState())
+    const ps = usePractice.getState()
+    const s = ps.mode === 'flow' && flow.state.phase === 'setup' ? ps.lesson?.segments[flowRange().from] : currentSegment(ps)
     if (!s || busy()) return
     stopPlayback(); setError('')
     const mine = ++playId.current
@@ -651,6 +653,8 @@ export default function Practice() {
   // The stage (spec §3). Echo goes straight to "Your turn" (no countdown); Flow's countdown is FlowView's.
   const activity = { mode: st.mode, echo, runKind, hasTake: st.lastAttempt != null, flowPhase: fs.phase, flowSub: fs.sub, flowTurn: fs.turn != null }
   const stage = stageOf(activity), note = idleNote(activity)
+  const bar = <Transport onAction={act} idx={st.idx} total={segments.length} recording={echo === 'recording'} busy={echo === 'uploading'} hint={st.hint} error={error} recordLabel={recordLabel} sound={sound}
+    canNext={st.idx < segments.length - 1} />
   return (
     <div className="h-full flex flex-col">
       <TopBar title={st.lesson.title} speaker={st.lesson.speaker} mode={st.mode}
@@ -659,15 +663,19 @@ export default function Practice() {
         passage={passages.length ? { index: passageIndexOf(passages, segments, flowRunning ? fs.current : st.idx), titles: passages.map((p) => p.title), onPick: pickPassage } : null} />
       <div className="flex-1 flex min-h-0">
         <main className="flex-1 flex flex-col min-w-0">
-          {flowRunning ? (<>
-            <FlowView segments={segments} current={fs.current} first={fs.range?.from ?? 0} last={fs.range?.to ?? segments.length - 1}
+          {/* Flow shows its own screen as soon as it is chosen (before a run: the range's first line, idle, with the
+              settings above); its summary and Echo share the sentence page. */}
+          {st.mode === 'flow' && fs.phase !== 'summary' ? (<>
+            <FlowView segments={segments} current={flowRunning ? fs.current : range.from} first={flowRunning ? fs.range?.from ?? 0 : range.from}
+              last={flowRunning ? fs.range?.to ?? segments.length - 1 : range.to} running={flowRunning}
               pending={fs.pending} sub={fs.sub} rate={st.rate} now={now}
-              stage={stage} mic={mic} startedAt={fs.turn ? fs.turn.startedAt : runFrom} clipTime={fs.clipTime} turn={fs.turn}
-              showText={!(settings.practice.hideTextWhileRecording && fs.sub === 'after' && fs.turn != null)} />
-            <FlowTransport onAction={act} idx={fs.current} total={segments.length} sound={sound} error={error} hint={st.hint} />
+              stage={stage} mic={mic} startedAt={fs.turn ? fs.turn.startedAt : runFrom} clipTime={flowRunning ? fs.clipTime : null} turn={flowRunning ? fs.turn : null}
+              showText={!(settings.practice.hideTextWhileRecording && fs.sub === 'after' && fs.turn != null)}
+              controls={<FlowSetup segments={segments} from={range.from} to={range.to} sub={fs.sub} onChange={flow.setForm} runs={flowRuns} onReplay={replayRun} />} />
+            {flowRunning ? <FlowTransport onAction={act} idx={fs.current} total={segments.length} sound={sound} error={error} hint={st.hint} /> : bar}
           </>) : (<>
             <div className="flex-1 overflow-y-auto p-6 space-y-6">
-              {st.mode === 'flow' && fs.phase === 'summary' ? (<>
+              {st.mode === 'flow' ? (<>
                 <StageState stage={stage} note={note} />
                 <FlowSummary segments={segments} results={fs.results} skipped={fs.skipped} elapsedS={fs.elapsedS}
                   onPlayPair={(r) => playItems(resultPair(r))} onReplayAll={() => playItems([...fs.results].sort((x, y) => x.idx - y.idx).flatMap(resultPair))}
@@ -675,8 +683,6 @@ export default function Practice() {
                   onFlagWeakest={flagWeakest} onExportWeakest={exportWeakest}
                   onDone={() => offerExport(flow.clear)} />
               </>) : (<>
-                {st.mode === 'flow' && <FlowSetup segments={segments} from={range.from} to={range.to} sub={fs.sub} onChange={flow.setForm}
-                  runs={flowRuns} onReplay={replayRun} />}
                 <StageState stage={stage} note={note} startedAt={echoTurn ?? undefined} autoStop wave={<LiveWave mic={mic} color={TOKENS.you} />}>
                   <KaraokeSentence wipe={wipe} text={seg.text} words={seg.words_json} showHanzi={st.textPrefs.hanzi && show} showPinyin={st.textPrefs.pinyin && show} translation={seg.translation} showTranslation={st.textPrefs.translation && show}
                     tools={<SentenceTools flagged={seg.difficulty_flag} onFlag={() => act('flag')} prefs={st.textPrefs} onToggle={(k) => act(TOGGLE[k])} />}>
@@ -689,8 +695,7 @@ export default function Practice() {
                   score={take?.score ?? null} scoreHeader={<ScoreHeader score={take?.score} best={seg.best_score} attempts={seg.attempts} />} />
               </>)}
             </div>
-            <Transport onAction={act} idx={st.idx} total={segments.length} recording={echo === 'recording'} busy={echo === 'uploading'} hint={st.hint} error={error} recordLabel={recordLabel} sound={sound}
-              canNext={st.idx < segments.length - 1} />
+            {bar}
           </>)}
         </main>
         {!flowRunning && <Drawer segments={segments} idx={st.idx} open={st.drawerOpen} pendingIds={fs.pending} onJump={goTo} onToggle={st.toggleDrawer}

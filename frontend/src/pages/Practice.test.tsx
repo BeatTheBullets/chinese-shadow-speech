@@ -596,6 +596,44 @@ describe('<Practice>', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Start flow (Enter)' }))
     }
 
+    it('choosing Flow shows the Flow screen at once: the start sentence on the stage, a windowed transcript, the settings and the Start; Enter starts the run', async () => {
+      clipsTake(2, () => true)
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      await enterFlow()
+      expect(screen.getByTestId('flow-transcript')).toBeInTheDocument()
+      expect(screen.getByTestId('flow-current')).toContainElement(screen.getByTestId('stage'))
+      expect(screen.getByTestId('stage')).toHaveAttribute('data-stage', 'idle')
+      expect(screen.getByTestId('stage')).toHaveTextContent('你好')
+      expect(screen.getAllByTestId('flow-line').map((l) => l.textContent)).toEqual(['2再见'])
+      expect(screen.queryByTestId('two-track')).toBeNull()                       // not the Echo screen
+      expect(screen.getByRole('button', { name: 'after' })).toHaveAttribute('aria-pressed', 'true')
+      expect(screen.getByRole('combobox', { name: 'Flow from' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Start flow (Enter)' })).toBeInTheDocument()
+      expect(screen.getByTestId('stage')).not.toHaveTextContent(/Ready|Enter/)
+      fireEvent.click(screen.getByRole('button', { name: 'along' }))
+      press('Enter')
+      await waitFor(() => expect(h.player.play).toHaveBeenCalledTimes(1))
+      expect(h.rec.start).toHaveBeenCalledTimes(1)
+      expect(screen.getByTestId('stage')).toHaveTextContent('Speak along')
+      press('Enter')
+      expect(await screen.findByText(/Flow finished/)).toBeInTheDocument()
+    })
+
+    it('before a run, Space plays the sentence on the stage: the run\'s first, not the one the bar is on', async () => {
+      h.api.lessons.get.mockResolvedValue({ ...lesson, passages: [{ idx: 0, title: 'P1', start_s: 0, end_s: 4, segment_ids: [11, 12], done: false }] })
+      h.player.play.mockImplementation(() => new Promise(() => {}))
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      press('ArrowRight')
+      expect(await screen.findByText('再见', { selector: 'p.sentence' })).toBeInTheDocument()
+      await enterFlow()
+      expect(screen.getByTestId('stage')).toHaveTextContent('你好')              // the passage's first sentence starts the run
+      press(' ')
+      await waitFor(() => expect(screen.getByTestId('stage')).toHaveAttribute('data-stage', 'listen'))
+      expect(h.player.play).toHaveBeenLastCalledWith('/seg/11.opus', 1, expect.any(Function))
+    })
+
     it('along plays every clip at the guide level and hints at headphones', async () => {
       useSettings.setState({ referenceVolume: 0.8, guideLevel: 0.5 })
       const atPlay: number[] = []

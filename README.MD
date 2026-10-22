@@ -75,7 +75,8 @@ neighbouring sentence that shares most of its words with the one shown can still
 - **Karaoke cues:**
   - The sentence fills with colour in time with the speaker.
   - During your turn, a fainter amber wipe runs at the speaker's pace.
-- **Flow extras:** a preview of the next line and a bar that shrinks over your speaking window.
+- **Flow extras:** the Flow screen shows as soon as you choose Flow: a compact stage with a few lines before and after
+  it, centred, moving on with the run; a preview of the next line and a bar that shrinks over your speaking window.
 
 ![Echo, your turn: amber pacing wipe](docs/screenshots/echo-record.png)
 
@@ -89,7 +90,7 @@ Hover over a mode tab for a one-line explanation, or press `?` for the full help
 
 - Every take is kept. When you reopen a lesson, **R** plays your latest take of the current sentence and
   **Space** plays the original.
-- In Flow mode the setup panel offers your **last runs**. **▶ replay** plays each sentence as original → you.
+- In Flow mode the settings above the transcript offer your **last runs**. **Replay run** plays each sentence as original → you.
 - The **reference volume** is adjustable. While you speak along, in Flow *along*, the reference drops to
   a quieter **guide level**, 50 % by default.
 

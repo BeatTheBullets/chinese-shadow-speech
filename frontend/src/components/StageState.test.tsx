@@ -124,4 +124,16 @@ describe('<StageState>', () => {
     render(<StageState stage="yourTurn" note="Ready — Enter to start">{card}</StageState>)
     expect(screen.queryByText('Ready — Enter to start')).toBeNull()
   })
+  it('compact (Flow): one smaller min-height that still holds the ring, a smaller wave slot, and the ring beside "Get ready"', () => {
+    const minH = () => [...screen.getByTestId('stage-cue').classList].filter((c) => c.startsWith('min-h-'))
+    const { rerender } = render(<StageState compact stage="getReady" count={3} wave={<div />}>{card}</StageState>)
+    expect(minH()).toEqual(['min-h-20'])                         // the ring is h-20 (80 px): nothing taller
+    expect(screen.getByTestId('wave-slot')).toHaveClass('h-10')
+    expect(screen.getByTestId('countdown')).toHaveClass('absolute', 'right-1/2')
+    expect(screen.getByText('Get ready')).toHaveClass('left-1/2')
+    for (const [stage, count] of [['idle', null], ['listen', null], ['yourTurn', null], ['along', 2]] as const) {
+      rerender(<StageState compact stage={stage} count={count} startedAt={ago(1)} wave={<div />}>{card}</StageState>)
+      expect(minH(), stage).toEqual(['min-h-20'])
+    }
+  })
 })
