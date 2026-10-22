@@ -86,13 +86,17 @@ function RowMarks({ s, pending }: { s: Segment; pending: boolean }) {
 }
 
 const PLACE = { past: 'text-fgdim', next: 'text-fgdim text-lg', later: 'text-fg text-sm' }
-// Any line but the current one, centred under (or over) the stage, one fixed height. Memoised: its props only change
-// when the run moves on, not on every frame of the wipe.
+// Any line but the current one, centred over or under the stage. Above it (already played): one fixed-height line,
+// cut with an ellipsis, the full text in its title, so the stage never moves. Below it: the whole line, wrapping, since
+// that is where the learner reads ahead (the next line, in along). Memoised: its props only change when the run moves
+// on, not on every frame of the wipe.
 const FlowRow = memo(function FlowRow({ s, pending, place }: { s: Segment; pending: boolean; place: keyof typeof PLACE }) {
+  const above = place === 'past'
   return (
-    <div data-testid="flow-line" className="w-full h-8 flex justify-center items-center gap-2 px-3 min-w-0">
+    <div data-testid="flow-line" className={`w-full flex justify-center gap-2 px-3 min-w-0 ${above ? 'h-8 items-center' : 'min-h-8 py-1 items-baseline'}`}>
       <RowMarks s={s} pending={pending} />
-      <span data-testid={place === 'next' ? 'next-line' : undefined} className={`font-hanzi truncate ${PLACE[place]}`}>{s.text}</span>
+      <span data-testid={place === 'next' ? 'next-line' : undefined} title={above ? s.text : undefined}
+        className={`font-hanzi ${above ? 'truncate' : 'text-center min-w-0 break-words'} ${PLACE[place]}`}>{s.text}</span>
     </div>)
 })
 

@@ -124,6 +124,19 @@ describe('<FlowView>', () => {
     expect(l5.querySelector('.rounded-full')!.className).not.toBe(l4.querySelector('.rounded-full')!.className) // 5 is pending
     expect(l7).toContainElement(screen.getByTestId('next-line'))
   })
+  it('lines above the stage are cut to one line (the full text in their title); lines below wrap, to read ahead', () => {
+    const long = [seg(1, 0, '你好', 0), seg(2, 1, '再见', 2), { ...seg(3, 2, '谢谢', 4), text: '谢'.repeat(80) }]
+    render(<FlowView {...base} segments={long} current={1} sub="along" showText />)
+    const [above, below] = screen.getAllByTestId('flow-line')
+    const text = (l: HTMLElement) => l.querySelector('.font-hanzi') as HTMLElement
+    expect(text(above)).toHaveClass('truncate')
+    expect(text(above)).toHaveAttribute('title', '你好')
+    expect(above).toHaveClass('h-8')
+    expect(text(below)).not.toHaveClass('truncate')
+    expect(below).not.toHaveClass('h-8')
+    expect(below).toHaveClass('min-h-8')
+    expect(text(below)).toHaveTextContent('谢'.repeat(80))
+  })
   it('the stage is compact: its cue area only as tall as the ring', () => {
     render(<FlowView {...base} sub="after" showText />)
     expect(screen.getByTestId('stage-cue')).toHaveClass('min-h-20')

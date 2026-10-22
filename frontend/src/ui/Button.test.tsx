@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { TOKENS, contrast } from '../theme/tokens'
 import Button from './Button'
 import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 
 describe('Button', () => {
   it('shows the key hint under the label, not as the face', () => {
@@ -43,8 +44,10 @@ describe('Button', () => {
     expect(screen.getByRole('button')).not.toHaveClass('pulse-next')
   })
   it('the pulse is a ~1.6 s CSS animation, switched off under prefers-reduced-motion', () => {
-    // vitest blanks imported CSS, so the stylesheet is read as text (tests run from frontend/)
-    const flat = readFileSync('src/index.css', 'utf8').replace(/\s+/g, ' ')
+    // vitest blanks imported CSS, so the stylesheet is read as text, found next to this file whatever the cwd. `here`
+    // is a variable on purpose: Vite rewrites a literal new URL('…', import.meta.url) into a served http: asset URL.
+    const here = import.meta.url
+    const flat = readFileSync(fileURLToPath(new URL('../index.css', here)), 'utf8').replace(/\s+/g, ' ')
     expect(flat).toMatch(/\.pulse-next \{[^}]*animation: next-pulse 1\.6s/)
     expect(flat).toMatch(/@media \(prefers-reduced-motion: reduce\) \{ \.pulse-next \{ animation: none; \} \}/)
   })

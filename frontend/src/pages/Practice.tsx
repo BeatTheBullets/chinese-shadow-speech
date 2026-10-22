@@ -25,7 +25,7 @@ import type { SoundControls } from '../components/SoundPopover'
 import TwoTrack from '../components/TwoTrack'
 import { stageOf } from '../lib/cue'
 import { echoReducer, MIN_TAKE_S, type EchoEvent, type EchoState } from '../lib/echo'
-import { weakestResults, type FlowResult } from '../lib/flow'
+import { weakestResults, type FlowResult, type FlowSub } from '../lib/flow'
 import { clipSpans, stageWipe } from '../lib/karaoke'
 import { actionForKey, type Action } from '../lib/keys'
 import { passageIndexOf, passageSpan } from '../lib/passages'
@@ -238,10 +238,8 @@ export default function Practice() {
     dispatch('CANCEL')
   }
 
-  // Before a Flow run, the sentence on its stage: the one Enter starts from (not always the bar's, e.g. inside a passage).
   async function playRef() {
-    const ps = usePractice.getState()
-    const s = ps.mode === 'flow' && flow.state.phase === 'setup' ? ps.lesson?.segments[flowRange().from] : currentSegment(ps)
+    const s = currentSegment(usePractice.getState())
     if (!s || busy()) return
     stopPlayback(); setError('')
     const mine = ++playId.current
@@ -406,27 +404,39 @@ export default function Practice() {
     if (m === usePractice.getState().mode) return
     if (runRef.current?.kind === 'flow') await flow.stop()
     if (!alive.current) return
-    cancelActivity(); flow.clear(); flow.setForm({ from: null, to: null })
-    usePractice.getState().setMode(m)
+    cancelActivity(); flow.clear(); flow.setForm({ to: null })
+    const ps = usePractice.getState()
+    ps.setMode(m)
+    // Flow starts at the current sentence's passage (addendum §4): the sentence moves there, so the stage, the bar and
+    // every key act on the sentence the run starts from.
+    const span = m === 'flow' ? passageSpanAt(ps.idx) : null
+    if (span && span.from !== ps.idx) ps.setIdx(span.from)
   }
 
-  // Flow: the setup form's range, defaulting to the current sentence's passage (addendum §4), or to the current
-  // sentence through the last when the lesson has no passages.
+  function passageSpanAt(i: number) {
+    const ps = usePractice.getState(), segs = ps.lesson?.segments ?? [], passages = ps.lesson?.passages ?? []
+    const k = passageIndexOf(passages, segs, i)
+    return k >= 0 ? passageSpan(passages[k], segs) : null
+  }
+  // Flow: the run's range. Before a run one sentence drives everything: the run starts at the current sentence (the
+  // stage shows it; ‹ ›, the drawer and the form's "Flow from" all move it). It ends at the form's "to", by default the
+  // end of the current sentence's passage, or the last sentence when the lesson has none; never before it starts.
   function flowRange() {
-    const ps = usePractice.getState(), segs = ps.lesson?.segments ?? [], last = Math.max(0, segs.length - 1)
-    const clamp = (i: number) => Math.max(0, Math.min(last, i))
-    const passages = ps.lesson?.passages ?? []
-    const k = passageIndexOf(passages, segs, ps.idx)
-    const span = k >= 0 ? passageSpan(passages[k], segs) : null
-    const from = clamp(flow.state.from ?? span?.from ?? ps.idx), to = clamp(flow.state.to ?? span?.to ?? last)
-    return { from: Math.min(from, to), to: Math.max(from, to) }
+    const ps = usePractice.getState(), last = Math.max(0, (ps.lesson?.segments.length ?? 0) - 1)
+    const from = Math.max(0, Math.min(last, ps.idx))
+    return { from, to: Math.max(from, Math.min(last, flow.state.to ?? passageSpanAt(ps.idx)?.to ?? last)) }
+  }
+  // The Flow form: its "from" is the current sentence (see flowRange), so picking one goes there.
+  function setFlowForm({ from, ...rest }: { from?: number; to?: number; sub?: FlowSub }) {
+    if (from != null) goTo(from)
+    if (Object.keys(rest).length) flow.setForm(rest)
   }
   // The top bar's passage selector: to the passage's first sentence (Flow's range follows it). Not during a Flow run.
   function pickPassage(k: number) {
     const l = usePractice.getState().lesson, p = l?.passages?.[k]
     const span = l && p ? passageSpan(p, l.segments) : null
     if (!span || runRef.current?.kind === 'flow') return
-    flow.setForm({ from: null, to: null })
+    flow.setForm({ to: null })
     goTo(span.from)
   }
   function startFlow(from: number, to: number) {
@@ -676,12 +686,12 @@ export default function Practice() {
               pending={fs.pending} sub={fs.sub} rate={st.rate} now={now}
               stage={stage} mic={mic} startedAt={fs.turn ? fs.turn.startedAt : runFrom} clipTime={flowRunning ? fs.clipTime : null} turn={flowRunning ? fs.turn : null}
               showText={!(settings.practice.hideTextWhileRecording && fs.sub === 'after' && fs.turn != null)}
-              controls={<FlowSetup segments={segments} from={range.from} to={range.to} sub={fs.sub} onChange={flow.setForm} runs={flowRuns} onReplay={replayRun} />} />
+              controls={<FlowSetup segments={segments} from={range.from} to={range.to} sub={fs.sub} onChange={setFlowForm} runs={flowRuns} onReplay={replayRun} />} />
             {flowRunning ? <FlowTransport onAction={act} idx={fs.current} total={segments.length} sound={sound} error={error} hint={st.hint} /> : bar}
           </>) : (<>
             <div className="flex-1 overflow-y-auto p-6 space-y-6">
               {st.mode === 'flow' ? (<>
-                <StageState stage={stage} />
+                {stage !== 'idle' && <StageState stage={stage} />}{/* Space plays the sentence: "Listening" */}
                 <FlowSummary segments={segments} results={fs.results} skipped={fs.skipped} elapsedS={fs.elapsedS}
                   onPlayPair={(r) => playItems(resultPair(r))} onReplayAll={() => playItems([...fs.results].sort((x, y) => x.idx - y.idx).flatMap(resultPair))}
                   onRunAgain={() => { if (fs.range) startFlow(fs.range.from, fs.range.to) }} onEcho={(i) => void echoOn(i)}

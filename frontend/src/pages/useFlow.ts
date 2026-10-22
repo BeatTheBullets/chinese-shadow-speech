@@ -21,7 +21,7 @@ const readable = (e: unknown) => (e instanceof ApiError ? e.detail : message(e))
 
 export interface FlowState {
   phase: 'setup' | 'running' | 'summary'
-  sub: FlowSub; from: number | null; to: number | null // the setup form; null = current sentence / last sentence
+  sub: FlowSub; to: number | null                       // the setup form; to null: the passage's end (the run starts at the current sentence)
   range: { from: number; to: number } | null           // of the last run, for "run again"
   current: number
   clipTime: number | null                                   // clip-relative time of the sentence playing (karaoke)
@@ -37,7 +37,7 @@ export interface FlowDeps {
   setError: (msg: string) => void
   onUploaded: () => void                  // a run's uploads have all finished (some may have failed)
 }
-const initial: FlowState = { phase: 'setup', sub: 'after', from: null, to: null, range: null, current: 0, clipTime: null, turn: null, results: [], pending: new Set(), skipped: 0, elapsedS: 0 }
+const initial: FlowState = { phase: 'setup', sub: 'after', to: null, range: null, current: 0, clipTime: null, turn: null, results: [], pending: new Set(), skipped: 0, elapsedS: 0 }
 
 // Flow mode (§6, §7.3): one continuous recording over a range of sentences, sliced per sentence from the playback
 // stamps and submitted as `flow` attempts, each to its own sentence. stop() ends the run gracefully (finished
@@ -168,7 +168,7 @@ export function useFlow(deps: FlowDeps) {
 
   return {
     state,
-    setForm: (p: Partial<Pick<FlowState, 'sub' | 'from' | 'to'>>) => setState((f) => ({ ...f, ...p })),
+    setForm: (p: Partial<Pick<FlowState, 'sub' | 'to'>>) => setState((f) => ({ ...f, ...p })),
     start,
     // Ends the run gracefully; resolves to the ids of its finished sentences once they are sliced (their uploads
     // have started then, but are not waited for).
