@@ -75,10 +75,11 @@ describe('<TwoTrack>', () => {
   })
 
   describe('speech-aligned tracks on one time scale', () => {
-    // Reference clip 10 … 12 s, voice 10.5 … 11.6 (1.1 s) -> window 0.4 … 1.7 of the clip. A 4.9 s take, voice 1.8 … 3.1
-    // (1.3 s) -> window 1.7 … 3.2. Peaks at 10 ms a bucket, so the windows fall on bucket edges.
+    // Reference clip 10 … 12 s, aligned 10.5 … 11.45 (raw spans; + the 0.15 s tail = 1.6 of the clip), scored windows 0.5 …
+    // 1.6 -> window 0.4 … 1.7 either way. A 4.9 s take, windows 1.8 … 3.1 -> window 1.7 … 3.2. Peaks at 10 ms a bucket,
+    // so the windows fall on bucket edges.
     const aligned: Segment = { ...segment, start_s: 10, end_s: 12, ref_alignment_json: [
-      { ch: '你', start: 10.5, end: 10.8, conf: 1 }, { ch: '好', start: 10.8, end: 11.1, conf: 1 }, { ch: '吗', start: 11.1, end: 11.6, conf: 1 }] }
+      { ch: '你', start: 10.5, end: 10.8, conf: 1 }, { ch: '好', start: 10.8, end: 11.1, conf: 1 }, { ch: '吗', start: 11.1, end: 11.45, conf: 1 }] }
     const refPeaks = Float32Array.from({ length: 200 }, (_, i) => i), youPeaks = Float32Array.from({ length: 490 }, (_, i) => i)
     const usr = { t0_s: 1.75, step_ms: 10, f0_st: [1, 2, 3], spans: [[1.8, 2.2], [2.2, 2.7], [2.7, 3.1]] as [number, number][] }
     const ref = { t0_s: 0.45, step_ms: 10, f0_st: Array.from({ length: 120 }, () => 1), spans: [[0.5, 0.8], [0.8, 1.1], [1.1, 1.6]] as [number, number][] }
@@ -96,7 +97,7 @@ describe('<TwoTrack>', () => {
       expect(r.pxPerSec).toBe(y.pxPerSec)
       expect((y.duration as number) * (y.pxPerSec as number)).toBeCloseTo(600 - 16, 6)              // the longer fills the width
       // ticks at the syllable ends, from the window start
-      expect((r.ticks as number[]).map((t) => +t.toFixed(6))).toEqual([0.4, 0.7, 1.2])
+      expect((r.ticks as number[]).map((t) => +t.toFixed(6))).toEqual([0.4, 0.7, 1.05])
     })
     it('shifts playheads and pitch by the window start; the ghost stays on your syllables', () => {
       render(<TwoTrack {...track} score={scored(1.25)} refPlayhead={1.0} youPlayhead={2.0} />)
@@ -108,17 +109,31 @@ describe('<TwoTrack>', () => {
       expect(yl.series[0].points[0][0]).toBeCloseTo(0.1, 6)           // ghost starts on your first syllable, 1.8 s - 1.7
       expect(rl.duration).toBeCloseTo(1.3, 6); expect(yl.duration).toBeCloseTo(1.5, 6)
     })
-    it('the speed is the score’s rate_ratio; voice lengths in the captions', () => {
+    it('the speed is the score’s rate_ratio, the only timing figure in the captions', () => {
       render(<TwoTrack {...track} score={scored(1.25)} />)
-      expect(screen.getByText(/Reference · 1\.1 s/)).toBeInTheDocument()
-      expect(screen.getByText('You · 1.3 s · 1.25×')).toBeInTheDocument()
+      expect(screen.getByText('Reference')).toBeInTheDocument()
+      expect(screen.getByText('You · 1.25×')).toBeInTheDocument()
+      expect(screen.queryByText(/\d s\b/)).toBeNull()
+    })
+    it('equal-speed speech gives equal window lengths, scored (both from the score’s windows) or not (tail vs peaks)', () => {
+      const even: Score = { ...scored(1), usr_contour: { ...usr, spans: [[1.8, 2.1], [2.1, 2.4], [2.4, 2.9]] } } // 1.1 s, as the reference
+      render(<TwoTrack {...track} score={even} />)
+      let [r, y] = lastTwo(h.waves)
+      expect(r.duration).toBeCloseTo(1.3, 6); expect(y.duration).toBeCloseTo(1.3, 6)
+      expect(screen.getByText('You · 1.00×')).toBeInTheDocument()
+      cleanup()
+      const loud = Float32Array.from({ length: 490 }, (_, i) => (i >= 180 && i < 290 ? 0.5 : 0.001)) // voice 1.8 … 2.9 s
+      render(<TwoTrack {...track} youPeaks={loud} score={null} />);
+      [r, y] = lastTwo(h.waves)
+      expect(r.duration).toBeCloseTo(1.3, 6); expect(y.duration).toBeCloseTo(1.3, 6)
+      expect(screen.getByText('You · 1.00×')).toBeInTheDocument()
     })
     it('before scoring the take is trimmed by its peaks and the speed is the voice-length ratio', () => {
       const loud = Float32Array.from({ length: 490 }, (_, i) => (i >= 150 && i < 280 ? 0.5 : 0.001)) // voice 1.5 … 2.8 s
       render(<TwoTrack {...track} youPeaks={loud} score={null} />)
       const y = h.waves.at(-1)!
       expect((y.peaks as Float32Array).length).toBe(150)               // 1.4 … 2.9 s
-      expect(screen.getByText('You · 1.3 s · 1.18×')).toBeInTheDocument()
+      expect(screen.getByText('You · 1.18×')).toBeInTheDocument()     // voice 1.3 s against the reference's 1.1 s
     })
   })
 })

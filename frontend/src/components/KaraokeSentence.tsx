@@ -35,21 +35,31 @@ export default function KaraokeSentence({ wipe, tools, children, onSyllableClick
     return () => { live = false; window.removeEventListener('resize', measure); ro?.disconnect() }
   }, [text, words, showHanzi, showPinyin])
   const fill = wipe ? charFill(text, wipe.progress) : []
-  // The character under the pointer, as its syllable (speech characters before it); punctuation and the space around
-  // the text play nothing, nor does a click that ends a text selection (looking a word up, copying).
+  // The syllable of the character under the pointer (speech characters before it), or null: punctuation and the space
+  // around the text are no target. A click that ends a text selection (looking a word up, copying) plays nothing; the
+  // pointer cursor and the title show only while over a character, never over empty space.
+  const [overChar, setOverChar] = useState(false)
+  const syllableAt = (e: React.MouseEvent, rs: (Rect | null)[]): number | null => {
+    const box = boxRef.current
+    if (!box) return null
+    const base = box.getBoundingClientRect(), x = e.clientX - base.left, y = e.clientY - base.top
+    const hit = rs.findIndex((r) => r != null && x >= r.left && x < r.left + r.width && y >= r.top && y < r.top + r.height)
+    const chars = [...text]
+    return hit < 0 || isPunct(chars[hit]) ? null : chars.slice(0, hit).filter((c) => !isPunct(c)).length
+  }
+  const clickable = onSyllableClick != null && props.showHanzi
   const onClick = (e: React.MouseEvent) => {
     const p = pRef.current, box = boxRef.current, sel = window.getSelection()
     if (!onSyllableClick || !p || !box || (sel && !sel.isCollapsed)) return
-    const base = box.getBoundingClientRect(), x = e.clientX - base.left, y = e.clientY - base.top
-    const hit = charRects(p, box).findIndex((r) => r != null && x >= r.left && x < r.left + r.width && y >= r.top && y < r.top + r.height)
-    const chars = [...text]
-    if (hit < 0 || isPunct(chars[hit])) return
-    onSyllableClick(chars.slice(0, hit).filter((c) => !isPunct(c)).length)
+    const i = syllableAt(e, charRects(p, box))                         // measured afresh: the click must land true
+    if (i != null) onSyllableClick(i)
   }
-  const clickable = onSyllableClick != null && props.showHanzi
+  const pointer = clickable && overChar
   const sentence = (
-    <div ref={boxRef} className={`relative${clickable ? ' cursor-pointer' : ''}`} onClick={clickable ? onClick : undefined}
-      title={clickable ? 'Click a character to hear it' : undefined}>
+    <div ref={boxRef} className={`relative${pointer ? ' cursor-pointer' : ''}`} title={pointer ? 'Click a character to hear it' : undefined}
+      onClick={clickable ? onClick : undefined}
+      onMouseMove={clickable ? (e) => setOverChar(syllableAt(e, rects) != null) : undefined}
+      onMouseLeave={clickable ? () => setOverChar(false) : undefined}>
       <Sentence {...props} pRef={pRef} large={tools != null} />
       {wipe && showHanzi && (
         <div aria-hidden="true" data-testid="wipe" className="absolute inset-0 pointer-events-none" style={{ mixBlendMode: 'multiply' }}>

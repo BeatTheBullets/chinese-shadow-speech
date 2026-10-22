@@ -82,9 +82,6 @@ describe('<KaraokeSentence>', () => {
     const calls: number[] = []
     const { container } = render(<KaraokeSentence text="你，好" words={null} showHanzi showPinyin wipe={null} tools={<span />} onSyllableClick={(i) => calls.push(i)} />)
     const p = container.querySelector('p.sentence')!
-    const box = p.closest('[title]')!
-    expect(box).toHaveClass('cursor-pointer')
-    expect(box.getAttribute('title')).toMatch(/hear/i)
     fireEvent.click(p, { clientX: 100, clientY: 10 })                 // 好: the second syllable
     fireEvent.click(p, { clientX: 10, clientY: 10 })                  // 你
     fireEvent.click(p, { clientX: 60, clientY: 10 })                  // the comma: nothing
@@ -96,8 +93,23 @@ describe('<KaraokeSentence>', () => {
     sel.mockRestore()
   })
 
+  it('the pointer cursor and title show over a character only, not over punctuation or empty space', () => {
+    Range.prototype.getClientRects = boxesOf(40)                       // 你 0-40, ，40-80, 好 80-120
+    const { container } = render(<KaraokeSentence text="你，好" words={null} showHanzi showPinyin wipe={null} tools={<span />} onSyllableClick={() => {}} />)
+    const p = container.querySelector('p.sentence')!, box = p.parentElement!.parentElement! // Sentence's wrapper sits in the box
+    const at = (x: number) => { fireEvent.mouseMove(p, { clientX: x, clientY: 10 }); return [box.classList.contains('cursor-pointer'), box.getAttribute('title')] }
+    expect(at(500)).toEqual([false, null])
+    expect(at(100)).toEqual([true, 'Click a character to hear it'])
+    expect(at(60)).toEqual([false, null])
+    at(10); fireEvent.mouseLeave(box)
+    expect(box).not.toHaveClass('cursor-pointer')
+  })
+
   it('no click target without a handler', () => {
+    Range.prototype.getClientRects = boxesOf(40)
     const { container } = render(<KaraokeSentence text="你好" words={null} showHanzi showPinyin wipe={null} tools={<span />} />)
+    fireEvent.mouseMove(container.querySelector('p.sentence')!, { clientX: 10, clientY: 10 })
     expect(container.querySelector('.cursor-pointer')).toBeNull()
+    expect(container.querySelector('[title]')).toBeNull()
   })
 })

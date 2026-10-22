@@ -3,7 +3,7 @@ import type { Score, Segment } from '../api/types'
 import { cellsFromWords } from '../lib/cells'
 import { contourPoints, pitchRange, warpPoints, type Pt } from '../lib/pitch'
 import { withScore } from '../lib/score'
-import { sliceToWindow, speechWindow } from '../lib/timeline'
+import { refWindow, sliceToWindow, speechWindow } from '../lib/timeline'
 import CellRow from './CellRow'
 import HeardRow from './HeardRow'
 import PitchLine from './PitchLine'
@@ -36,10 +36,11 @@ export default function TwoTrack(p: Props) {
   const sc = p.score
   const cells = useMemo(() => cellsFromWords(words_json, ref_alignment_json), [words_json, ref_alignment_json])
   const youCells = useMemo(() => withScore(cells, sc), [cells, sc])
-  // Windows: the reference's from its alignment (source-absolute, so less the clip start), yours from the score's spans
-  // (already on the take's timeline) or, before scoring, from its peaks. Each then snapped to its peak buckets.
-  const refWin = useMemo(() => speechWindow(p.refDuration, ref_alignment_json?.map((s) => [s.start - start_s, s.end - start_s] as const), p.refPeaks),
-    [p.refDuration, ref_alignment_json, start_s, p.refPeaks])
+  // Windows, both measured by the scorer's rule so equal speech gives equal lengths: when scored, the score's reference
+  // and take windows (yours already on the take's timeline); before that, the reference's alignment with the scorer's
+  // tail and your take's peaks. Each then snapped to its peak buckets.
+  const refWin = useMemo(() => refWindow(p.refDuration, ref_alignment_json, start_s, sc?.ref_contour?.spans, p.refPeaks),
+    [p.refDuration, ref_alignment_json, start_s, sc, p.refPeaks])
   const youWin = useMemo(() => speechWindow(p.youDuration, sc?.usr_contour?.spans, p.youPeaks), [p.youDuration, sc, p.youPeaks])
   const ref = useMemo(() => refWin && sliceToWindow(p.refPeaks, p.refDuration, refWin), [p.refPeaks, p.refDuration, refWin])
   const you = useMemo(() => youWin && sliceToWindow(p.youPeaks, p.youDuration, youWin), [p.youPeaks, p.youDuration, youWin])
@@ -51,7 +52,8 @@ export default function TwoTrack(p: Props) {
   const ghost = useMemo(() => (sc?.ref_contour && sc.usr_contour ? shift(warpPoints(sc.ref_contour, sc.usr_contour.spans), youFrom) : []), [sc, youFrom])
   const range = useMemo(() => pitchRange(refPts, usrPts), [refPts, usrPts])
   const ticks = useMemo(() => (ref_alignment_json ?? []).map((s) => s.end - start_s - refFrom), [ref_alignment_json, start_s, refFrom])
-  // The speed: the scorer's (its aligned speech lengths) when scored, else the two voices' lengths.
+  // The speed: the scorer's (its aligned speech lengths) when scored, else the two voices' lengths. The captions give no
+  // seconds: the waveforms show the lengths, and a second pair of figures measured another way would disagree with it.
   const rate = sc?.rate_ratio ?? (refWin && youWin ? youWin.speech / refWin.speech : null)
   const head = (t: number | null, from: number) => (t == null ? null : t - from)
   // Each track's caption, with its play button as on the bar (same action, same look: Listen's ▶ in accent, Me's head),
@@ -60,7 +62,7 @@ export default function TwoTrack(p: Props) {
   return (
     <div ref={box} className="space-y-2">
       <div className="bg-bg border border-line rounded p-2">
-        <div className={cap}><span>Reference · {(refWin?.speech ?? p.refDuration).toFixed(1)} s</span>
+        <div className={cap}><span>Reference</span>
           <span className="normal-case tracking-normal"><Button icon={<span className="text-accent"><IconPlay /></span>} label="Listen" keyHint="Space" variant="ghost" onClick={p.onPlayRef} /></span></div>
         <div className="relative inline-block">
           <Waveform peaks={ref?.peaks ?? null} duration={refLen} pxPerSec={pxPerSec} ticks={ticks} playhead={head(p.refPlayhead, refFrom)} color={TOKENS.ref} />
@@ -68,7 +70,7 @@ export default function TwoTrack(p: Props) {
         </div>
       </div>
       <div className="bg-bg border border-line rounded p-2">
-        <div className={cap}><span>You{youWin && rate != null ? ` · ${youWin.speech.toFixed(1)} s · ${rate.toFixed(2)}×` : ''}</span>
+        <div className={cap}><span>You{youWin && rate != null ? ` · ${rate.toFixed(2)}×` : ''}</span>
           <span className="flex items-center gap-2">{p.scoreHeader}
             <span className="normal-case tracking-normal"><Button icon={<IconMe />} label="Me" keyHint="R" variant="ghost" onClick={p.onPlayYou} disabled={!p.youDuration} /></span></span></div>
         {p.youDuration ? (

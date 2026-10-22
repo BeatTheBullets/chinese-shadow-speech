@@ -1,3 +1,4 @@
+import type { AlignSpan } from '../api/types'
 import { speechBounds } from './speech'
 
 // The Echo review's time axis: each track is trimmed to its voice and both share one scale (TwoTrack), so the longer
@@ -5,6 +6,10 @@ import { speechBounds } from './speech'
 
 // Room left either side of the voice, so a soft onset or a trailing breath is not cut off at the box edge.
 export const SPEECH_MARGIN_S = 0.1
+
+// The scorer's window tail, mirroring TAIL in backend shadow/scoring/windows.py: aligner (CTC) spans stop about half-way
+// through a syllable, so a syllable followed by a pause, or the last one, is taken to run this far past its span end.
+export const SPAN_TAIL_S = 0.15
 
 // A track's window on its own clip (seconds): `from` … `to` is drawn, `speech` is the voice's length without margins.
 export interface SpeechWindow { from: number; to: number; speech: number }
@@ -20,6 +25,17 @@ export function speechWindow(duration: number, spans: readonly (readonly [number
   else if (peaks) voice = speechBounds(peaks, duration, { padS: 0 })
   if (!voice || !(voice.to > voice.from)) return { from: 0, to: duration, speech: duration }
   return { from: Math.max(0, voice.from - SPEECH_MARGIN_S), to: Math.min(duration, voice.to + SPEECH_MARGIN_S), speech: voice.to - voice.from }
+}
+
+// The reference's window, measured as your take's is so equal speech gives equal lengths on the shared scale: when
+// scored, the score's reference windows (ref_contour.spans, windows() output like usr_contour's); before that, the
+// alignment (source-absolute, so less the clip start) with its last end extended by the scorer's tail, the same rule
+// windows() applies to the last syllable; without alignment, the peaks.
+export function refWindow(duration: number, alignment: AlignSpan[] | null | undefined, clipStart: number, scored: [number, number][] | null | undefined, peaks: Float32Array | null): SpeechWindow | null {
+  if (scored?.length) return speechWindow(duration, scored)
+  const spans = (alignment ?? []).map((s) => [s.start - clipStart, s.end - clipStart] as [number, number])
+  if (spans.length) { const last = spans[spans.length - 1]; last[1] = Math.max(last[1], Math.min(duration, last[1] + SPAN_TAIL_S)) }
+  return speechWindow(duration, spans, peaks)
 }
 
 // The peaks (spread evenly over `duration`) inside the window, with the window snapped out to the edges of the
