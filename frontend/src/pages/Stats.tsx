@@ -9,6 +9,7 @@ import ToneTrend from '../components/ToneTrend'
 import { TONE_NAMES, pct } from '../lib/score'
 import { activityBars } from '../lib/stats'
 import { TOKENS } from '../theme/tokens'
+import Card from '../ui/Card'
 
 const EMPTY = 'No scores yet — record a take to see tone stats.'
 const plural = (n: number) => `${n} attempt${n === 1 ? '' : 's'}`
@@ -50,8 +51,9 @@ function ActivityChart({ days }: { days: ActivityStats['days'] }) {
   )
 }
 
+// Stats panels are main cards: notched window-frame corners (spec §1.2). Content is today's; the redesign is a later plan.
 const Panel = ({ title, children }: { title: string; children: React.ReactNode }) => (
-  <section className="bg-panel border border-line rounded p-4 space-y-2"><h2 className="text-fg">{title}</h2>{children}</section>)
+  <Card notched className="p-5"><section className="space-y-2"><h2 className="text-fg font-semibold">{title}</h2>{children}</section></Card>)
 const Empty = () => <p className="text-sm text-fgdim">{EMPTY}</p>
 
 export default function Stats() {
@@ -71,11 +73,11 @@ export default function Stats() {
     void run(api.stats.syllables(), setSyllables); void run(api.stats.tones(), setTones); void run(api.stats.sounds(), setSounds); void run(api.drill.recent(10), setDrills)
     return () => { cancelled = true }
   }, [])
-  const small = 'text-xs text-accent ml-auto'
+  const small = 'text-xs text-accent ml-auto hover:underline'
   const row = 'border-b border-line py-1 flex gap-4'
   return (
     <Shell><div className="max-w-4xl mx-auto p-6 space-y-4">
-      <h1 className="text-fg">Stats</h1>
+      <h1 className="text-xl text-fg font-semibold">Stats</h1>
       {error && <p className="text-sm text-bad">{error}</p>}
       <Panel title="Activity · last 30 days">{activity ? <ActivityChart days={activity.days} /> : <p className="text-sm text-fgdim">Loading…</p>}</Panel>
       <Panel title="Sentences">

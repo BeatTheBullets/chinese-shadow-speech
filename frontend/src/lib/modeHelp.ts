@@ -15,8 +15,11 @@ export function modeHelp(m: Mode): string {
   }
 }
 
+// What each key does, in the words of the button it presses (spec §1.3: same action, same word, same key).
+// Keys sharing a row are separated by spaces; the help shows each as its own key cap.
 export const KEY_HELP: [string, string][] = [
-  ['Space', 'Play the sentence'], ['Enter', 'Start or stop: record (Echo), Flow'],
-  ['← →', 'Previous / next sentence'], ['R', 'Replay your take'], ['S', '0.75× speed'],
-  ['T  P  E', 'Hanzi, pinyin, translation'], ['F', 'Flag the sentence'], ['A', 'Send to Anki'], ['L', 'Lesson list'], ['?', 'This help'],
+  ['← →', 'Previous / next sentence'], ['Space', 'Listen: play the sentence'],
+  ['Enter', 'Record or stop (Echo); start or stop the run (Flow)'], ['R', 'Me: replay your take'],
+  ['A', 'Anki: send the sentence to Anki'], ['S', '0.75× speed on or off'], ['F', 'Difficult: flag the sentence'],
+  ['T P E', 'Show or hide characters, pinyin, English'], ['L', 'Lesson list'], ['?', 'This help'],
 ]

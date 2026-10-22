@@ -14,12 +14,12 @@ interface Props {
 // The lesson's sentences, grouped under passage headers (✓ when every sentence of the passage has an attempt).
 export default function Drawer({ segments, idx, open, pendingIds, onJump, onToggle, onEdit, onSplit, onMerge, passages = [], practised = [] }: Props) {
   const [menu, setMenu] = useState<number | null>(null) // the row whose ⋯ menu is open
-  if (!open) return <button className="w-6 border-l border-line text-fgdim text-xs" onClick={onToggle} title="Open lesson list (L)">▸</button>
+  if (!open) return <button className="w-6 border-l border-line bg-panel text-fgdim hover:text-fg text-xs" onClick={onToggle} title="Open lesson list (L)">▸</button>
   const pick = (fn: (i: number) => void, i: number) => () => { setMenu(null); fn(i) }
-  const item = 'px-2 py-0.5 rounded bg-card hover:text-fg disabled:opacity-40'
+  const item = 'px-2 py-0.5 rounded-lg border border-line bg-card hover:text-fg disabled:opacity-40'
   return (
-    <aside className="w-80 border-l border-line overflow-y-auto">
-      <div className="flex justify-between px-3 py-2 text-[10px] uppercase tracking-widest text-fgdim"><span>Lesson</span><button onClick={onToggle}>◂ L</button></div>
+    <aside className="w-80 border-l border-line bg-panel overflow-y-auto">
+      <div className="flex justify-between px-3 py-2 text-[10px] uppercase tracking-widest text-fgdim"><span>Lesson</span><button className="hover:text-fg" onClick={onToggle} title="Close lesson list (L)">◂ L</button></div>
       {groupByPassage(segments, passages).map((g, gi) => (
         <div key={g.passage ? `p${g.passage.idx}` : `loose${gi}`} data-testid={g.passage ? `passage-${g.passage.idx}` : 'passage-none'}>
           {g.passage && (
@@ -29,7 +29,7 @@ export default function Drawer({ segments, idx, open, pendingIds, onJump, onTogg
             </div>)}
           {g.rows.map(({ i, seg: s }) => (
             <div key={s.id}>
-              <div className={`flex items-center text-sm ${i === idx ? 'bg-card text-fg' : 'text-fgdim'}`}>
+              <div className={`flex items-center text-sm ${i === idx ? 'bg-card text-fg shadow-[inset_2px_0_0_theme(colors.accent)]' : 'text-fgdim hover:text-fg'}`}>
                 <button onClick={() => onJump(i)} title={`${s.text}${s.last_score != null ? `\nlast ${Math.round(s.last_score * 100)} · best ${Math.round((s.best_score ?? 0) * 100)}` : ''}`}
                   className="flex-1 min-w-0 flex items-center gap-2 pl-3 py-1 text-left">
                   <span className="w-5 text-right text-[10px]">{s.idx + 1}</span>

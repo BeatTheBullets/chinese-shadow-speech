@@ -5,6 +5,7 @@ import type { VoiceProfile } from '../api/types'
 import { anki } from '../anki/client'
 import { bookmarkletCode } from '../lib/handoff'
 import { useSettings } from '../store/settings'
+import Button from '../ui/Button'
 
 export default function Settings() {
   const s = useSettings()
@@ -60,29 +61,29 @@ export default function Settings() {
 
   const sel = (label: string, value: string, onChange: (v: string) => void, opts: string[], allowEmpty = false) => (
     <label className="flex flex-col gap-1 text-sm text-fgdim">{label}
-      <select className="bg-card border border-line rounded px-2 py-1 text-fg" value={value} onChange={(e) => onChange(e.target.value)}>
+      <select className="inp" value={value} onChange={(e) => onChange(e.target.value)}>
         {allowEmpty && <option value="">—</option>}{opts.map((o) => <option key={o}>{o}</option>)}
       </select></label>)
 
   return (
     <div className="max-w-3xl mx-auto p-6 space-y-8">
-      <h1 className="text-xl text-fg">Settings</h1>
+      <h1 className="text-xl text-fg font-semibold">Settings</h1>
       <section className="space-y-3">
-        <h2 className="text-fg">Anki</h2>
+        <h2 className="text-fg font-semibold">Anki</h2>
         <div className="flex gap-2 items-end">
           <label className="flex-1 text-sm text-fgdim">AnkiConnect URL
-            <input className="w-full bg-card border border-line rounded px-2 py-1 text-fg" value={s.ankiUrl} onChange={(e) => s.set({ ankiUrl: e.target.value })} /></label>
-          <button className="btn" onClick={connect}>Connect</button>
+            <input className="inp w-full" value={s.ankiUrl} onChange={(e) => s.set({ ankiUrl: e.target.value })} /></label>
+          <Button label="Connect" onClick={() => void connect()} />
         </div>
         <p className="text-sm text-fgdim">{status}</p>
         <div className="flex gap-2 items-center">
-          <button className="btn" onClick={() => void setupDeck()}>Set up chinese-shadow-speech deck</button>
+          <Button label="Set up chinese-shadow-speech deck" variant="primary" onClick={() => void setupDeck()} />
           <span className="text-xs text-fgdim">Listening cards: the sentence's audio on the front, sentence, pinyin, translation and a link to the video on the back.</span>
         </div>
-        <h3 className="text-fg">Import queries</h3>
+        <h3 className="text-[10px] uppercase tracking-widest text-fgdim pt-2">Import queries</h3>
         <ul className="text-sm">{s.importQueries.map((q) => (
-          <li key={q.name} className="flex justify-between border-b border-line py-1"><span>{q.name} · <code>{q.query}</code></span><button className="text-bad" onClick={() => s.removeQuery(q.name)}>remove</button></li>))}</ul>
-        <div className="grid grid-cols-2 gap-3 bg-panel border border-line rounded p-3">
+          <li key={q.name} className="flex justify-between border-b border-line py-1"><span>{q.name} · <code className="text-fgdim">{q.query}</code></span><button className="text-xs text-fgdim hover:text-bad" onClick={() => s.removeQuery(q.name)}>Remove</button></li>))}</ul>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-panel border border-line rounded-xl p-4">
           <input className="inp" placeholder="Name (e.g. Mining)" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
           <input className="inp" placeholder="Query (e.g. deck:Mining tag:asbplayer)" value={draft.query} onChange={(e) => setDraft({ ...draft, query: e.target.value })} />
           {sel('Note type', draft.model, (v) => setDraft({ ...draft, model: v }), models, true)}
@@ -91,11 +92,11 @@ export default function Settings() {
           {sel('Translation field', draft.translation, (v) => setDraft({ ...draft, translation: v }), fields, true)}
           {sel('Source field', draft.source, (v) => setDraft({ ...draft, source: v }), fields, true)}
           {sel('URL field', draft.url, (v) => setDraft({ ...draft, url: v }), fields, true)}
-          <button className="btn col-span-2" disabled={!draft.name || !draft.query || !draft.sentence || !draft.audio}
+          <button className="btn sm:col-span-2" disabled={!draft.name || !draft.query || !draft.sentence || !draft.audio}
             onClick={() => { s.addQuery({ name: draft.name, query: draft.query, mapping: { sentence: draft.sentence, audio: draft.audio, translation: draft.translation || undefined, source: draft.source || undefined, url: draft.url || undefined } }); setDraft({ ...draft, name: '', query: '' }) }}>Add query</button>
         </div>
-        <h3 className="text-fg">Export note type</h3>
-        <div className="grid grid-cols-2 gap-3 bg-panel border border-line rounded p-3">
+        <h3 className="text-[10px] uppercase tracking-widest text-fgdim pt-2">Export note type</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-panel border border-line rounded-xl p-4">
           {sel('Deck', s.exportNote?.deckName ?? '', (v) => { const cur = s.exportNote ?? { deckName: '', modelName: '', fields: { sentence: '', audio: '' } }; s.set({ exportNote: { deckName: v, modelName: cur.modelName, fields: cur.fields } }) }, decks, true)}
           {sel('Note type', s.exportNote?.modelName ?? '', (v) => { const cur = s.exportNote ?? { deckName: '', modelName: '', fields: { sentence: '', audio: '' } }; s.set({ exportNote: { deckName: cur.deckName, modelName: v, fields: cur.fields } }) }, models, true)}
           {(['sentence', 'pinyin', 'translation', 'audio', 'source', 'link'] as const).map((k) => { const cur = s.exportNote ?? { deckName: '', modelName: '', fields: { sentence: '', audio: '' } }; return (
@@ -106,7 +107,7 @@ export default function Settings() {
         </div>
       </section>
       <section className="space-y-2">
-        <h2 className="text-fg">Practice</h2>
+        <h2 className="text-fg font-semibold">Practice</h2>
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={s.practice.hideTextWhileRecording} onChange={(e) => s.set({ practice: { ...s.practice, hideTextWhileRecording: e.target.checked } })} /> Hide text while recording</label>
         {([['flowGapFactor', 'Flow gap factor'], ['moveOnAfter', 'Move-on hint after N attempts'], ['defaultRate', 'Default speed']] as const).map(([k, label]) => {
           const clampFn = k === 'defaultRate' ? (v: number) => Math.max(0.6, Math.min(1.0, v)) : (v: number) => v
@@ -118,18 +119,18 @@ export default function Settings() {
           <input className="inp" value={s.languageParent ?? ''} onChange={(e) => s.set({ languageParent: e.target.value || null })} /></label>
       </section>
       <section className="space-y-2">
-        <h2 className="text-fg">Voice profile</h2>
+        <h2 className="text-fg font-semibold">Voice profile</h2>
         <p className="text-sm text-fgdim">{voice?.baseline_hz != null
           ? `Your baseline: ${Math.round(voice.baseline_hz)} Hz · range ${voice.spread_st!.toFixed(1)} st · from ${(voice.voiced_s / 60).toFixed(1)} min of speech`
           : 'No voice profile yet: it builds from your first scored takes.'}</p>
         <p className="text-xs text-fgdim">Tone scores compare your pitch movement to your own baseline, so a lower or narrower voice is not penalised. Reset it when someone else practises or your voice has changed.</p>
-        <button className="btn" onClick={() => void resetVoice()}>Reset voice profile</button>
+        <Button label="Reset voice profile" onClick={() => void resetVoice()} />
         {voiceStatus && <p role="alert" className="text-sm text-warn">{voiceStatus}</p>}
       </section>
       <section className="space-y-2">
-        <h2 className="text-fg">YouTube</h2>
+        <h2 className="text-fg font-semibold">YouTube</h2>
         <p className="text-sm text-fgdim">Drag this link to the Brave bookmarks bar. On a YouTube video, click it to send the video here.</p>
-        <a ref={bookmarklet} className="btn inline-block" onClick={(e) => e.preventDefault()}>→ chinese-shadow-speech</a>
+        <a ref={bookmarklet} className="btn hover:border-accent" onClick={(e) => e.preventDefault()}>→ chinese-shadow-speech</a>
         <p className="text-sm text-fgdim">Videos behind an age or "not a bot" check need your YouTube cookies: export them to a
           cookies.txt file and set <code>[youtube] cookies_file</code> in config.toml (see docs/running.md, YouTube).</p>
       </section>

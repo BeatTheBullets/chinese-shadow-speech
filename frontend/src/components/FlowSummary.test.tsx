@@ -19,7 +19,7 @@ describe('<FlowSummary>', () => {
     const results: FlowResult[] = [{ segmentId: 12, idx: 1, attemptId: null, url: 'blob:x', duration: 1 }]
     render(<FlowSummary {...props} segments={segments} results={results} elapsedS={10} onEcho={onEcho} />)
     expect(screen.queryByRole('button', { name: 'Chorus' })).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'Echo' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Open in Echo' }))
     expect(onEcho).toHaveBeenCalledWith(1)
   })
 })

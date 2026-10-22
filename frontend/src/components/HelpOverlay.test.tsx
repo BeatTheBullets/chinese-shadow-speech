@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import HelpOverlay from './HelpOverlay'
 
@@ -22,5 +22,12 @@ describe('<HelpOverlay>', () => {
     fireEvent.keyDown(window, { key: '?', repeat: true })
     fireEvent.keyDown(window, { key: 'Escape', repeat: true })
     expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('lists the keys ← → Space Enter R A S F T P E L ? each as a key cap, and not C', () => {
+    render(<HelpOverlay onClose={() => {}} />)
+    const caps = [...screen.getByRole('dialog').querySelectorAll('kbd')].map((k) => k.textContent)
+    expect([...caps].sort()).toEqual(['←', '→', 'Space', 'Enter', 'R', 'A', 'S', 'F', 'T', 'P', 'E', 'L', '?'].sort())
+    expect(caps).not.toContain('C')
   })
 })

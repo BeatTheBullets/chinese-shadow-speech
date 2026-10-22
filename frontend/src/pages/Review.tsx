@@ -7,6 +7,8 @@ import Shell from '../components/Shell'
 import { flaggedFirst } from '../lib/stats'
 import { exportAndRecord, splitForExport } from '../anki/export'
 import { useSettings } from '../store/settings'
+import Button from '../ui/Button'
+import { IconAnki } from '../ui/icons'
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 const toItem = (u: UnexportedItem): ExportItem => ({
@@ -57,17 +59,18 @@ export default function Review() {
   }
   return (
     <Shell><div className="max-w-4xl mx-auto p-6 space-y-3">
-      <div className="flex justify-between items-center"><h1 className="text-fg">Review · {rows.length}</h1><button className="btn" onClick={sendAll} disabled={!rows.length || sending || listBusy}>A → Anki all</button></div>
+      <div className="flex justify-between items-center"><h1 className="text-xl text-fg font-semibold">Review · {rows.length}</h1>
+        <Button icon={<IconAnki />} label="Send all to Anki" onClick={() => void sendAll()} disabled={!rows.length || sending || listBusy} /></div>
       {msg && <p className="text-sm text-fgdim">{msg}</p>}
       {!loading && !rows.length && !msg && <p className="text-sm text-fgdim">Nothing to review. Flag a sentence with ⚑ while practising and it shows up here.</p>}
       {rows.map((r) => (
         <div key={r.segment.id} className="flex items-center gap-3 border-b border-line py-2 text-sm">
-          <span className="text-fgdim w-32 truncate">{r.lesson.title}</span><span className="font-hanzi flex-1">{r.segment.text}</span>
-          <span className="text-fgdim">{r.segment.difficulty_flag ? '⚑' : ''} {r.segment.last_score != null ? Math.round(r.segment.last_score * 100) : ''}</span>
-          <Link className="btn" to={`/practice/${r.lesson.id}?seg=${r.segment.idx}`}>Practise</Link>
+          <span className="text-fgdim w-32 truncate">{r.lesson.title}</span><span lang="zh" className="font-hanzi text-base text-fg flex-1">{r.segment.text}</span>
+          <span className="text-fgdim tabular-nums"><span className="text-warn">{r.segment.difficulty_flag ? '⚑' : ''}</span> {r.segment.last_score != null ? Math.round(r.segment.last_score * 100) : ''}</span>
+          <Link className="btn hover:border-accent" to={`/practice/${r.lesson.id}?seg=${r.segment.idx}`}>Practise</Link>
         </div>))}
       <section className="space-y-2 pt-6">
-        <h2 className="text-fg">Practised, not in Anki{unsent ? ` · ${unsent.length}` : ''}</h2>
+        <h2 className="text-fg font-semibold">Practised, not in Anki{unsent ? ` · ${unsent.length}` : ''}</h2>
         {unsent && (unsent.length
           ? <ExportList items={unsent.map(toItem)} onSent={mark} onBusy={setListBusy} disabled={sending} />
           : <p className="text-sm text-fgdim">Every sentence you practised is in Anki.</p>)}

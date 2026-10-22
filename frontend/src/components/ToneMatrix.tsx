@@ -14,8 +14,8 @@ export default function ToneMatrix({ pairs, onDrill }: { pairs: ToneStats['pairs
         <tr key={p}><th className="text-fgdim font-normal">{p}</th>
           {T.map((t) => {
             const c = at.get(`${p}-${t}`)
-            if (!c) return <td key={t} className="cell-neutral border rounded h-8">·</td>
-            return <td key={t} title={`after tone ${p}, tone ${t}: ${pct(c.mean)} (n ${c.n})`} className={`${cls(c.mean)} border rounded h-8 ${c.n < 5 ? 'opacity-40' : ''}`}>{onDrill && p >= 1 && t >= 1
+            if (!c) return <td key={t} className="cell-neutral border rounded-lg h-8 text-fgdim">·</td>
+            return <td key={t} title={`after tone ${p}, tone ${t}: ${pct(c.mean)} (n ${c.n})`} className={`${cls(c.mean)} border rounded-lg h-8 text-fg tabular-nums ${c.n < 5 ? 'opacity-40' : ''}`}>{onDrill && p >= 1 && t >= 1
               ? <button type="button" aria-label={`Drill tone pair ${p}→${t}`} className="w-full h-full" onClick={() => onDrill(`${p}-${t}`)}>{pct(c.mean)}</button>
               : pct(c.mean)}</td>
           })}

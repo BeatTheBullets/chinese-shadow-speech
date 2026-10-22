@@ -85,10 +85,10 @@ export function FlowSetup({ segments, from, to, sub, onChange, onStart, runs, on
   runs: FlowRun[]; onReplay: (run: FlowRun) => void
 }) {
   const pick = (label: string, value: number, key: 'from' | 'to') => (
-    <select aria-label={label} className="bg-card rounded px-1 py-0.5 text-fg" value={value} onChange={(e) => onChange({ [key]: Number(e.target.value) })}>
+    <select aria-label={label} className="inp" value={value} onChange={(e) => onChange({ [key]: Number(e.target.value) })}>
       {segments.map((s, i) => <option key={s.id} value={i}>{i + 1}. {s.text.length > 12 ? `${s.text.slice(0, 12)}…` : s.text}</option>)}
     </select>)
-  const tab = (v: FlowSub) => <button aria-pressed={sub === v} className={`px-2 py-0.5 rounded border ${sub === v ? 'bg-card border-accent text-fg' : 'border-line'}`} onClick={() => onChange({ sub: v })}>{v}</button>
+  const tab = (v: FlowSub) => <button aria-pressed={sub === v} className={`px-2.5 py-1 rounded-xl border ${sub === v ? 'border-accent text-accent' : 'border-line text-fgdim hover:text-fg'}`} onClick={() => onChange({ sub: v })}>{v}</button>
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-center gap-2 text-sm text-fgdim">
@@ -110,7 +110,7 @@ function PastRuns({ runs, onReplay }: { runs: FlowRun[]; onReplay: (run: FlowRun
       {k === 0 ? 'Last run' : 'Earlier run'} · {runLabel(run)}
       <button className="btn" onClick={() => onReplay(run)}>▶ replay</button>
       {runs.length > 1 && (
-        <select aria-label="Run to replay" className="bg-card rounded px-1 py-0.5 text-fg" value={k} onChange={(e) => setK(Number(e.target.value))}>
+        <select aria-label="Run to replay" className="inp text-xs" value={k} onChange={(e) => setK(Number(e.target.value))}>
           {runs.map((r, i) => <option key={i} value={i}>{runLabel(r)}</option>)}
         </select>)}
     </div>

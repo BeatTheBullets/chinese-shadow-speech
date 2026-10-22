@@ -652,7 +652,7 @@ export default function Practice() {
   const flowRecS = fs.turn ? now - fs.turn.startedAt : elapsed - runFrom
   return (
     <div className="h-full flex flex-col">
-      <TopBar title={st.lesson.title} speaker={st.lesson.speaker} idx={flowRunning ? fs.current : st.idx} total={segments.length} mode={st.mode}
+      <TopBar title={st.lesson.title} speaker={st.lesson.speaker} mode={st.mode}
         onMode={(m) => void switchMode(m)} elapsedS={elapsed} onHelp={() => setHelp(true)}
         onBack={leave}
         passage={passages.length ? { index: passageIndexOf(passages, segments, flowRunning ? fs.current : st.idx), titles: passages.map((p) => p.title), onPick: pickPassage } : null} />

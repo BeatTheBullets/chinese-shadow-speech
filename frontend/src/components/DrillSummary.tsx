@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import type { DrillSummary as Summary } from '../api/types'
 import { pct } from '../lib/score'
 import { TOKENS } from '../theme/tokens'
+import Button from '../ui/Button'
 
 // Two series from ToneTrend's dark palette (categorical slots 1 and 3), on its 0-100 scale and axis colours.
 const SERIES = [{ key: 'first_mean', label: 'first try', color: TOKENS.ref }, { key: 'best_mean', label: 'best', color: TOKENS.ok }] as const
@@ -45,22 +46,22 @@ export default function DrillSummary({ summary: s, onAgain, onDone, busy = false
   const notGreen = s.items.filter((it) => !it.went_green)
   return (
     <div className="space-y-4">
-      <h1 className="text-fg">{s.label}: target syllables first try {pct(s.first_mean)} → best {pct(s.best_mean)} · green {s.green_first} → {s.green_best} of {s.n_targets}</h1>
+      <h1 className="text-lg text-fg font-semibold">{s.label}: target syllables first try {pct(s.first_mean)} → best {pct(s.best_mean)} · green {s.green_first} → {s.green_best} of {s.n_targets}</h1>
       <History label={s.label} history={s.history} />
       {notGreen.length ? (<>
-        <h2 id="not-green" className="text-fgdim">Not green yet</h2>
+        <h2 id="not-green" className="text-[10px] uppercase tracking-widest text-fgdim">Not green yet</h2>
         <ul aria-labelledby="not-green" className="space-y-1">
           {notGreen.map((it) => (
             <li key={it.segment_id} className="flex items-center gap-4 border-b border-line py-2">
-              <span lang="zh" className="text-fg">{it.text}</span>
+              <span lang="zh" className="font-hanzi text-lg text-fg">{it.text}</span>
               <span className="text-sm text-fgdim">{it.lesson_title} · {it.tries} {it.tries === 1 ? 'try' : 'tries'} · best {pct(it.best?.mean)}</span>
               <Link to={`/practice/${it.lesson_id}?idx=${it.idx}`} className="ml-auto text-sm text-accent underline">Open in Practice</Link>
             </li>))}
         </ul>
       </>) : <p className="text-sm text-ok">Every sentence went green.</p>}
       <div className="flex gap-2">
-        {notGreen.length > 0 && <button className="btn" disabled={busy} onClick={() => onAgain(notGreen.map((it) => it.segment_id))}>Drill these again</button>}
-        <button className="btn" onClick={onDone}>Done</button>
+        {notGreen.length > 0 && <Button label="Drill these again" variant="primary" disabled={busy} onClick={() => onAgain(notGreen.map((it) => it.segment_id))} />}
+        <Button label="Done" variant={notGreen.length ? 'default' : 'primary'} onClick={onDone} />
       </div>
     </div>
   )
