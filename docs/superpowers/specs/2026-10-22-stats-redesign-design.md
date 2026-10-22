@@ -48,8 +48,10 @@ Clicking a card opens that area's details page.
 One each for Characters, Tones and Sounds. Each shows the **3 weakest** items with a small bar, and a link "all … ›" to the details page.
 
 - **Characters:** the 3 characters with the lowest character score (§2.1) among those with **≥ 8 takes** in the window.
-- **Tones:** the 3 lowest of tones 1–4 and tone pairs together, by mean tone score. A pair needs ≥ 8 rows, as drills do (`[drill] min_rows`). Pairs are labelled "1 → 0" etc.; neutral 0 can appear as the second tone of a pair, as in the existing matrix.
-- **Sounds:** the 3 directions with the highest slip rate (existing `/stats/sounds` semantics: ≥ 8 chances, label "uo said as ou", "22 of 45").
+- **Tones:** the 3 lowest of tones 1–4 and tone pairs together, by mean tone score. **One tone-mean rule everywhere** (*my call*): the §2.2 rule, with missing rows counting 0 and unvoiced rows left out, so the card, widget, rows and matrix agree. It replaces today's `_SCORED` mean, which skips missing rows; the drill focus ranking already uses this rule. A pair needs ≥ 8 rows, as drills do (`[drill] min_rows`). Pairs are labelled "1 → 0" etc.; neutral 0 can appear as the second tone of a pair, as in the existing matrix.
+- **Sounds:** the 3 **hard** directions (§2.3) with the highest slip rate (existing `/stats/sounds` semantics: ≥ 8 chances, label "uo said as ou", "22 of 45").
+  - A direction with 0 slips is never listed as weak.
+  - *My call*: limiting the widget to hard directions keeps it in line with the score. The details page lists every direction, with the hard ones marked.
 
 ### 1.3 Second row
 
@@ -62,9 +64,24 @@ One each for Characters, Tones and Sounds. Each shows the **3 weakest** items wi
   Clicking one opens it in Practice (`/practice/{lesson}?idx=…`).
 - **Drills:** the last 2 ended drills, "label first → best" (existing data).
 
+### 1.4 Flow widget (the user's addition)
+
+the user sees the other modes as practice, and Flow as his real shadowing. One widget shows the **same three scores** (Characters, Tones, Sounds; §2 rules, same window, same small-sample rules), computed from **Flow takes only** (`Attempt.mode == "flow"`), each with its change vs last week.
+
+- Placement is my call: on the second row, before Activity.
+- Clicking it opens the Characters/Tones/Sounds details pages filtered to Flow (`?mode=flow`).
+- Every details page accepts that filter, and its header shows "Flow only" with a way back to all takes.
+
 ## 2. The three scores
 
-All three are computed over the **last 30 days** of attempts (*my call*, matching the drill window). Each is also computed for the last 7 and the previous 7 days, for the change shown on the card. A score with no data shows "—".
+**Which takes count.** the user decided: **every** take counts (Echo, Chorus, Guided, Flow and drill takes) for all scores, lists and thresholds on Stats. The one exception is the Flow widget (§1.4), which uses Flow takes only.
+
+**Window.** All three scores are computed over the **last 30 days** of attempts (*my call*, matching the drill window). Each is also computed for the last 7 days and the 7 days before, for the change on the card. Both are rolling windows from now.
+
+**Small samples** (*my call*, from the anti-goal):
+- A score with fewer than 30 counted units in its window shows "—". Units are syllables for Tones and Sounds, and qualifying characters (≥ 3 takes) for Characters, of which there must be at least 10.
+- The ▲/▼ change shows only when both 7-day windows reach 30 syllables; for Characters, 10 qualifying characters each. Otherwise it shows "—".
+- Each card shows its n in small text, e.g. "312 syllables".
 
 ### 2.1 Characters
 
@@ -122,7 +139,7 @@ Each page:
   A note under the header explains the ≥ 3 and neutral-tone rules.
 - **`/stats/tones`.** The current Tones section unchanged in content: weekly trend (12 weeks), a row per tone, the tone-pair matrix, Drill this. Rows and the matrix use the 30-day window; the trend keeps its 12 weeks.
 - **`/stats/sounds`.** The current Sounds panel: a row per direction with slips/chances, rate, weekly sparkline and Drill this, in the 30-day window. Hard directions are marked; the score uses them. Footer note: "Not checked yet: j/q/x mix-ups and breathy vs plain consonants (b/p, d/t, g/k, j/q, zh/ch, z/c)."
-- **`/stats/sentences`.** Every practised sentence in the window, as text with lesson title. Each row shows last, best and attempts, with a "regressed" badge when best − last ≥ 0.15. Sorted as in §1.3. Clicking a row opens Practice at that sentence.
+- **`/stats/sentences`.** Every sentence practised in the window, as text with lesson title. "Last" is the newest scored take in the window, "best" is the best ever, and "regressed" means best ever − last ≥ 0.15 (*my call*: an old best still shows a drop). Each row shows last, best and attempts, with a "regressed" badge when best − last ≥ 0.15. Sorted as in §1.3. Clicking a row opens Practice at that sentence.
 - **`/stats/activity`.** The current 30-day activity chart.
 - **`/stats/drills`.** The current recent-drills list (last 10).
 
