@@ -38,14 +38,20 @@ def test_b_silent_matches_the_model():
 
 
 def test_check_set_parity():
+    """SHADOW_PARITY_DEVICE (default cuda) picks the device; SHADOW_INT8=1 loads the aligner and sounds model in 8-bit
+    (CPU only)."""
     data = _data_dir()
     db, check = data / "shadow.db", data / "reports" / "phase3-checkset.json"
     if not db.exists() or not check.exists():
         pytest.skip(f"no check-set data under {data}")
     items = {it["n"]: it for it in json.loads(check.read_text())}
     cfg = Settings().sounds
-    aligner = MmsAligner("cuda")
-    det = SoundDetector(aligner, CharCtc(cfg.model, cfg.revision, "cuda"), cfg)
+    device = os.environ.get("SHADOW_PARITY_DEVICE", "cuda")
+    int8 = os.environ.get("SHADOW_INT8") == "1"
+    if int8 and device != "cpu":
+        pytest.skip("SHADOW_INT8 needs SHADOW_PARITY_DEVICE=cpu")
+    aligner = MmsAligner(device, int8)
+    det = SoundDetector(aligner, CharCtc(cfg.model, cfg.revision, device, int8), cfg)
     engine = create_engine(f"sqlite:///file:{db}?mode=ro&uri=true")   # read-only: never writes the user's data
 
     def run(db_: Session, attempt_id: int, seg: Segment) -> list[dict | None]:
@@ -79,8 +85,9 @@ def test_check_set_parity():
             print(f"n={n:2d} {it['expected_pinyin_toneless']}->{want} marked={hit} heard={r and r['heard']} "
                   f"z={r and round(r['z'], 2)} normal_marked={sum(1 for x in nres if x and x['status'] == 'slip')}")
     rate = normal_marked / normal_syls
-    print(f"slips marked {marked}/{len(PAIRS)}; normal-take false marks {normal_marked}/{normal_syls} = {rate:.1%}; "
+    print(f"device {device} int8 {int8}: sounds caught {marked}/{len(PAIRS)} = {marked / len(PAIRS):.1%} "
+          f"(pass mark >= 76%); false alarms {normal_marked}/{normal_syls} = {rate:.1%} (pass mark <= 5%); "
           f"wrong heard {bad_heard} (spike: 23/29, 3.9%)")
-    assert marked >= 22
-    assert rate <= 0.06
+    assert marked >= (0.76 * len(PAIRS) if int8 else 22)       # int8 pass mark: >= 76 % caught (23 of 29)
+    assert rate <= (0.05 if int8 else 0.06)
     assert bad_heard == 0

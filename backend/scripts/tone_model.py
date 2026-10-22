@@ -4,7 +4,8 @@
 Stages, each resumable: download and unpack (~19 GB, curl -C) → per-speaker features (native rows plus pitch-altered
 copies) cached under <root>/features_v<FEATURE_VERSION>_<labels>/ → train → evaluate on held-out speakers (native,
 altered and flat copies) → write shadow/scoring/models/<name>.{joblib,json}. Features need the models extra
-and the GPU."""
+and the GPU. `--stage evaluate [--int8-aligner]` re-evaluates the committed model without retraining (the int8
+features go under this checkout's data/cache/int8-check/tone/)."""
 from __future__ import annotations
 import argparse
 import json
@@ -27,6 +28,7 @@ from shadow.scoring.pitch import baseline_of, normalise, track_pitch
 from shadow.scoring.tone import MODELS_DIR, TONES
 from shadow.scoring.windows import windows
 
+ROOT_CACHE = Path(__file__).resolve().parents[2] / "data" / "cache"
 URL = "https://www.openslr.org/resources/93/data_aishell3.tgz"
 TEST_SHARE = 0.15
 MAX_PAIRS = 20000
@@ -163,6 +165,71 @@ def dtw_norm(test: list[tuple[str, dict]], band: int) -> float:
     return float(np.median(dists) / 0.1)
 
 
+def test_metrics(clf, T: dict, cfg):
+    """Held-out accuracy (native, altered) and false-red share of a fitted classifier over test rows T."""
+    P = clf.predict_proba(T["X"])
+    classes = np.asarray([int(c) for c in clf.classes_])
+    pred, y, kind = classes[P.argmax(axis=1)], T["y"], T["kind"]
+    if not np.isin(y, classes).all():
+        raise SystemExit(f"test labels {sorted(set(y.tolist()) - set(classes.tolist()))} never seen in training")
+    p_true = P[np.arange(len(y)), np.searchsorted(classes, y)]
+    nat, alt = kind == NATIVE, kind == ALTERED
+    acc, acc_alt = float(np.mean(pred[nat] == y[nat])), float(np.mean(pred[alt] == y[alt]))
+    false_wrong = float(np.mean((P.max(axis=1) - p_true)[nat] >= cfg.wrong_margin))
+    return P, pred, y, kind, nat, alt, acc, acc_alt, false_wrong
+
+
+def evaluate(root: Path, name: str, hours: float, labels: str, int8_aligner: bool) -> None:
+    """Re-evaluate the committed model on the held-out speakers without retraining. With --int8-aligner the test
+    speakers' features are recomputed with the 8-bit aligner on the CPU (fp32 tone embedder) into this checkout's
+    data/cache/int8-check/tone/, never into the corpus; the stored fp32 numbers are printed next to them."""
+    import joblib
+    settings = load_settings()
+    cfg, m = settings.scoring, settings.models
+    stored = json.loads((MODELS_DIR / f"{name}.json").read_text())
+    clf = joblib.load(MODELS_DIR / f"{name}.joblib")
+    spk = [f.stem for f in sorted(features_dir(root, labels).glob("*.npz"))]
+    test_spk = sorted(held_out(spk))
+    if int8_aligner:
+        out = ROOT_CACHE / "int8-check" / "tone"
+        out.mkdir(parents=True, exist_ok=True)
+        by_spk: dict[str, list[Utterance]] = defaultdict(list)
+        for u in pick(root, hours):
+            if u.speaker in test_spk:
+                by_spk[u.speaker].append(u)
+        models: list = []                   # loaded on the first missing speaker only: cached features need no models
+        for n, s in enumerate(test_spk, 1):
+            f = out / f"{s}.npz"
+            if not f.exists() and by_spk.get(s):
+                if not models:
+                    models += [make_aligner("mms_fa", "cpu", int8=True),
+                               Wav2Vec2Embedder(m.tone_embedder, m.tone_embedder_revision, m.tone_layer, "cpu")]
+                aligner, embedder = models
+                rng = np.random.default_rng(zlib.crc32(s.encode()))
+                tmp = out / f"{s}.npz.part"
+                with open(tmp, "wb") as fh:
+                    np.savez(fh, **speaker_features(aligner, embedder, cfg, by_spk[s], labels, True, rng))
+                tmp.rename(f)
+            print(f"[{n}/{len(test_spk)}] {s}", flush=True)
+        del models
+        files = [out / f"{s}.npz" for s in test_spk if (out / f"{s}.npz").exists()]
+    else:
+        files = [features_dir(root, labels) / f"{s}.npz" for s in test_spk]
+    T = {k: np.concatenate([np.load(f)[k] for f in files]) for k in ("X", "y", "kind", "orig")}
+    *_, acc, acc_alt, false_wrong = test_metrics(clf, T, cfg)
+    which = "int8 aligner" if int8_aligner else "fp32 (cached features)"
+    rows = [("accuracy native", stored["accuracy"], acc), ("accuracy altered", stored["accuracy_altered"], acc_alt),
+            ("false red (native)", stored["false_wrong_native"], false_wrong)]
+    print(f"{which}: {len(files)} test speakers, {int((T['kind'] == NATIVE).sum())} native rows")
+    for label, was, now in rows:
+        print(f"{label:20} stored {was:.4f}  now {now:.4f}  diff {100 * (now - was):+.2f} points")
+    ok = all(abs(now - was) <= 0.01 for _, was, now in rows) if int8_aligner else None
+    if ok is not None:
+        print("tone int8: all three within 1 point of fp32: " + ("PASS" if ok else "FAIL"))
+        if not ok:
+            raise SystemExit(1)
+
+
 def train(root: Path, name: str, hours: float, labels: str) -> None:
     import joblib
     import sklearn
@@ -201,15 +268,9 @@ def train(root: Path, name: str, hours: float, labels: str) -> None:
     del Xtr
     te = [(f.stem, dict(np.load(f))) for f in files if f.stem in test_spk]
     T = {k: np.concatenate([d[k] for _, d in te]) for k in ("X", "y", "kind", "orig")}
-    P = clf.predict_proba(T["X"])
+    P, pred, y, kind, nat, alt, acc, acc_alt, false_wrong = test_metrics(clf, T, cfg)
     classes = np.asarray([int(c) for c in clf.classes_])
-    pred, y, kind = classes[P.argmax(axis=1)], T["y"], T["kind"]
-    if not np.isin(y, classes).all():
-        raise SystemExit(f"test labels {sorted(set(y.tolist()) - set(classes.tolist()))} never seen in training")
-    p_true = P[np.arange(len(y)), np.searchsorted(classes, y)]
-    nat, alt = kind == NATIVE, kind == ALTERED
     flat = (kind == FLAT) & np.isin(T["orig"], (2, 3, 4))
-    acc, acc_alt = float(np.mean(pred[nat] == y[nat])), float(np.mean(pred[alt] == y[alt]))
     native_voiced = [(s, {k: d[k][(d["kind"] == NATIVE) & d["voiced"]] for k in ("y", "ctx", "contours")})
                      for s, d in te]
     m = settings.models
@@ -220,7 +281,7 @@ def train(root: Path, name: str, hours: float, labels: str) -> None:
             "accuracy_altered": acc_alt,
             "per_tone_altered": {str(t): float(np.mean(pred[alt & (y == t)] == t))
                                  for t in TONES if np.any(alt & (y == t))},
-            "false_wrong_native": float(np.mean((P.max(axis=1) - p_true)[nat] >= cfg.wrong_margin)),
+            "false_wrong_native": false_wrong,
             "flat_still_original": float(np.mean(pred[flat] == T["orig"][flat])),
             "n_train": n, "n_train_altered": n_alt, "train_rows_total": total, "train_rows_used": n,
             "n_test": int(nat.sum()), "n_test_altered": int(alt.sum()), "n_test_flat": int(flat.sum()),
@@ -246,8 +307,12 @@ def main() -> None:
     ap.add_argument("--hours", type=float, default=10.0)
     ap.add_argument("--labels", choices=["canonical", "realised"], required=True)
     ap.add_argument("--name", default="tone_v1")
-    ap.add_argument("--stage", choices=["all", "features", "train"], default="all")
+    ap.add_argument("--stage", choices=["all", "features", "train", "evaluate"], default="all")
+    ap.add_argument("--int8-aligner", action="store_true", help="evaluate: recompute test features with the int8 aligner")
     a = ap.parse_args()
+    if a.stage == "evaluate":
+        evaluate(a.root, a.name, a.hours, a.labels, a.int8_aligner)
+        return
     if a.stage in ("all", "features"):
         download(a.root)
         features(a.root, pick(a.root, a.hours), a.labels)

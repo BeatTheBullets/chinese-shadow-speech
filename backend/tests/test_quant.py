@@ -59,3 +59,14 @@ def test_build_deps_on_cpu_survives_missing_torch(monkeypatch, tmp_path):
 def test_quantize_linear_prints_no_deprecation_warning(recwarn):
     quantize_linear(torch.nn.Sequential(torch.nn.Linear(8, 8)))
     assert not [w for w in recwarn if "torch.ao.quantization" in str(w.message)]
+
+
+def test_int8_skip_keeps_named_models_fp32(tmp_path):
+    from shadow.deps import build_deps
+    cfg = ModelsCfg(device="cpu", int8=True, int8_skip=["asr", "sounds"])
+    deps = build_deps(Settings(models=cfg, data_dir=tmp_path))
+    assert deps.asr.int8 is False
+    assert deps.aligner.inner.int8 is True
+    assert deps.sounds.chars.int8 is False
+    on = build_deps(Settings(models=ModelsCfg(device="cpu", int8=True), data_dir=tmp_path))
+    assert (on.asr.int8, on.aligner.inner.int8, on.sounds.chars.int8) == (True, True, True)

@@ -7,7 +7,7 @@ times them) and, with --lessons, stored lessons (their stored segment boundaries
 transcribed once with the punctuation model on; candidate "punctuation" is today's rectify_transcript, candidate
 "pauses" is pause_ranges over the same characters with punctuation removed. --data-dir (default: the settings' data dir)
 is only read, and the lessons database is opened read-only; downloads and transcripts are cached under this checkout's
-data/cache/split-gate/. Prints and writes a markdown report ending in PASS or FAIL."""
+data/cache/split-gate/. --int8 transcribes with the 8-bit recogniser on the CPU (transcripts cached as asr-int8.json). Prints and writes a markdown report ending in PASS or FAIL."""
 from __future__ import annotations
 import argparse
 import json
@@ -47,7 +47,7 @@ def urls() -> list[str]:
     return out
 
 
-def video_source(url: str, asr: ParaformerASR) -> Source | None:
+def video_source(url: str, asr: ParaformerASR, int8: bool = False) -> Source | None:
     vid = parse_video_id(url)
     if vid is None:
         print(f"skip {url}: not a YouTube link")
@@ -67,7 +67,7 @@ def video_source(url: str, asr: ParaformerASR) -> Source | None:
     if not wav.exists():
         media = next((p for p in d.glob("audio.*")), None) or dl.download_audio(url, d)
         audio.normalise(media, wav)
-    tr_path = d / "asr.json"
+    tr_path = d / ("asr-int8.json" if int8 else "asr.json")        # int8 transcripts never replace the fp32 ones
     if tr_path.exists():
         tr = Transcript.from_json(json.loads(tr_path.read_text()))
     else:
@@ -141,13 +141,15 @@ def main() -> None:
     ap.add_argument("--lessons", type=int, nargs="*", default=[])
     ap.add_argument("--data-dir", type=Path, default=None)
     ap.add_argument("--out", type=Path, required=True)
+    ap.add_argument("--int8", action="store_true", help="transcribe with the 8-bit recogniser on the CPU")
     a = ap.parse_args()
     settings = load_settings()
     data_dir = a.data_dir or Path(settings.data_dir)
 
     sources = lesson_sources(data_dir, a.lessons) if a.lessons else []
-    asr = ParaformerASR(settings.models.asr, settings.resolved_device(), punctuation=True)
-    videos = [s for u in urls() if (s := video_source(u, asr)) is not None]
+    device = "cpu" if a.int8 else settings.resolved_device()
+    asr = ParaformerASR(settings.models.asr, device, punctuation=True, int8=a.int8)
+    videos = [s for u in urls() if (s := video_source(u, asr, a.int8)) is not None]
     sources = videos + sources
     if not sources:
         raise SystemExit("no usable sources")

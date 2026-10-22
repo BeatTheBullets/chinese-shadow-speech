@@ -19,6 +19,7 @@ class ModelsCfg(BaseModel):
     tone_layer: int = 6
     punctuation: bool = True          # False: no punctuation model; sentences are cut at pauses ([segmentation])
     int8: bool = False                # CPU only: 8-bit recogniser, aligner and sounds model (about half the RAM)
+    int8_skip: list[str] = []         # models kept fp32 even with int8 on: "asr", "aligner", "sounds"
     threads: int = 0                  # CPU threads for the models; 0 = physical cores minus one
 
 

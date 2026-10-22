@@ -53,15 +53,17 @@ def build_deps(settings: Settings) -> Deps:
         except ImportError:                    # no `models` extra installed: nothing to cap
             log.debug("torch is not installed; thread cap skipped")
     int8 = int8_wanted(settings)
+    skip = set(settings.models.int8_skip)          # a model that failed its int8 check stays fp32
+    int8_asr, int8_aligner, int8_sounds = (int8 and n not in skip for n in ("asr", "aligner", "sounds"))
     files = FileLayout(settings.data_dir)
     asr = ParaformerASR(settings.models.asr, device, punctuation=settings.models.punctuation,
-                       segmentation=settings.segmentation, int8=int8)
-    aligner = LockedAligner(make_aligner(settings.resolved_aligner(), device, int8))
+                       segmentation=settings.segmentation, int8=int8_asr)
+    aligner = LockedAligner(make_aligner(settings.resolved_aligner(), device, int8_aligner))
     sounds, sounds_error = None, None
     if settings.sounds.enabled:
         cfg = settings.sounds
         if isinstance(aligner.inner, MmsAligner):
-            sounds = SoundDetector(aligner, CharCtc(cfg.model, cfg.revision, device, int8), cfg)
+            sounds = SoundDetector(aligner, CharCtc(cfg.model, cfg.revision, device, int8_sounds), cfg)
         else:
             sounds_error = "sounds need the MMS aligner"
     return Deps(asr=asr, hearer=AsrHearer(asr), sounds=sounds, sounds_error=sounds_error,
