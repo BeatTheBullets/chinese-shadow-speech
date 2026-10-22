@@ -21,7 +21,7 @@ def pause_ranges(chars: list[TimedChar], cfg: SegmentationCfg) -> list[tuple[int
         pos += len(word)
         allowed[pos - 1] = True
     allowed[n - 1] = True
-    gap = [chars[k + 1].start - chars[k].end for k in range(n - 1)]
+    gap = [round(chars[k + 1].start - chars[k].end, 3) for k in range(n - 1)]    # whole ms: 0.49999999 is 0.5
 
     ends = [k for k in range(n - 1) if allowed[k] and gap[k] >= cfg.pause_cut_s]
     ends.append(n - 1)

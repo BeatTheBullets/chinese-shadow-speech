@@ -86,7 +86,7 @@ def _from_sentence_info(result: dict[str, Any], pauses: SegmentationCfg | None =
         append_segment(
             tr, _sentence_chars(text, float(s.get("start", 0)), float(s.get("end", 0)), s.get("timestamp"))
         )
-    return _by_pauses(tr.chars, pauses) if unpunctuated and pauses else tr
+    return _by_pauses(tr.chars, pauses) if unpunctuated else tr
 
 
 def transcript_from_funasr(result: dict[str, Any], pauses: SegmentationCfg | None = None) -> Transcript:

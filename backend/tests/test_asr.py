@@ -204,3 +204,33 @@ def test_a_busy_recogniser_is_not_waited_for(tmp_path, monkeypatch):
     with asr._lock:
         assert asr.try_transcribe(tmp_path / "x.wav", 0.01) is None
         assert AsrHearer(asr).hear(tmp_path / "x.wav") is None
+
+
+def test_unpunctuated_count_mismatch_fallback_is_cut_to_max_chars():
+    from shadow.config import SegmentationCfg
+    text = "我今天早上去了学校然后和同学一起吃午饭下午又回到教室 A1 认真地学习数学和英语"
+    res = {"text": text, "timestamp": [[0, 240]] * 5}      # speech count disagrees with the timestamps
+    tr = transcript_from_funasr(res, pauses=SegmentationCfg())
+    assert tr.text == "".join(text.split())
+    assert len(tr.segments) >= 2
+    assert all(b - a + 1 <= 25 for a, b in tr.segments)
+    flat = [i for a, b in tr.segments for i in range(a, b + 1)]
+    assert flat == list(range(len(tr.chars)))
+
+
+@pytest.mark.parametrize("punctuation, expected", [(False, None), (True, "ct-punc")])
+def test_paraformer_load_passes_punc_model_only_when_punctuation_is_on(monkeypatch, punctuation, expected):
+    import sys
+    import types
+    from shadow.ingest.asr import ParaformerASR
+    seen = {}
+
+    class FakeAutoModel:
+        def __init__(self, **kw):
+            seen.update(kw)
+
+    monkeypatch.setitem(sys.modules, "funasr", types.SimpleNamespace(AutoModel=FakeAutoModel))
+    ParaformerASR("m", "cpu", punctuation=punctuation)._load()
+    assert seen.get("punc_model") == expected
+    assert ("punc_model" in seen) == punctuation
+    assert seen["model"] == "m" and seen["vad_model"] == "fsmn-vad"

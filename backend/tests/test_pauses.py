@@ -90,3 +90,12 @@ def test_punctuated_result_ignores_pauses():
     res = {"text": "你好，世界。再见。", "timestamp": _ts(6, {1: 900, 3: 900})}
     tr = transcript_from_funasr(res, pauses=CFG)
     assert tr.segments == [(0, 5), (6, 8)]
+
+
+def test_gap_from_millisecond_float_arithmetic_cuts_at_half_second():
+    first_end, second_start = 1518 / 1000, 2018 / 1000       # a 500 ms gap
+    assert second_start - first_end < 0.5                    # the raw float difference misses the threshold
+    cs = [TimedChar(c, 1.0 + 0.1 * i, 1.1 + 0.1 * i) for i, c in enumerate("我是学生")]
+    cs[3].end = first_end
+    cs += [TimedChar(c, second_start + 0.1 * i, second_start + 0.1 * i + 0.1) for i, c in enumerate("我是中国人")]
+    assert pause_ranges(cs, CFG) == [(0, 3), (4, 8)]
