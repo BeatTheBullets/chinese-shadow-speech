@@ -1,15 +1,19 @@
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { charRects, type Rect } from '../lib/charRects'
 import { charFill, type Wipe } from '../lib/karaoke'
 import Sentence, { type SentenceProps } from './Sentence'
+import { WIPE_FILL } from '../theme/tokens'
+import Card from '../ui/Card'
 
-const FILL: Record<Wipe['tone'], string> = { ref: '#8fb3d9', ghost: 'rgba(224, 163, 58, 0.55)' }
+const FILL: Record<Wipe['tone'], string> = WIPE_FILL
 
 // The sentence with the karaoke wipe (addendum §6.5). The sentence DOM is Sentence's, unchanged (main spec §7.7); the
 // wipe is a sibling layer — aria-hidden, pointer-events none — of boxes over each character's rectangle, multiplied
 // into the light glyphs (and invisible on the dark background), so Yomitan still scans the real text underneath.
 // The boxes are measured again when the sentence resizes, the window resizes and the web font has loaded.
-export default function KaraokeSentence({ wipe, ...props }: SentenceProps & { wipe: Wipe | null }) {
+// With `tools` (Practice, Drill) it is the notched sentence card: the sentence, then `children` (the ghost line),
+// then the tools (SentenceTools) that act on it. Without (a Flow run's current line) just the sentence.
+export default function KaraokeSentence({ wipe, tools, children, ...props }: SentenceProps & { wipe: Wipe | null; tools?: ReactNode; children?: ReactNode }) {
   const pRef = useRef<HTMLParagraphElement>(null)
   const boxRef = useRef<HTMLDivElement>(null)
   const [rects, setRects] = useState<(Rect | null)[]>([])
@@ -27,7 +31,7 @@ export default function KaraokeSentence({ wipe, ...props }: SentenceProps & { wi
     return () => { live = false; window.removeEventListener('resize', measure); ro?.disconnect() }
   }, [text, words, showHanzi, showPinyin])
   const fill = wipe ? charFill(text, wipe.progress) : []
-  return (
+  const sentence = (
     <div ref={boxRef} className="relative">
       <Sentence {...props} pRef={pRef} />
       {wipe && showHanzi && (
@@ -36,6 +40,12 @@ export default function KaraokeSentence({ wipe, ...props }: SentenceProps & { wi
             ? <div key={i} className="absolute" style={{ left: r.left, top: r.top, width: r.width * fill[i], height: r.height, background: FILL[wipe.tone] }} />
             : null))}
         </div>)}
+    </div>
+  )
+  if (tools == null) return <>{sentence}{children}</>
+  return (
+    <div data-testid="sentence-card">
+      <Card notched className="px-6 pt-5 pb-3 space-y-3">{sentence}{children}{tools}</Card>
     </div>
   )
 }
@@ -48,7 +58,7 @@ export function GhostLine({ count, wipe }: { count: number; wipe: Wipe | null })
       {Array.from({ length: count }, (_, i) => {
         const f = wipe ? Math.max(0, Math.min(1, wipe.progress - i)) : 0
         return (
-          <span key={i} className="w-4 h-4 rounded-sm bg-panel2 overflow-hidden">
+          <span key={i} className="w-4 h-4 rounded-sm bg-line overflow-hidden">
             <span className={`block h-full ${wipe?.tone === 'ghost' ? 'bg-you/60' : 'bg-ref'}`} style={{ width: `${f * 100}%` }} />
           </span>)
       })}

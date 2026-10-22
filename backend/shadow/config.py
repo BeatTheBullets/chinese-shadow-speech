@@ -46,7 +46,6 @@ class ScoringCfg(BaseModel):
 
 class PracticeCfg(BaseModel):
     hide_text_while_recording: bool = True
-    chorus_passes: int = 5
     flow_gap_factor: float = 1.1
     move_on_after: int = 4
 

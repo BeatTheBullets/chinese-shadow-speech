@@ -36,7 +36,6 @@ tone_model = "tone_v1"
 
 [practice]
 hide_text_while_recording = true
-chorus_passes = 5
 flow_gap_factor = 1.1
 move_on_after = 4
 

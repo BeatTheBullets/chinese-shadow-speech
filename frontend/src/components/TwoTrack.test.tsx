@@ -48,6 +48,19 @@ describe('<TwoTrack>', () => {
     expect(cellButtons().some((c) => c.classList.contains('ring-sound'))).toBe(false)
     expect(cellButtons().map((c) => c.textContent)).toEqual(['你nǐ 3', '好hǎo 3', '吗ma 0', '你390', '好390', '吗090'])
   })
+  it('each track plays from a labelled button with its key as the hint, not "▶ Space" / "▶ R" key faces', () => {
+    const calls: string[] = []
+    const { rerender } = render(<TwoTrack {...props} onPlayRef={() => calls.push('ref')} onPlayYou={() => calls.push('you')} />)
+    expect(screen.queryByText(/▶/)).toBeNull()
+    const listen = screen.getByRole('button', { name: 'Listen (Space)' }), me = screen.getByRole('button', { name: 'Me (R)' })
+    expect(within(listen).getByText('Space')).toHaveClass('text-fgdim')
+    expect(within(me).getByText('R')).toHaveClass('text-fgdim')
+    expect(me).toBeDisabled()                                  // no take yet
+    fireEvent.click(listen)
+    rerender(<TwoTrack {...props} youDuration={1.5} onPlayRef={() => calls.push('ref')} onPlayYou={() => calls.push('you')} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Me (R)' }))
+    expect(calls).toEqual(['ref', 'you'])
+  })
   it('clicking a You cell calls onPlayYouSyllable(i)', () => {
     const calls: number[] = []
     render(<TwoTrack {...props} score={score([undefined, undefined, undefined])} onPlayYouSyllable={(i) => calls.push(i)} />)

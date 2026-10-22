@@ -6,7 +6,7 @@ describe('settings store', () => {
   it('has defaults', () => {
     const s = useSettings.getState()
     expect(s.ankiUrl).toBe('http://127.0.0.1:8765')
-    expect(s.practice.chorusPasses).toBe(5)
+    expect(s.practice).toEqual({ hideTextWhileRecording: true, flowGapFactor: 1.1, moveOnAfter: 4, defaultRate: 1.0 })
   })
   it('persists queries and text prefs', () => {
     useSettings.getState().addQuery({ name: 'Mining', query: 'deck:Mining', mapping: { sentence: 'Sentence', audio: 'Audio' } })
@@ -28,5 +28,15 @@ describe('settings store', () => {
     const s = useSettings.getState()
     expect(s.ankiUrl).toBe('http://x:1')
     expect([s.referenceVolume, s.guideLevel, s.helpSeen]).toEqual([1, 0.5, false])
+  })
+  it('settings with a stale chorusPasses still load', async () => {
+    localStorage.setItem('shadow.settings', JSON.stringify({ state: { ankiUrl: 'http://x:2',
+      practice: { hideTextWhileRecording: false, chorusPasses: 5, flowGapFactor: 1.3, moveOnAfter: 6, defaultRate: 0.8 } }, version: 0 }))
+    await expect(useSettings.persist.rehydrate()).resolves.not.toThrow()
+    const s = useSettings.getState()
+    expect(s.ankiUrl).toBe('http://x:2')
+    expect(s.practice.defaultRate).toBe(0.8)
+    expect(s.practice).toEqual({ hideTextWhileRecording: false, flowGapFactor: 1.3, moveOnAfter: 6, defaultRate: 0.8 })
+    expect(JSON.parse(localStorage.getItem('shadow.settings')!).version).toBe(1)
   })
 })

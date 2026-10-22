@@ -5,16 +5,19 @@ export function concat(chunks: Float32Array[]): Float32Array {
   return out
 }
 
+// How much of the take the live waveform shows (spec §3): its newest 1.6 s, as 80 bars of 20 ms.
+export const LIVE_WINDOW_S = 1.6
+
 // The last n samples of a chunked recording, copying only the chunks it needs.
 export function tail(chunks: Float32Array[], n: number): Float32Array {
   const parts: Float32Array[] = []
   let need = n
   for (let i = chunks.length - 1; i >= 0 && need > 0; i--) {
     const c = chunks[i]
-    parts.unshift(c.length > need ? c.subarray(c.length - need) : c)
+    parts.push(c.length > need ? c.subarray(c.length - need) : c)   // newest first; reversed once below, not unshift per chunk
     need -= c.length
   }
-  return concat(parts)
+  return concat(parts.reverse())
 }
 
 // Samples between clock times t0..t1 of a recording whose first sample was taken at startTime.

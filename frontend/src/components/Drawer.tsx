@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import type { Passage, Segment } from '../api/types'
 import { groupByPassage, passageDone } from '../lib/passages'
+import Button from '../ui/Button'
+
 export function dotClass(seg: Segment, pending: boolean): string {
   if (pending) return 'border border-dashed border-fgdim'
   if (seg.last_score == null) return 'bg-line'
@@ -14,12 +16,16 @@ interface Props {
 // The lesson's sentences, grouped under passage headers (✓ when every sentence of the passage has an attempt).
 export default function Drawer({ segments, idx, open, pendingIds, onJump, onToggle, onEdit, onSplit, onMerge, passages = [], practised = [] }: Props) {
   const [menu, setMenu] = useState<number | null>(null) // the row whose ⋯ menu is open
-  if (!open) return <button className="w-6 border-l border-line text-fgdim text-xs" onClick={onToggle} title="Open lesson list (L)">▸</button>
+  if (!open) return <button className="w-6 border-l border-line bg-panel text-fgdim hover:text-fg text-xs" onClick={onToggle} title="Open lesson list (L)">▸</button>
   const pick = (fn: (i: number) => void, i: number) => () => { setMenu(null); fn(i) }
-  const item = 'px-2 py-0.5 rounded bg-panel2 hover:text-fghi disabled:opacity-40'
+  const item = 'px-2 py-0.5 rounded-lg border border-line bg-card hover:text-fg disabled:opacity-40'
   return (
-    <aside className="w-80 border-l border-line overflow-y-auto">
-      <div className="flex justify-between px-3 py-2 text-[10px] uppercase tracking-widest text-fgdim"><span>Lesson</span><button onClick={onToggle}>◂ L</button></div>
+    <aside className="w-80 border-l border-line bg-panel overflow-y-auto">
+      {/* closing it: a labelled button with its key as the hint, never a key face (spec §2) */}
+      <div className="flex items-center justify-between px-3 py-2">
+        <span className="text-[10px] uppercase tracking-widest text-fgdim">Lesson</span>
+        <Button label="Lesson list" keyHint="L" variant="ghost" ariaLabel="Close lesson list (L)" onClick={onToggle} />
+      </div>
       {groupByPassage(segments, passages).map((g, gi) => (
         <div key={g.passage ? `p${g.passage.idx}` : `loose${gi}`} data-testid={g.passage ? `passage-${g.passage.idx}` : 'passage-none'}>
           {g.passage && (
@@ -29,7 +35,7 @@ export default function Drawer({ segments, idx, open, pendingIds, onJump, onTogg
             </div>)}
           {g.rows.map(({ i, seg: s }) => (
             <div key={s.id}>
-              <div className={`flex items-center text-sm ${i === idx ? 'bg-[#1c2a3a] text-fghi' : 'text-fgdim'}`}>
+              <div className={`flex items-center text-sm ${i === idx ? 'bg-card text-fg shadow-[inset_2px_0_0_theme(colors.accent)]' : 'text-fgdim hover:text-fg'}`}>
                 <button onClick={() => onJump(i)} title={`${s.text}${s.last_score != null ? `\nlast ${Math.round(s.last_score * 100)} · best ${Math.round((s.best_score ?? 0) * 100)}` : ''}`}
                   className="flex-1 min-w-0 flex items-center gap-2 pl-3 py-1 text-left">
                   <span className="w-5 text-right text-[10px]">{s.idx + 1}</span>
@@ -37,7 +43,7 @@ export default function Drawer({ segments, idx, open, pendingIds, onJump, onTogg
                   <span className="truncate font-hanzi">{s.text}</span>
                   {s.difficulty_flag && <span className="text-warn">⚑</span>}
                 </button>
-                <button className="px-2 py-1 text-fgdim hover:text-fghi" aria-label={`Actions for sentence ${i + 1}`} aria-haspopup="menu" aria-expanded={menu === i}
+                <button className="px-2 py-1 text-fgdim hover:text-fg" aria-label={`Actions for sentence ${i + 1}`} aria-haspopup="menu" aria-expanded={menu === i}
                   onClick={() => setMenu(menu === i ? null : i)}>⋯</button>
               </div>
               {menu === i && (

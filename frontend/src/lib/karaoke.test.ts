@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { charFill, clipSpans, countInDots, countInWindow, flowWipe, ghostProgress, lineLead, nextLineStart, stageWipe, wipeProgress, type ClipSpan } from './karaoke'
+import { charFill, clipSpans, countIn, countInWindow, flowWipe, ghostProgress, lineLead, nextLineStart, stageWipe, wipeProgress, type ClipSpan } from './karaoke'
 import { isPunct, speechChars } from './text'
 
 const spans: ClipSpan[] = [{ start: 0.1, end: 0.3 }, { start: 0.3, end: 0.3 }, { start: 0.5, end: 0.9 }]
@@ -29,8 +29,15 @@ describe('karaoke timing', () => {
     expect(w).toEqual({ start: 8.5, end: 10 })
     expect(countInWindow(10, 0.4)).toBeNull()
     expect(countInWindow(10, 0.5)).not.toBeNull()
-    expect([8.4, 8.5, 9.0, 9.6, 10].map((t) => countInDots(w, t))).toEqual([0, 3, 2, 1, 0])
-    expect(countInDots(null, 9)).toBe(0)
+    expect([8.4, 8.5, 9.0, 9.6, 10].map((t) => countIn(w, t))).toEqual([null, 3, 2, 1, null])
+    expect(countIn(null, 9)).toBeNull()
+  })
+  it('countIn: 3 → 2 → 1 on the same boundaries as the old dots, each a third of the window', () => {
+    const w = countInWindow(10, Infinity)!
+    expect([8.5, 8.99, 9.0, 9.49, 9.5, 9.99].map((t) => countIn(w, t))).toEqual([3, 3, 2, 2, 1, 1])
+  })
+  it('no countdown when the gap is too short', () => {
+    expect(countIn(countInWindow(10, 0.4), 9)).toBeNull()
   })
   it('charFill colours punctuation with the character before it', () => {
     expect(charFill('你好，吗', 1.5)).toEqual([1, 0.5, 0, 0])
@@ -51,43 +58,43 @@ describe('karaoke timing', () => {
   })
 })
 
-describe('stageWipe (Echo, Chorus, Guided)', () => {
+describe('stageWipe (Echo, Drill)', () => {
   it('colours the sentence while the reference plays', () => {
     const r = stageWipe({ spans, refPlaying: true, refHead: 0.2, turnStart: null, now: 0, rate: 1 })
-    expect(r.wipe?.tone).toBe('ref'); expect(r.wipe?.progress).toBeCloseTo(0.5); expect(r.dots).toBe(0)
+    expect(r.wipe?.tone).toBe('ref'); expect(r.wipe?.progress).toBeCloseTo(0.5); expect(r).not.toHaveProperty('dots')
   })
-  it('an Echo take: count-in dots first, then the ghost wipe', () => {
-    expect(stageWipe({ spans, refPlaying: false, refHead: null, turnStart: 100, now: 100.5, rate: 1 })).toEqual({ wipe: null, dots: 2 })
-    expect(stageWipe({ spans, refPlaying: false, refHead: null, turnStart: 100, now: 101.7, rate: 1 })).toEqual({ wipe: { tone: 'ghost', progress: 2 }, dots: 0 })
+  it('an Echo take: no countdown; the ghost wipe still starts 1.5 s into the take (timing unchanged)', () => {
+    expect(stageWipe({ spans, refPlaying: false, refHead: null, turnStart: 100, now: 100.5, rate: 1 })).toEqual({ wipe: null })
+    expect(stageWipe({ spans, refPlaying: false, refHead: null, turnStart: 100, now: 101.7, rate: 1 })).toEqual({ wipe: { tone: 'ghost', progress: 2 } })
   })
   it('no alignment: no wipe (the cue line still shows)', () => {
-    expect(stageWipe({ spans: [], refPlaying: true, refHead: 0.5, turnStart: null, now: 0, rate: 1 })).toEqual({ wipe: null, dots: 0 })
+    expect(stageWipe({ spans: [], refPlaying: true, refHead: 0.5, turnStart: null, now: 0, rate: 1 })).toEqual({ wipe: null })
   })
 })
 
 describe('flowWipe', () => {
   const base = { spans, clipDuration: 2, turn: null, now: 0, rate: 1, next: null }
-  it('after, while the clip plays: the colour wipe, and count-in dots over its last 1.5 s', () => {
+  it('after, while the clip plays: the colour wipe, and 3·2·1 over its last 1.5 s', () => {
     const a = flowWipe({ ...base, sub: 'after', clipTime: 0.2 })
-    expect(a.wipe?.tone).toBe('ref'); expect(a.wipe?.progress).toBeCloseTo(0.5); expect(a.dots).toBe(0)
-    expect(flowWipe({ ...base, sub: 'after', clipTime: 1.0 }).dots).toBe(2)
-    expect(flowWipe({ ...base, sub: 'after', clipTime: 1.5, rate: 0.5 }).dots).toBe(2) // 3 s of 4 s real time
+    expect(a.wipe?.tone).toBe('ref'); expect(a.wipe?.progress).toBeCloseTo(0.5); expect(a.count).toBeNull()
+    expect(flowWipe({ ...base, sub: 'after', clipTime: 1.0 }).count).toBe(2)
+    expect(flowWipe({ ...base, sub: 'after', clipTime: 1.5, rate: 0.5 }).count).toBe(2) // 3 s of 4 s real time
   })
   it('after, during the turn: the ghost wipe and the turn bar', () => {
     expect(flowWipe({ ...base, sub: 'after', clipTime: null, turn: { startedAt: 50, duration: 2 }, now: 51 }))
-      .toEqual({ wipe: { tone: 'ghost', progress: 3 }, dots: 0, turnLeft: 0.5 })
+      .toEqual({ wipe: { tone: 'ghost', progress: 3 }, count: null, turnLeft: 0.5 })
   })
   it('along: count-in before the next line only when there is a real pause', () => {
-    expect(flowWipe({ ...base, sub: 'along', clipTime: 1.5, next: { at: 2.5, gap: 0.3 } }).dots).toBe(0)
-    expect(flowWipe({ ...base, sub: 'along', clipTime: 1.5, next: { at: 2.5, gap: 0.8 } }).dots).toBe(2)
+    expect(flowWipe({ ...base, sub: 'along', clipTime: 1.5, next: { at: 2.5, gap: 0.3 } }).count).toBeNull()
+    expect(flowWipe({ ...base, sub: 'along', clipTime: 1.5, next: { at: 2.5, gap: 0.8 } }).count).toBe(2)
   })
   it('along: the count-in carries on into the lead silence of the new line, down to its first syllable', () => {
     const lead = { at: 0.6, gap: 0.8 } // 0.6 s of silence at the start of the clip
-    expect(flowWipe({ ...base, sub: 'along', clipTime: 0, lead }).dots).toBe(2)
-    expect(flowWipe({ ...base, sub: 'along', clipTime: 0.3, lead }).dots).toBe(1)
-    expect(flowWipe({ ...base, sub: 'along', clipTime: 0.6, lead }).dots).toBe(0)
-    expect(flowWipe({ ...base, sub: 'along', clipTime: 0, lead: { at: 0.6, gap: 0.3 } }).dots).toBe(0) // no real pause: none
-    expect(flowWipe({ ...base, sub: 'along', clipTime: 0, lead, rate: 0.5 }).dots).toBe(2) // 1.2 s real time left
+    expect(flowWipe({ ...base, sub: 'along', clipTime: 0, lead }).count).toBe(2)
+    expect(flowWipe({ ...base, sub: 'along', clipTime: 0.3, lead }).count).toBe(1)
+    expect(flowWipe({ ...base, sub: 'along', clipTime: 0.6, lead }).count).toBeNull()
+    expect(flowWipe({ ...base, sub: 'along', clipTime: 0, lead: { at: 0.6, gap: 0.3 } }).count).toBeNull() // no real pause: none
+    expect(flowWipe({ ...base, sub: 'along', clipTime: 0, lead, rate: 0.5 }).count).toBe(2) // 1.2 s real time left
   })
   it('lineLead: when the line speaks within its own clip, and the silence before it', () => {
     const prev = { start_s: 10, end_s: 12, ref_alignment_json: [{ ch: '你', start: 10.2, end: 11.5, conf: 1 }] }
@@ -96,7 +103,7 @@ describe('flowWipe', () => {
     expect(a.at).toBeCloseTo(1.2); expect(a.gap).toBeCloseTo(2.2)
   })
   it('nothing playing: nothing to draw', () => {
-    expect(flowWipe({ ...base, sub: 'after', clipTime: null })).toEqual({ wipe: null, dots: 0, turnLeft: null })
+    expect(flowWipe({ ...base, sub: 'after', clipTime: null })).toEqual({ wipe: null, count: null, turnLeft: null })
   })
 })
 
@@ -105,8 +112,8 @@ describe('null and empty alignment never throws', () => {
     const none = null as unknown as ClipSpan[]
     expect(wipeProgress(none, 1)).toBe(0)
     expect(ghostProgress(none, 1, 1)).toBe(0)
-    expect(stageWipe({ spans: none, refPlaying: true, refHead: 0.5, turnStart: null, now: 0, rate: 1 })).toEqual({ wipe: null, dots: 0 })
-    expect(stageWipe({ spans: [], refPlaying: false, refHead: null, turnStart: 1, now: 3, rate: 1 })).toEqual({ wipe: null, dots: 0 })
+    expect(stageWipe({ spans: none, refPlaying: true, refHead: 0.5, turnStart: null, now: 0, rate: 1 })).toEqual({ wipe: null })
+    expect(stageWipe({ spans: [], refPlaying: false, refHead: null, turnStart: 1, now: 3, rate: 1 })).toEqual({ wipe: null })
     expect(flowWipe({ spans: none, sub: 'after', clipTime: 0.5, clipDuration: 2, turn: { startedAt: 0, duration: 2 }, now: 1, rate: 1, next: null }).wipe).toBeNull()
     expect(flowWipe({ spans: [], sub: 'after', clipTime: 0.5, clipDuration: 2, turn: null, now: 0, rate: 1, next: null }).wipe).toBeNull()
     expect(charFill('', 1)).toEqual([])

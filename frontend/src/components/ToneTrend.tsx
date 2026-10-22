@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import type { ToneStats } from '../api/types'
 import { TONE_NAMES, pct } from '../lib/score'
+import { TOKENS } from '../theme/tokens'
 
 // Categorical slots 1-5 of the dataviz dark palette in fixed order, one per tone (neutral last); validated on the dark surface.
 const TONES = [1, 2, 3, 4, 0]
-const COLOR: Record<number, string> = { 1: '#3987e5', 2: '#d95926', 3: '#199e70', 4: '#c98500', 0: '#d55181' }
+const COLOR: Record<number, string> = { 1: TOKENS.ok, 2: TOKENS.ref, 3: TOKENS.warn, 4: TOKENS.bad, 0: TOKENS.accent }
 const label = (t: number) => (t === 0 ? 'Neutral' : `Tone ${t} · ${TONE_NAMES[t]}`)
 
 // One thin line per tone over the weeks on a fixed 0-100 scale; a week without a score for a tone leaves a gap.
@@ -26,11 +27,11 @@ export default function ToneTrend({ weeks }: { weeks: ToneStats['weeks'] }) {
       </div>
       <p className="text-sm text-fgdim h-5">{hover ?? 'Mean score per tone, by week'}</p>
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label="Tone scores per week, last 12 weeks">
-        <line x1={left} x2={W} y1={top + plotH} y2={top + plotH} stroke="#2a3139" />
-        <line x1={left} x2={W} y1={top} y2={top} stroke="#2a3139" strokeDasharray="2 4" />
-        <text x="0" y={top + 3} fontSize="9" fill="#7c8793">100</text>
-        <text x="0" y={top + plotH} fontSize="9" fill="#7c8793">0</text>
-        {names.map((wk, i) => (i === 0 || i === names.length - 1 || i % 2 === 0) && <text key={wk} x={x(i)} y={H - 4} fontSize="9" textAnchor="middle" fill="#7c8793">{wk.slice(-3)}</text>)}
+        <line x1={left} x2={W} y1={top + plotH} y2={top + plotH} stroke={TOKENS.line} />
+        <line x1={left} x2={W} y1={top} y2={top} stroke={TOKENS.line} strokeDasharray="2 4" />
+        <text x="0" y={top + 3} fontSize="9" fill={TOKENS.fgdim}>100</text>
+        <text x="0" y={top + plotH} fontSize="9" fill={TOKENS.fgdim}>0</text>
+        {names.map((wk, i) => (i === 0 || i === names.length - 1 || i % 2 === 0) && <text key={wk} x={x(i)} y={H - 4} fontSize="9" textAnchor="middle" fill={TOKENS.fgdim}>{wk.slice(-3)}</text>)}
         {lines.map(({ t, pts }) => (
           <g key={t}>
             <path d={d(pts)} fill="none" stroke={COLOR[t]} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
@@ -39,7 +40,7 @@ export default function ToneTrend({ weeks }: { weeks: ToneStats['weeks'] }) {
               return (
                 <g key={p.wk} onMouseEnter={() => setHover(tip)} onMouseLeave={() => setHover(null)}>
                   <circle cx={x(p.i)} cy={y(p.w!.mean)} r="12" fill="transparent" />
-                  <circle cx={x(p.i)} cy={y(p.w!.mean)} r="4" fill={COLOR[t]} stroke="#111418" strokeWidth="2" />
+                  <circle cx={x(p.i)} cy={y(p.w!.mean)} r="4" fill={COLOR[t]} stroke={TOKENS.panel} strokeWidth="2" />
                   <title>{tip}</title>
                 </g>)
             })}

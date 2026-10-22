@@ -7,8 +7,8 @@ describe('volume', () => {
     expect(playbackVolume({ speakingAlong: true, referenceVolume: 0.8, guideLevel: 0.5 })).toBeCloseTo(0.4)
     expect(playbackVolume({ speakingAlong: true, referenceVolume: 2, guideLevel: -1 })).toBe(0)
   })
-  it('the guide level applies to Chorus and Flow along only', () => {
-    expect([guideApplies('chorus', 'after'), guideApplies('flow', 'along'), guideApplies('flow', 'after'), guideApplies('echo', 'along')]).toEqual([true, true, false, false])
+  it('the guide level applies to Flow along only (an old chorus mode value no longer counts)', () => {
+    expect([guideApplies('chorus', 'after'), guideApplies('chorus', 'along'), guideApplies('flow', 'along'), guideApplies('flow', 'after'), guideApplies('echo', 'along')]).toEqual([false, false, true, false, false])
   })
   it('clamps', () => { expect([clamp01(-0.1), clamp01(0.3), clamp01(1.5), clamp01(Number.NaN)]).toEqual([0, 0.3, 1, 0]) })
 })

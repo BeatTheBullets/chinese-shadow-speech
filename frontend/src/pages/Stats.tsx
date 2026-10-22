@@ -8,6 +8,8 @@ import ToneMatrix from '../components/ToneMatrix'
 import ToneTrend from '../components/ToneTrend'
 import { TONE_NAMES, pct } from '../lib/score'
 import { activityBars } from '../lib/stats'
+import { TOKENS } from '../theme/tokens'
+import Card from '../ui/Card'
 
 const EMPTY = 'No scores yet — record a take to see tone stats.'
 const plural = (n: number) => `${n} attempt${n === 1 ? '' : 's'}`
@@ -26,17 +28,17 @@ function ActivityChart({ days }: { days: ActivityStats['days'] }) {
     <div>
       <p className="text-sm text-fgdim h-5">{h ? `${days[hover!].date} · ${h.minutes} min · ${plural(h.attempts)}` : 'Minutes per day, attempts below each bar'}</p>
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label="Minutes practised per day, last 30 days">
-        <line x1="0" x2={W} y1={top + plotH} y2={top + plotH} stroke="#2a3139" />
-        <line x1="0" x2={W} y1={top} y2={top} stroke="#2a3139" strokeDasharray="2 4" />
-        <text x="0" y={top - 1} fontSize="9" fill="#7c8793">{max} min</text>
+        <line x1="0" x2={W} y1={top + plotH} y2={top + plotH} stroke={TOKENS.line} />
+        <line x1="0" x2={W} y1={top} y2={top} stroke={TOKENS.line} strokeDasharray="2 4" />
+        <text x="0" y={top - 1} fontSize="9" fill={TOKENS.fgdim}>{max} min</text>
         {bars.map((b, i) => {
           const x = i * slot + (slot - bw) / 2, bh = b.minutes ? Math.max(2, (b.minutes / max) * plotH) : 0
           return (
             <g key={days[i].date} onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}>
               <rect x={i * slot} y={0} width={slot} height={H} fill="transparent" />
-              {bh > 0 && <path d={`M${x},${top + plotH} V${top + Math.min(4, bh) + plotH - bh} q0,-${Math.min(4, bh)} ${Math.min(4, bh)},-${Math.min(4, bh)} H${x + bw - Math.min(4, bh)} q${Math.min(4, bh)},0 ${Math.min(4, bh)},${Math.min(4, bh)} V${top + plotH} Z`} fill={hover === i ? '#b5cde6' : '#8fb3d9'} />}
-              <text x={x + bw / 2} y={top + plotH + 12} fontSize="9" textAnchor="middle" fill="#7c8793">{b.label}</text>
-              <text x={x + bw / 2} y={top + plotH + 26} fontSize="9" textAnchor="middle" fill="#cfd6dd">{b.attempts || ''}</text>
+              {bh > 0 && <path d={`M${x},${top + plotH} V${top + Math.min(4, bh) + plotH - bh} q0,-${Math.min(4, bh)} ${Math.min(4, bh)},-${Math.min(4, bh)} H${x + bw - Math.min(4, bh)} q${Math.min(4, bh)},0 ${Math.min(4, bh)},${Math.min(4, bh)} V${top + plotH} Z`} fill={hover === i ? TOKENS.fg : TOKENS.ref} />}
+              <text x={x + bw / 2} y={top + plotH + 12} fontSize="9" textAnchor="middle" fill={TOKENS.fgdim}>{b.label}</text>
+              <text x={x + bw / 2} y={top + plotH + 26} fontSize="9" textAnchor="middle" fill={TOKENS.fg}>{b.attempts || ''}</text>
               <title>{`${days[i].date}: ${b.minutes} min, ${plural(b.attempts)}`}</title>
             </g>)
         })}
@@ -49,8 +51,9 @@ function ActivityChart({ days }: { days: ActivityStats['days'] }) {
   )
 }
 
+// Stats panels are main cards: notched window-frame corners (spec §1.2). Content is today's; the redesign is a later plan.
 const Panel = ({ title, children }: { title: string; children: React.ReactNode }) => (
-  <section className="bg-panel border border-line rounded p-4 space-y-2"><h2 className="text-fghi">{title}</h2>{children}</section>)
+  <Card notched className="p-5"><section className="space-y-2"><h2 className="text-fg font-semibold">{title}</h2>{children}</section></Card>)
 const Empty = () => <p className="text-sm text-fgdim">{EMPTY}</p>
 
 export default function Stats() {
@@ -70,11 +73,11 @@ export default function Stats() {
     void run(api.stats.syllables(), setSyllables); void run(api.stats.tones(), setTones); void run(api.stats.sounds(), setSounds); void run(api.drill.recent(10), setDrills)
     return () => { cancelled = true }
   }, [])
-  const small = 'text-xs text-accent ml-auto'
+  const small = 'text-xs text-accent ml-auto hover:underline'
   const row = 'border-b border-line py-1 flex gap-4'
   return (
     <Shell><div className="max-w-4xl mx-auto p-6 space-y-4">
-      <h1 className="text-fghi">Stats</h1>
+      <h1 className="text-xl text-fg font-semibold">Stats</h1>
       {error && <p className="text-sm text-bad">{error}</p>}
       <Panel title="Activity · last 30 days">{activity ? <ActivityChart days={activity.days} /> : <p className="text-sm text-fgdim">Loading…</p>}</Panel>
       <Panel title="Sentences">
@@ -93,7 +96,7 @@ export default function Stats() {
       <Panel title="Characters">
         {syllables?.syllables.length ? syllables.syllables.map((s) => (
           <div key={`${s.ch}${s.pinyin}${s.tone}`} className={row}>
-            <span className="font-hanzi text-fghi">{s.ch}</span> <span>{s.pinyin}{s.tone}</span> <span>mean {pct(s.mean)}</span> <span className="text-fgdim">n {s.n}</span>
+            <span className="font-hanzi text-fg">{s.ch}</span> <span>{s.pinyin}{s.tone}</span> <span>mean {pct(s.mean)}</span> <span className="text-fgdim">n {s.n}</span>
             {s.trend != null && <span className={s.trend >= 0 ? 'text-ok' : 'text-bad'}>{s.trend >= 0 ? '↑' : '↓'} {Math.abs(Math.round(s.trend * 100))}</span>}
             <button type="button" className={small} aria-label={`Drill ${s.ch}`} onClick={() => drill('char', s.ch)}>Drill this</button>
           </div>)) : <Empty />}

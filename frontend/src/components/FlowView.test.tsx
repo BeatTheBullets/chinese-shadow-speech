@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { FlowRun, Segment } from '../api/types'
-import FlowView, { FlowSetup } from './FlowView'
+import FlowView, { FlowSetup, FlowTransport } from './FlowView'
 
 const seg = (id: number, idx: number, text: string, start: number): Segment => ({
   id, lesson_id: 1, idx, start_s: start, end_s: start + 2, text, translation: null, words_json: null,
@@ -10,30 +10,43 @@ const seg = (id: number, idx: number, text: string, start: number): Segment => (
 })
 const base = {
   segments: [seg(1, 0, '你好', 0), seg(2, 1, '再见', 2), seg(3, 2, '谢谢', 4)], current: 0, first: 0, last: 2, pending: new Set<number>(), rate: 1, now: 100,
-  level: 0.1, cue: { icon: '🎧', text: 'Listen', tone: 'ref' as const }, clipTime: null, turn: null,
+  mic: { snapshot: () => null }, stage: 'listen' as const, startedAt: performance.now() / 1000, clipTime: null, turn: null,
 }
 const original = Range.prototype.getClientRects
 
 describe('<FlowView>', () => {
   afterEach(() => { cleanup(); Range.prototype.getClientRects = original })
 
-  it('shows the cue with the mic meter, the current line large and the next line dimmed below it', () => {
-    render(<FlowView {...base} sub="along" showText />)
-    expect(screen.getByTestId('cue-line')).toHaveTextContent('Listen')
-    expect(screen.getByRole('meter', { name: 'Microphone level' })).toBeInTheDocument()
+  it('along: the speak-along stage with the live waveform, the current line large and the next line dimmed below it', () => {
+    render(<FlowView {...base} stage="along" startedAt={performance.now() / 1000 - 3} sub="along" showText />)
+    expect(screen.getByTestId('stage')).toHaveTextContent('Speak along')
+    expect(screen.getByTestId('stage')).toHaveClass('border-record')
+    expect(screen.getByTestId('rec-timer')).toHaveTextContent('0:03')
+    expect(screen.getByTestId('live-wave')).toBeInTheDocument()
+    expect(screen.queryByRole('meter')).toBeNull()
     expect(screen.getByText('你好', { selector: 'p.sentence' })).toBeInTheDocument()
     expect(screen.getByTestId('next-line')).toHaveTextContent('再见')
     expect(screen.getByTestId('next-line').className).toContain('text-fgdim')
+    expect(screen.queryByText(/stops by itself/)).toBeNull()                      // Flow's turns end on their own clock
   })
   it('after, during the turn: the turn bar shrinks and the ghost line fills at the reference pace', () => {
-    render(<FlowView {...base} sub="after" showText={false} now={101} turn={{ startedAt: 99, duration: 4 }} />)
+    render(<FlowView {...base} stage="yourTurn" sub="after" showText={false} now={101} turn={{ startedAt: 99, duration: 4 }} />)
+    expect(screen.getByTestId('stage')).toHaveTextContent('Your turn')
+    expect(screen.getByTestId('live-wave')).toBeInTheDocument()
     expect((screen.getByTestId('turn-bar').firstChild as HTMLElement).style.width).toBe('50%')
     const cells = screen.getByTestId('ghost-line').querySelectorAll('span > span')
     expect([...cells].map((c) => (c as HTMLElement).style.width)).toEqual(['100%', '100%'])
   })
-  it('after: count-in dots over the last 1.5 s of the clip', () => {
-    render(<FlowView {...base} sub="after" showText clipTime={1.0} />)
-    expect(screen.getByLabelText('starting in 2')).toBeInTheDocument()
+  it('Flow after shows 3·2·1 over the end of the clip', () => {
+    const { rerender } = render(<FlowView {...base} sub="after" showText clipTime={0.4} />)
+    expect(screen.getByTestId('stage')).toHaveTextContent('Listening')            // before the last 1.5 s: listening
+    expect(screen.queryByText('Get ready')).toBeNull()
+    const at = (t: number) => { rerender(<FlowView {...base} sub="after" showText clipTime={t} />); return screen.getByTestId('countdown').textContent }
+    expect([at(0.5), at(1.0), at(1.6)]).toEqual(['3', '2', '1'])
+    expect(screen.getByLabelText('starting in 1')).toHaveClass('text-accent')
+    expect(screen.getByText('Get ready')).toBeInTheDocument()
+    expect(screen.getByTestId('stage')).not.toHaveClass('border-record')
+    expect(screen.queryByTestId('live-wave')).toBeNull()                          // listening still: no waveform of you yet
     expect(screen.queryByTestId('turn-bar')).toBeNull()
   })
   it('the colour wipe follows the clip-relative media time, on a layer outside the sentence', () => {
@@ -53,6 +66,19 @@ describe('<FlowView>', () => {
     expect(screen.getByLabelText('starting in 3')).toBeInTheDocument() // 0.7 s of silence: count in to 2.6 s
     rerender(<FlowView {...base} sub="along" showText clipTime={1.5} />)          // 0.2 s of silence: none
     expect(screen.queryByLabelText(/starting in/)).toBeNull()
+  })
+  it('along with a countdown: the along frame, text, timer and live waveform stay, with 3·2·1 inside', () => {
+    const late = { ...seg(2, 1, '再见', 2), ref_alignment_json: [{ ch: '再', start: 2.6, end: 3.0, conf: 1 }, { ch: '见', start: 3.0, end: 3.5, conf: 1 }] }
+    render(<FlowView {...base} segments={[seg(1, 0, '你好', 0), late]} stage="along" startedAt={performance.now() / 1000 - 4} sub="along" showText clipTime={1.5} />)
+    const stage = screen.getByTestId('stage')
+    expect(stage).toHaveAttribute('data-stage', 'along')
+    expect(stage).toHaveClass('border-record')
+    expect(stage).toHaveTextContent('Speak along')
+    expect(screen.getByTestId('rec-dot')).toBeInTheDocument()
+    expect(screen.getByTestId('rec-timer')).toHaveTextContent('0:04')
+    expect(screen.getByTestId('live-wave')).toBeInTheDocument()
+    expect(screen.getByTestId('countdown').textContent).toBe('3')
+    expect(stage).toContainElement(screen.getByLabelText('starting in 3'))
   })
   it('along: the count-in runs on through the lead silence of the next clip, down to its first syllable', () => {
     const late = { ...seg(2, 1, '再见', 2), ref_alignment_json: [{ ch: '再', start: 2.6, end: 3.0, conf: 1 }, { ch: '见', start: 3.0, end: 3.5, conf: 1 }] }
@@ -81,7 +107,7 @@ describe('<FlowSetup>', () => {
     started_at: at(d, h, m), ended_at: at(d, h, m + 1), session_id: 1, items: Array.from({ length: n }, (_, k) => ({ segment_id: k + 1, idx: k, attempt_id: 100 + k, duration_s: 2 })),
   })
   const setup = (runs: FlowRun[], onReplay = vi.fn()) => {
-    render(<FlowSetup segments={base.segments} from={0} to={2} sub="after" onChange={() => {}} onStart={() => {}} runs={runs} onReplay={onReplay} />)
+    render(<FlowSetup segments={base.segments} from={0} to={2} sub="after" onChange={() => {}} runs={runs} onReplay={onReplay} />)
     return onReplay
   }
 
@@ -94,8 +120,13 @@ describe('<FlowSetup>', () => {
     const runs = [run(7, 14, 5, 3), run(6, 9, 30, 2)]
     const onReplay = setup(runs)
     expect(screen.getByTestId('last-run')).toHaveTextContent('Last run · Wed 14:05 · 3 sentences')
-    fireEvent.click(screen.getByRole('button', { name: '▶ replay' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Replay run' }))
     expect(onReplay).toHaveBeenCalledWith(runs[0])
+  })
+  it('has no Start of its own (the bar\'s Start flow is the one start) and no ▶ (that is Listen\'s)', () => {
+    setup([run(7, 14, 5, 3)])
+    expect(screen.queryByRole('button', { name: /^Start/ })).toBeNull()
+    expect(screen.getByTestId('last-run').textContent).not.toContain('▶')
   })
   it('an older run picked in the list is the one replayed', () => {
     const runs = [run(7, 14, 5, 3), run(6, 9, 30, 2)]
@@ -104,12 +135,32 @@ describe('<FlowSetup>', () => {
     expect([...pick.querySelectorAll('option')].map((o) => o.textContent)).toEqual(['Wed 14:05 · 3 sentences', 'Tue 09:30 · 2 sentences'])
     fireEvent.change(pick, { target: { value: '1' } })
     expect(screen.getByTestId('last-run')).toHaveTextContent('Earlier run · Tue 09:30 · 2 sentences')
-    fireEvent.click(screen.getByRole('button', { name: '▶ replay' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Replay run' }))
     expect(onReplay).toHaveBeenCalledWith(runs[1])
   })
   it('a single run needs no list', () => {
     setup([run(7, 14, 5, 1)])
     expect(screen.getByTestId('last-run')).toHaveTextContent('Last run · Wed 14:05 · 1 sentence')
     expect(screen.queryByRole('combobox', { name: 'Run to replay' })).toBeNull()
+  })
+})
+
+describe('<FlowTransport>', () => {
+  afterEach(cleanup)
+  const sound = { rate: 1, onRate: () => {}, volume: { reference: 1, guide: 0.5, onReference: () => {}, onGuide: () => {} } }
+
+  it('uses the same groups as the bar: position, Stop on Enter, › skips; no previous, no Anki', () => {
+    const onAction = vi.fn()
+    render(<FlowTransport onAction={onAction} idx={1} total={3} sound={sound} hint="" error="" />)
+    expect(screen.getByTestId('position')).toHaveTextContent('2 / 3')
+    expect(screen.getByRole('button', { name: 'Previous sentence (←)' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Listen (Space)' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Me (R)' })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: /Anki/ })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Stop (Enter)' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Next sentence (→)' }))
+    expect(onAction.mock.calls).toEqual([['record'], ['next']])
+    fireEvent.click(screen.getByRole('button', { name: 'Sound' }))
+    expect(screen.getByLabelText('Guide level')).toBeInTheDocument()
   })
 })

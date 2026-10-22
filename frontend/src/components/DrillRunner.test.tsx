@@ -18,7 +18,7 @@ vi.mock('../audio/recorder', () => ({ toWav16k: () => new Blob(['wav']), Recorde
 vi.mock('../audio/useMic', () => {
   let on = false
   const mic = {
-    open: async () => { on = true; return null }, abandon: () => { on = false }, capturing: () => on, now: () => 0, level: () => null,
+    open: async () => { on = true; return null }, abandon: () => { on = false }, capturing: () => on, now: () => 0, snapshot: () => null,
     finish: () => { on = false; return { rec: { sampleRate: 44100 }, samples: new Float32Array(44100) } },
   }
   return { useMic: () => mic }

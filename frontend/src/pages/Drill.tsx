@@ -6,6 +6,7 @@ import DrillRunner from '../components/DrillRunner'
 import DrillSummaryView from '../components/DrillSummary'
 import Shell from '../components/Shell'
 import { pct } from '../lib/score'
+import Button from '../ui/Button'
 
 const EMPTY = "Practise a few sentences first — drills start once there's enough to know your weak spots."
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
@@ -13,12 +14,13 @@ const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 const startError = (e: unknown) =>
   e instanceof ApiError && e.status === 404 ? 'No sentences contain this focus yet.' : `Could not start the drill: ${e instanceof ApiError ? e.detail : message(e)}`
 
-function FocusRow({ focus, onStart, busy }: { focus: DrillFocus; onStart: (f: DrillFocus) => void; busy: boolean }) {
+// `main`: today's focus, the start screen's one obvious action (spec §1.3), so its Start is the accent button.
+function FocusRow({ focus, onStart, busy, main = false }: { focus: DrillFocus; onStart: (f: DrillFocus) => void; busy: boolean; main?: boolean }) {
   return (
-    <div className="flex items-center gap-4 border-b border-line py-2">
-      <span className="text-fghi">{focus.label}</span>
+    <div className="flex items-center gap-4 border-b border-line py-2 last:border-b-0">
+      <span className="text-fg font-semibold">{focus.label}</span>
       <span className="text-sm text-fgdim">your mean {pct(focus.mean)} · {focus.n} syllables</span>
-      <button className="btn ml-auto" disabled={busy} onClick={() => onStart(focus)}>Start</button>
+      <span className="ml-auto"><Button label="Start" variant={main ? 'primary' : 'default'} size={main ? 'lg' : 'md'} disabled={busy} onClick={() => onStart(focus)} /></span>
     </div>
   )
 }
@@ -93,19 +95,19 @@ export default function Drill() {
   const alternatives = (list?.focuses ?? []).filter((f) => f !== auto).slice(0, 2)
   return (
     <Shell><div className="max-w-4xl mx-auto p-6 space-y-4">
-      <h1 className="text-fghi">Drill</h1>
+      <h1 className="text-xl text-fg font-semibold">Drill</h1>
       {error && <p className="text-sm text-bad">{error}</p>}
       {kind && key && starting ? <p className="text-sm text-fgdim">Starting…</p>
         : !list ? (!error && <p className="text-sm text-fgdim">Loading…</p>)
         : !list.focuses.length ? <p className="text-sm text-fgdim">{EMPTY} <Link to="/library" className="text-accent underline">Open the Library</Link></p>
         : (<>
-          {auto && <section className="bg-panel border border-line rounded p-4"><h2 className="text-fghi">Today's focus</h2><FocusRow focus={auto} onStart={start} busy={starting} /></section>}
-          {alternatives.length > 0 && <section className="bg-panel border border-line rounded p-4"><h2 className="text-fgdim">Or drill</h2>
+          {auto && <section className="bg-panel border border-line rounded-xl p-4"><h2 className="text-[10px] uppercase tracking-widest text-accent">Today's focus</h2><FocusRow focus={auto} onStart={start} busy={starting} main /></section>}
+          {alternatives.length > 0 && <section className="bg-panel border border-line rounded-xl p-4"><h2 className="text-[10px] uppercase tracking-widest text-fgdim">Or drill</h2>
             {alternatives.map((f) => <FocusRow key={`${f.kind}:${f.key}`} focus={f} onStart={start} busy={starting} />)}</section>}
         </>)}
       {last && <div className="flex items-center gap-4 text-sm text-fgdim">
         <span>Last drill: {last.label} · {pct(last.first_mean)} → {pct(last.best_mean)}</span>
-        <button className="btn" onClick={() => void seeSummary(last.id)}>See summary</button>
+        <Button label="See summary" variant="ghost" onClick={() => void seeSummary(last.id)} />
       </div>}
     </div></Shell>
   )

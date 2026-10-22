@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DrillFocus, DrillItem, DrillRecent, DrillSession, DrillSummary, Score, Segment, SylStatus } from '../api/types'
@@ -8,7 +8,7 @@ import { useSettings } from '../store/settings'
 
 const h = vi.hoisted(() => ({
   drill: { focuses: vi.fn(), recent: vi.fn(), start: vi.fn(), end: vi.fn(), summary: vi.fn() },
-  segments: { audioUrl: (id: number, fmt = 'opus') => `/seg/${id}.${fmt}`, postAttempt: vi.fn() },
+  segments: { audioUrl: (id: number, fmt = 'opus') => `/seg/${id}.${fmt}`, postAttempt: vi.fn(), patch: vi.fn() },
   rec: { start: vi.fn(), stop: vi.fn(), sampleRate: 44100 },
   findSilenceEnd: vi.fn((): number | null => null), // the auto-stop's VAD: null = still speaking (or not yet)
   toWav16k: vi.fn(() => new Blob(['wav'])),
@@ -127,7 +127,7 @@ describe('<Drill> start screen', () => {
     await screen.findByText("Today's focus")
     fireEvent.click(screen.getAllByRole('button', { name: 'Start' })[2])
     expect(h.drill.start).toHaveBeenCalledWith({ kind: 'char', key: '在' })
-    expect(await screen.findByText('Sentence 1 / 2')).toBeInTheDocument()
+    expect(await screen.findByText('1 / 2')).toBeInTheDocument()
     expect(screen.getByText('在 zài')).toBeInTheDocument()
     expect(screen.queryByText("Today's focus")).not.toBeInTheDocument()
     await flush()
@@ -136,7 +136,7 @@ describe('<Drill> start screen', () => {
   it('?kind=&key= starts that focus immediately, skipping the start screen', async () => {
     h.drill.start.mockResolvedValue({ ...run([twoItems[0]]), kind: 'pair', key: '3-3', label: 'tone pair 3→3' })
     renderAt('/drill?kind=pair&key=3-3')
-    expect(await screen.findByText('Sentence 1 / 1')).toBeInTheDocument()
+    expect(await screen.findByText('1 / 1')).toBeInTheDocument()
     expect(h.drill.start).toHaveBeenCalledTimes(1)
     expect(h.drill.start).toHaveBeenCalledWith({ kind: 'pair', key: '3-3' })
     expect(screen.queryByText("Today's focus")).not.toBeInTheDocument()
@@ -178,7 +178,7 @@ describe('<Drill> runner', () => {
     const r = renderAt()
     await screen.findByText("Today's focus")
     fireEvent.click(screen.getAllByRole('button', { name: 'Start' })[0])
-    await screen.findByText(`Sentence 1 / ${items.length}`)
+    await screen.findByText(`1 / ${items.length}`)
     expect(await screen.findByText('Your turn — Enter to record')).toBeInTheDocument()
     return r
   }
@@ -194,13 +194,84 @@ describe('<Drill> runner', () => {
     await take()
     expect(h.segments.postAttempt).toHaveBeenCalledWith(11, expect.any(Blob), { mode: 'drill', drill_session_id: 7 })
     expect(h.playSequence).toHaveBeenCalledWith(h.player, [expect.objectContaining({ url: '/seg/11.opus' }), expect.objectContaining({ url: 'blob:take' })], 250, expect.anything())
-    expect(await screen.findByRole('button', { name: 'Next' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Next (Enter)' })).toBeInTheDocument()
     expect(h.twoTrack?.score).toEqual(green)
     press('Enter')
-    expect(await screen.findByText('Sentence 2 / 2')).toBeInTheDocument()
+    expect(await screen.findByText('2 / 2')).toBeInTheDocument()
     expect(screen.getByText('Try 1 / 3')).toBeInTheDocument()
     await flush()
     expect(h.player.play).toHaveBeenLastCalledWith('/seg/12.opus', 1, expect.any(Function))
+  })
+
+  it('Drill has the same Listen / Record / Me with the same keys, and no Anki', async () => {
+    await startRun()
+    const bar = screen.getByTestId('transport')
+    expect(within(bar).getByTestId('position')).toHaveTextContent('1 / 2')
+    for (const name of ['Listen (Space)', 'Record (Enter)', 'Me (R)', 'Next sentence (→)', 'Sound']) expect(within(bar).getByRole('button', { name })).toBeInTheDocument()
+    expect(within(bar).queryByRole('button', { name: /Anki/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /Anki/ })).toBeNull()
+    h.player.play.mockClear()
+    fireEvent.click(within(bar).getByRole('button', { name: 'Listen (Space)' }))
+    expect(h.player.play).toHaveBeenLastCalledWith('/seg/11.opus', 1, expect.any(Function))
+    fireEvent.click(within(bar).getByRole('button', { name: 'Record (Enter)' })); await flush()
+    expect(h.rec.start).toHaveBeenCalledTimes(1)
+    fireEvent.click(within(bar).getByRole('button', { name: 'Stop (Enter)' })); await flush()
+    expect(h.segments.postAttempt).toHaveBeenCalledTimes(1)
+    await screen.findByRole('button', { name: 'Next (Enter)' })
+    fireEvent.click(within(bar).getByRole('button', { name: 'Me (R)' }))
+    expect(h.player.play).toHaveBeenLastCalledWith('blob:take', 1, expect.any(Function))
+    fireEvent.click(within(bar).getByRole('button', { name: 'Next sentence (→)' }))
+    expect(await screen.findByText('2 / 2')).toBeInTheDocument()
+    await flush()
+  })
+
+  it('Enter reads Next in accent when it goes on, and stays record-red when it records (Again)', async () => {
+    h.segments.postAttempt.mockResolvedValueOnce({ id: 98, score_json: notGreen }).mockResolvedValueOnce({ id: 99, score_json: green })
+    await startRun()
+    expect(screen.getByRole('button', { name: 'Record (Enter)' })).toHaveClass('bg-record')
+    await take()
+    const again = await screen.findByRole('button', { name: 'Again (Enter)' })
+    expect(again).toHaveClass('bg-record')
+    expect(again).not.toHaveClass('bg-accent')
+    await take()
+    const next = await screen.findByRole('button', { name: 'Next (Enter)' })
+    expect(next).toHaveClass('bg-accent')
+    expect(next).not.toHaveClass('bg-record')
+  })
+
+  it('the Sound pop-up and S set the drill speed; the reference plays at it', async () => {
+    await startRun()
+    press('s')
+    h.player.play.mockClear()
+    press(' ')
+    expect(h.player.play).toHaveBeenLastCalledWith('/seg/11.opus', 0.75, expect.any(Function))
+    fireEvent.click(screen.getByRole('button', { name: 'Sound' }))
+    expect(screen.getByLabelText('Playback speed')).toHaveValue('0.75')
+    expect(screen.getByLabelText('Guide level')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '0.75× (S)' }))
+    press(' ')
+    expect(h.player.play).toHaveBeenLastCalledWith('/seg/11.opus', 1, expect.any(Function))
+  })
+
+  it('the sentence card has ⚑ Difficult and 字/pīn/EN: the toggles act locally, the flag patches the segment', async () => {
+    useSettings.setState({ textPrefs: {} })
+    h.segments.patch.mockImplementation(async (id: number, p: { difficulty_flag: boolean }) => ({ ...twoItems[0].segment, id, ...p }))
+    await startRun()
+    const card = screen.getByTestId('sentence-card')
+    expect(within(card).getByRole('button', { name: 'EN English (E)' })).toHaveAttribute('aria-pressed', 'false')
+    fireEvent.click(within(card).getByRole('button', { name: '字 characters (T)' }))
+    expect(screen.queryByText('你好吗', { selector: 'p.sentence' })).not.toBeInTheDocument()
+    press('t')
+    expect(screen.getByText('你好吗', { selector: 'p.sentence' })).toBeInTheDocument()
+    press('e')
+    expect(within(screen.getByTestId('sentence-card')).getByRole('button', { name: 'EN English (E)' })).toHaveAttribute('aria-pressed', 'true')
+    expect(useSettings.getState().textPrefs).toEqual({}) // a drill's toggles are its own, not a lesson's
+    fireEvent.click(within(screen.getByTestId('sentence-card')).getByRole('button', { name: 'Difficult (F)' }))
+    expect(h.segments.patch).toHaveBeenCalledWith(11, { difficulty_flag: true })
+    await waitFor(() => expect(within(screen.getByTestId('sentence-card')).getByRole('button', { name: 'Difficult (F)' })).toHaveAttribute('aria-pressed', 'true'))
+    press('f')
+    expect(h.segments.patch).toHaveBeenLastCalledWith(11, { difficulty_flag: false })
+    await flush()
   })
 
   it('stops recording by itself after the silence that follows your speech, as Echo does', async () => {
@@ -218,17 +289,17 @@ describe('<Drill> runner', () => {
     h.segments.postAttempt.mockResolvedValue({ id: 99, score_json: notGreen })
     await startRun()
     await take()
-    expect(await screen.findByRole('button', { name: 'Again' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Again (Enter)' })).toBeInTheDocument()
     expect(screen.getByText('Try 1 / 3')).toBeInTheDocument()
     await take() // Enter = Again (and records), Enter stops
     expect(await screen.findByText('Try 2 / 3')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Again' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Again (Enter)' })).toBeInTheDocument()
     await take()
     expect(await screen.findByText('Try 3 / 3')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Next' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Next (Enter)' })).toBeInTheDocument()
     expect(h.segments.postAttempt).toHaveBeenCalledTimes(3)
     press('Enter')
-    expect(await screen.findByText('Sentence 2 / 2')).toBeInTheDocument()
+    expect(await screen.findByText('2 / 2')).toBeInTheDocument()
     await flush()
   })
 
@@ -241,10 +312,10 @@ describe('<Drill> runner', () => {
     expect(await screen.findByText('Your turn — Enter to record')).toBeInTheDocument()
     expect(screen.getByText('Try 1 / 2')).toBeInTheDocument()
     await take()
-    expect(await screen.findByRole('button', { name: 'Again' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Again (Enter)' })).toBeInTheDocument()
     await take()
     expect(await screen.findByText('Try 2 / 2')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Next' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Next (Enter)' })).toBeInTheDocument()
   })
 
   it('a gate-warning take shows the warning and does not count as a try', async () => {
@@ -253,9 +324,9 @@ describe('<Drill> runner', () => {
     await take()
     expect(await screen.findByText(QUIET)).toBeInTheDocument()
     expect(screen.getByText('Try 1 / 3')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Again' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Again (Enter)' })).toBeInTheDocument()
     await take()
-    expect(await screen.findByRole('button', { name: 'Next' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Next (Enter)' })).toBeInTheDocument()
     expect(screen.getByText('Try 1 / 3')).toBeInTheDocument()
     expect(screen.queryByText(QUIET)).not.toBeInTheDocument()
   })
@@ -268,15 +339,14 @@ describe('<Drill> runner', () => {
     await take()
     expect(await screen.findByText(QUIET)).toBeInTheDocument()
     expect(screen.getByText('Try 1 / 3')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Again' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Again (Enter)' })).toBeInTheDocument()
     expect(h.twoTrack?.youPeaks).toBeNull()
-    expect(screen.getByRole('button', { name: '▶ R' })).toBeDisabled()
     h.player.play.mockClear()
     press('r'); await flush()
     expect(h.player.play).not.toHaveBeenCalled()
     expect(h.player.playRange).not.toHaveBeenCalled()
     await take()
-    expect(await screen.findByRole('button', { name: 'Next' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Next (Enter)' })).toBeInTheDocument()
     expect(screen.getByText('Try 1 / 3')).toBeInTheDocument()
   })
 
@@ -300,7 +370,7 @@ describe('<Drill> runner', () => {
     await take()
     const [, items] = h.playSequence.mock.calls[0] as unknown as [unknown, { url: string; from?: number; to?: number }[]]
     expect(items[1]).toMatchObject({ url: 'blob:take', from: b.from, to: b.to })
-    await screen.findByRole('button', { name: 'Next' })
+    await screen.findByRole('button', { name: 'Next (Enter)' })
     press('r')
     expect(h.player.playRange).toHaveBeenLastCalledWith('blob:take', 1, b.from, b.to, expect.any(Function))
     expect(h.twoTrack?.youPeaks).toBe(h.takePeaks)
@@ -310,7 +380,7 @@ describe('<Drill> runner', () => {
     await startRun()
     expect(h.twoTrack?.highlight).toEqual([0, 1])
     await take()
-    press('Enter'); await screen.findByText('Sentence 2 / 2'); await flush()
+    press('Enter'); await screen.findByText('2 / 2'); await flush()
     expect(h.twoTrack?.highlight).toEqual([0, 1, 2])
   })
 
@@ -320,9 +390,9 @@ describe('<Drill> runner', () => {
     await take()
     expect(await screen.findByText('Upload failed: lesson is rebuilding')).toBeInTheDocument()
     expect(screen.getByText('Try 1 / 3')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Again' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Again (Enter)' })).not.toBeInTheDocument()
     await take()
-    expect(await screen.findByRole('button', { name: 'Next' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Next (Enter)' })).toBeInTheDocument()
   })
 
   it('a take shorter than the minimum is dropped with the Practice message', async () => {
@@ -332,6 +402,23 @@ describe('<Drill> runner', () => {
     expect(await screen.findByText('Too short to keep, nothing was saved. Try again.')).toBeInTheDocument()
     expect(h.segments.postAttempt).not.toHaveBeenCalled()
     expect(screen.getByText('Your turn — Enter to record')).toBeInTheDocument()
+  })
+
+  it('Drill recording shows the same Your turn stage', async () => {
+    await startRun()
+    expect(screen.getByTestId('stage')).not.toHaveClass('border-record')
+    press('Enter'); await flush()
+    const stage = screen.getByTestId('stage')
+    expect(stage).toHaveTextContent('Your turn')
+    expect(stage).toHaveClass('border-record')
+    expect(screen.getByTestId('rec-dot')).toBeInTheDocument()
+    expect(screen.getByTestId('rec-timer')).toHaveTextContent(/^0:0\d$/)
+    expect(stage).toContainElement(screen.getByTestId('live-wave'))
+    expect(screen.queryByRole('meter')).toBeNull()
+    expect(screen.queryByLabelText(/starting in/)).toBeNull()
+    press('Enter'); await flush()
+    expect(screen.queryByTestId('live-wave')).toBeNull()
+    expect(screen.getByTestId('stage')).not.toHaveClass('border-record')
   })
 
   it('hides the text while recording when the setting says so', async () => {
@@ -346,11 +433,11 @@ describe('<Drill> runner', () => {
   it('R replays the take; → skips to the next sentence and after the last ends the drill', async () => {
     await startRun()
     await take()
-    await screen.findByRole('button', { name: 'Next' })
+    await screen.findByRole('button', { name: 'Next (Enter)' })
     press('r')
     expect(h.player.play).toHaveBeenLastCalledWith('blob:take', 1, expect.any(Function))
     press('ArrowRight')
-    expect(await screen.findByText('Sentence 2 / 2')).toBeInTheDocument()
+    expect(await screen.findByText('2 / 2')).toBeInTheDocument()
     await flush()
     press('ArrowRight')
     expect(await screen.findByText(/target syllables first try 55 → best 72/)).toBeInTheDocument()
@@ -360,7 +447,7 @@ describe('<Drill> runner', () => {
 
   it('Finish shows the summary; "Drill these again" starts a new run on the sentences that never went green', async () => {
     await startRun()
-    fireEvent.click(screen.getByRole('button', { name: 'Finish' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Finish drill' }))
     expect(await screen.findByText(/target syllables first try 55 → best 72/)).toBeInTheDocument()
     expect(h.drill.end).toHaveBeenCalledTimes(1)
     expect(h.drill.summary).toHaveBeenCalledWith(7)
@@ -369,7 +456,7 @@ describe('<Drill> runner', () => {
     fireEvent.click(again); fireEvent.click(again)                        // a double click starts one run
     expect(h.drill.start).toHaveBeenCalledTimes(2)
     expect(h.drill.start).toHaveBeenLastCalledWith({ kind: 'tone', key: '3', segment_ids: [12] })
-    expect(await screen.findByText('Sentence 1 / 1')).toBeInTheDocument()
+    expect(await screen.findByText('1 / 1')).toBeInTheDocument()
     await flush()
     expect(h.drill.end).toHaveBeenCalledTimes(1)
   })
@@ -377,8 +464,8 @@ describe('<Drill> runner', () => {
   it('Done after a direct start goes back to the start screen without starting it again', async () => {
     h.drill.start.mockResolvedValue(run([twoItems[0]]))
     renderAt('/drill?kind=tone&key=3')
-    await screen.findByText('Sentence 1 / 1'); await flush()
-    fireEvent.click(screen.getByRole('button', { name: 'Finish' }))
+    await screen.findByText('1 / 1'); await flush()
+    fireEvent.click(screen.getByRole('button', { name: 'Finish drill' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Done' }))
     expect(await screen.findByText("Today's focus")).toBeInTheDocument()
     await flush()
@@ -404,7 +491,7 @@ describe('<Drill> runner', () => {
     h.segments.postAttempt.mockImplementation(() => new Promise((r) => { saved = r }))
     await startRun()
     await take()
-    fireEvent.click(screen.getByRole('button', { name: 'Finish' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Finish drill' }))
     await flush()
     expect(screen.getByText('Saving your take…')).toBeInTheDocument()
     expect(h.drill.end).not.toHaveBeenCalled()

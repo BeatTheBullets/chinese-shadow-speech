@@ -1,17 +1,26 @@
-@import '@fontsource/noto-sans-sc/400.css';
-@import '@fontsource/noto-sans-sc/500.css';
+@import '@fontsource/noto-serif-sc/400.css';
+@import '@fontsource/noto-serif-sc/600.css';
 @import '@fontsource-variable/inter';
 @tailwind base; @tailwind components; @tailwind utilities;
 html, body, #root { height: 100%; }
+/* Dark only: tell the browser so native controls and scrollbars never render light. */
+:root { color-scheme: dark; }
 body { @apply bg-bg text-fg font-ui; }
-.sentence { @apply font-hanzi text-fghi text-center leading-snug; }
+.sentence { @apply font-hanzi text-fg text-center leading-snug; }
 .sentence.hide-pinyin rt { display: none; }
 .sentence rt { @apply text-ref font-ui text-sm tracking-wide; }
-.cell-ok { @apply bg-[#17442d] border-[#1f5c3c]; }
-.cell-warn { @apply bg-[#4d3a12] border-[#6b5219]; }
-.cell-bad { @apply bg-[#4a1d22] border-[#6b2a31]; }
-.cell-unvoiced { @apply bg-[#1a1f26] border-line; }
-.cell-neutral { @apply bg-panel2 border-line; }
+.cell-ok { background: color-mix(in srgb, theme('colors.ok') 18%, transparent); @apply border-ok; }
+.cell-warn { background: color-mix(in srgb, theme('colors.warn') 18%, transparent); @apply border-warn; }
+.cell-bad { background: color-mix(in srgb, theme('colors.bad') 18%, transparent); @apply border-bad; }
+.cell-unvoiced { background: color-mix(in srgb, theme('colors.fgdim') 18%, transparent); @apply border-line; }
+.cell-neutral { @apply bg-card border-line; }
 .cell-missing { @apply bg-transparent border-dashed border-fgdim; }
-.btn { @apply px-3 py-1 rounded border border-accent bg-[#1c2a3a] text-[#dce9f7] text-sm disabled:opacity-40; }
-.inp { @apply bg-panel2 border border-line rounded px-2 py-1 text-fg text-sm; }
+/* The look of the shared Button's default variant, for links that act as buttons (a Button cannot be a link). */
+.btn { @apply inline-flex items-center justify-center gap-1 px-3 py-[7px] rounded-xl border border-line bg-card text-fg text-xs disabled:opacity-40; }
+/* Focus rings in accent everywhere (spec §7). In the base layer, so an element's own outline utility (outline-none) wins. */
+@layer base { :focus-visible { outline: 2px solid theme('colors.accent'); outline-offset: 2px; } }
+.inp { @apply bg-card border border-line rounded-xl px-2 py-1 text-fg text-sm; }
+select, option { @apply bg-card text-fg; }
+input[type=range], input[type=checkbox] { accent-color: theme('colors.accent'); }
+/* Window-frame corners (octagon, 13px) for main cards only. */
+.notch { clip-path: polygon(13px 0, calc(100% - 13px) 0, 100% 13px, 100% calc(100% - 13px), calc(100% - 13px) 100%, 13px 100%, 0 calc(100% - 13px), 0 13px); }

@@ -1,21 +1,25 @@
 import type { Mode } from '../api/types'
 
-export const MODES: Mode[] = ['echo', 'chorus', 'flow', 'guided']
+// Practice offers Echo and Flow only (app style spec §4). `Mode` still names chorus and guided for old attempts,
+// which keep their labels (modeName) in Stats, Review and the run lists.
+export const MODES: Mode[] = ['echo', 'flow']
 export const modeName = (m: Mode): string => m[0].toUpperCase() + m.slice(1)
 
 // Hover text on each mode tab and the help overlay (addendum §6.1).
-export function modeHelp(m: Mode, chorusPasses: number): string {
+export function modeHelp(m: Mode): string {
   switch (m) {
     case 'echo': return 'One sentence at a time: listen, then repeat it on your own. You hear the original and your take back to back.'
-    case 'chorus': return `Speak at the same time as the sentence, ${chorusPasses} times in a row. Only the last pass is recorded.`
     case 'flow': return 'Shadow a whole passage without stopping. After: each sentence plays, then you repeat it in the pause. Along: speak at the same time as the audio (use headphones).'
-    case 'guided': return 'Four steps per sentence: listen → whisper along with the text → say it with the text hidden → next.'
+    case 'chorus': case 'guided': return '' // removed modes: never offered, so never explained
     case 'drill': return 'Targeted practice on your weakest tones: listen, record, retry until the target syllables are green.'
   }
 }
 
+// What each key does, in the words of the button it presses (spec §1.3: same action, same word, same key).
+// Keys sharing a row are separated by spaces; the help shows each as its own key cap.
 export const KEY_HELP: [string, string][] = [
-  ['Space', 'Play the sentence'], ['Enter', 'Start or stop: record (Echo), Chorus, Flow, the next Guided step'],
-  ['C', 'Chorus'], ['← →', 'Previous / next sentence'], ['R', 'Replay your take'], ['S', '0.75× speed'],
-  ['T  P  E', 'Hanzi, pinyin, translation'], ['F', 'Flag the sentence'], ['A', 'Send to Anki'], ['L', 'Lesson list'], ['?', 'This help'],
+  ['← →', 'Previous / next sentence'], ['Space', 'Listen: play the sentence'],
+  ['Enter', 'Record or stop (Echo); start or stop the run (Flow)'], ['R', 'Me: replay your take'],
+  ['A', 'Anki: send the sentence to Anki'], ['S', '0.75× speed on or off'], ['F', 'Difficult: flag the sentence'],
+  ['T P E', 'Show or hide characters, pinyin, English'], ['L', 'Lesson list'], ['?', 'This help'],
 ]

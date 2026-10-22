@@ -1,30 +1,57 @@
+import type { ReactNode } from 'react'
 import type { Action } from '../lib/keys'
-import VolumeSliders, { type VolumeControls } from './VolumeSliders'
-interface Props { onAction: (a: Action) => void; rate: number; onRate: (r: number) => void; recording: boolean; busy: boolean; flagged: boolean; hint: string; error: string; recordLabel?: string; volume: VolumeControls; onFinish: () => void }
-// recordLabel: what Enter does in the current mode when not recording (Chorus, Guided step, Flow start, or stop for a run).
-export default function Transport({ onAction, rate, onRate, recording, busy, flagged, hint, error, recordLabel, volume, onFinish }: Props) {
-  const b = 'px-3 py-1 rounded bg-panel2 text-sm disabled:opacity-40'
+import Button from '../ui/Button'
+import { IconAnki, IconChevronLeft, IconChevronRight, IconMe, IconPlay, IconRecord, IconStop } from '../ui/icons'
+import SoundPopover, { type SoundControls } from './SoundPopover'
+
+interface Props {
+  onAction: (a: Action) => void; idx: number; total: number; recording: boolean; busy: boolean; hint: string; error: string
+  recordLabel?: string; sound: SoundControls
+  // Enter goes on to the next sentence instead of recording (the drill's Next): accent with a chevron, since red means
+  // record (spec §1.3: the same action has the same look).
+  advance?: boolean
+  canPrev?: boolean       // false where the run only goes forward (a drill, a Flow run); default: not on the first sentence
+  canNext?: boolean       // false on Practice's last sentence; default true, since a drill's or Flow run's › skips (and may end) it
+  showAnki?: boolean      // the drill has no Anki
+}
+
+// The control bar (spec §2), three groups left to right: where am I (‹ n / N ›), what do I do (Listen, Record, Me),
+// extras (Anki, Sound). Every button says what it does; its key is the small grey hint under the label.
+// recordLabel: what Enter does when not recording (Flow's start, the drill's Again/Next).
+export default function Transport({ onAction, idx, total, recording, busy, hint, error, recordLabel, advance = false, sound, canPrev = idx > 0, canNext = true, showAnki = true }: Props) {
   return (
-    <div className="border-t border-line p-3 text-center space-y-1">
-      <div className="flex justify-center gap-2 items-center">
-        <button className={b} onClick={() => onAction('prev')} title="Previous (←)">◀</button>
-        <button className={b} onClick={() => onAction('play')} disabled={recording}>▶ Space</button>
-        <button className={`${b} ${recording ? 'bg-[#5a1f26] text-[#ffd7db]' : ''}`} onClick={() => onAction('record')} disabled={busy}>{recording ? '■ stop' : recordLabel ?? '● Enter'}</button>
-        <button className={b} onClick={() => onAction('chorus')} disabled={recording || busy}>↻ C</button>
-        <button className={b} onClick={() => onAction('replayYou')}>▶ R</button>
-        {/* blur after a drag so Space/arrows go back to the page shortcuts instead of the slider */}
-        <label className="text-xs text-fgdim flex items-center gap-1">{rate.toFixed(2)}×<input type="range" aria-label="Playback speed" min={0.6} max={1} step={0.05} value={rate}
-          onChange={(e) => onRate(Number(e.target.value))} onPointerUp={(e) => e.currentTarget.blur()} /></label>
-        <button className={b} onClick={() => onAction('speed075')}>0.75×</button>
-        <VolumeSliders volume={volume} />
-        <button className={`${b} ${flagged ? 'text-warn' : ''}`} onClick={() => onAction('flag')}>⚑ F</button>
-        <button className={b} onClick={() => onAction('toggleHanzi')}>T</button><button className={b} onClick={() => onAction('togglePinyin')}>P</button><button className={b} onClick={() => onAction('toggleTranslation')}>E</button>
-        <button className={b} onClick={() => onAction('exportAnki')}>A → Anki</button>
-        <button className={b} onClick={() => onAction('next')} title="Next (→)">▶</button>
-        <button className={b} onClick={onFinish} title="End the session; offers to send what you practised to Anki">Finish session</button>
+    <div data-testid="transport" className="border-t border-line bg-panel px-3.5 py-3 space-y-1">
+      <div className="flex flex-wrap items-center justify-between gap-2.5">
+        <div className="flex items-center gap-0.5 rounded-xl border border-line bg-card p-1">
+          <Chevron icon={<IconChevronLeft />} name="Previous sentence" keyHint="←" disabled={!canPrev} onClick={() => onAction('prev')} />
+          <span data-testid="position" className="px-1.5 text-xs text-accent tabular-nums" title={`Sentence ${idx + 1} of ${total}`}>{idx + 1} / {total}</span>
+          <Chevron icon={<IconChevronRight />} name="Next sentence" keyHint="→" disabled={!canNext} onClick={() => onAction('next')} />
+        </div>
+        <div className="flex items-center gap-2">
+          {/* ▶ is Listen (the speaker), never navigation: the chevrons are */}
+          <Button icon={<span className="text-accent"><IconPlay /></span>} label="Listen" keyHint="Space" onClick={() => onAction('play')} disabled={recording} />
+          <Button icon={recording ? <IconStop /> : advance ? <IconChevronRight /> : <IconRecord />} label={recording ? 'Stop' : recordLabel ?? 'Record'} keyHint="Enter"
+            variant={advance && !recording ? 'primary' : 'record'} size="lg" onClick={() => onAction('record')} disabled={busy} />
+          {/* nothing to hear while recording: every page ignores R then */}
+          <Button icon={<IconMe />} label="Me" keyHint="R" onClick={() => onAction('replayYou')} disabled={recording} />
+        </div>
+        <div className="flex items-center gap-2">
+          {showAnki && <Button icon={<IconAnki />} label="Anki" keyHint="A" variant="ghost" onClick={() => onAction('exportAnki')} />}
+          <SoundPopover sound={sound} />
+        </div>
       </div>
-      {hint && <p className="text-xs text-warn">{hint}</p>}
-      {error && <p className="text-xs text-bad" role="alert">{error}</p>}
+      {hint && <p className="text-xs text-warn text-center">{hint}</p>}
+      {error && <p className="text-xs text-bad text-center" role="alert">{error}</p>}
     </div>
+  )
+}
+
+// Previous/next: a thin chevron with its key under it, inside the position pill (no word: ‹ › are the word).
+function Chevron({ icon, name, keyHint, disabled, onClick }: { icon: ReactNode; name: string; keyHint: string; disabled?: boolean; onClick: () => void }) {
+  return (
+    <button type="button" aria-label={`${name} (${keyHint})`} title={name} disabled={disabled} onClick={onClick}
+      className="flex min-w-[44px] flex-col items-center gap-[3px] rounded-lg px-2 py-1 text-fg disabled:opacity-40">
+      {icon}<span className="text-[9px] text-fgdim tracking-wider">{keyHint}</span>
+    </button>
   )
 }
