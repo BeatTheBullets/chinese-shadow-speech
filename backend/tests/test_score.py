@@ -187,8 +187,8 @@ def test_the_words_check_band_edges(monkeypatch, sim, warnings, notices):
     assert r.json["warnings"] == warnings and r.json["notices"] == notices
 
 
-def _slip(heard="zh"):
-    return {"status": "slip", "heard": 3, "heard_pinyin": "zhōng", "z": 7.5, "rule": "fused"}
+def _slip():
+    return {"status": "slip", "heard": "zhong", "heard_pinyin": "zhōng", "z": 7.5, "rule": "fused"}
 
 
 def _ok():
@@ -203,7 +203,7 @@ def test_score_take_stores_sound_results():
     assert r.json["syllables"][1]["sound"]["heard_pinyin"] == "zhōng"
     assert r.json["syllables"][0]["sound"]["status"] == "ok" and r.json["syllables"][2]["sound"] is None
     assert r.json["sounds_off"] == 1 and r.json["sounds_checked"] == 2
-    assert r.rows[1]["sound_status"] == "slip" and r.rows[1]["heard_syllable"] == "zhōng" and r.rows[1]["seg_score"] == 7.5
+    assert r.rows[1]["sound_status"] == "slip" and r.rows[1]["heard_syllable"] == "zhong" and r.rows[1]["seg_score"] == 7.5
     assert r.rows[0]["sound_status"] == "ok" and r.rows[2]["sound_status"] is None
     assert r.json["overall"] == plain.json["overall"]
     assert plain.json["sounds_off"] is None and plain.json["sounds_checked"] is None
@@ -230,3 +230,16 @@ def test_sounds_get_the_trimmed_take_and_its_windows():
     run(take, sounds=spy, ref_key="k")
     assert len(spy.kw["take"]) < len(take) and len(spy.kw["usr_win"]) == 4 and spy.kw["ref_key"] == "k"
     assert spy.kw["statuses"] == ["ok"] * 4
+
+
+def test_a_malformed_sound_result_keeps_tone_score():
+    from shadow.scoring.sounds.detector import FakeSounds
+    take = voice(REF_CONTOURS)
+    plain = run(take)
+    for bad in ([_ok()], [_ok(), {"status": "slip"}, None, None]):       # wrong length; a dict missing keys
+        r = run(take, sounds=FakeSounds(bad), ref_key="k")
+        assert r.json["overall"] == plain.json["overall"]
+        assert r.json["sounds_off"] is None and r.json["sounds_checked"] is None
+        assert all(x["sound"] is None for x in r.json["syllables"])
+        assert all(row["sound_status"] is None and row["heard_syllable"] is None and row.get("seg_score") is None
+                   for row in r.rows)

@@ -23,6 +23,16 @@ from shadow.api import anki, attempts, drill, health, jobs, lessons, review, seg
 log = logging.getLogger(__name__)
 
 
+def watch_sounds_warm_up(deps: Deps, warm: threading.Thread) -> None:
+    """warm_up logs and swallows its failure: surface it on /health and switch sounds off for this process, so a
+    failing ~1.2 GB load is not retried on every take (memory is tight)."""
+    warm.join()
+    chars = deps.sounds.chars if deps.sounds is not None else None
+    if chars is not None and chars._model is None:
+        deps.sounds_error = chars.load_error or "the sound model failed to load"
+        deps.sounds = None
+
+
 def create_app(settings: Settings | None = None, deps: Deps | None = None) -> FastAPI:
     settings = settings or load_settings()
 
@@ -37,11 +47,8 @@ def create_app(settings: Settings | None = None, deps: Deps | None = None) -> Fa
         sounds = app.state.deps.sounds
         if isinstance(getattr(sounds, "chars", None), CharCtc):          # real deps only
             warm = sounds.chars.warm_up()
-            def note_failure():                  # warm_up logs and swallows; surface its error on /health
-                warm.join()
-                if sounds.chars._model is None:
-                    app.state.deps.sounds_error = sounds.chars.load_error or "the sound model failed to load"
-            threading.Thread(target=note_failure, name="charctc-warm-up-watch", daemon=True).start()
+            threading.Thread(target=watch_sounds_warm_up, args=(app.state.deps, warm), name="charctc-warm-up-watch",
+                             daemon=True).start()
         yield
         await app.state.jobs.stop()
 

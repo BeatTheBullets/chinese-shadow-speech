@@ -67,3 +67,17 @@ def test_health_reports_sounds_error(client):
     assert client.get("/health").json()["sounds_error"] is None
     client.app.state.deps.sounds_error = "boom"
     assert client.get("/health").json()["sounds_error"] == "boom"
+
+
+def test_a_failed_sounds_warm_up_switches_sounds_off():
+    import threading
+    from types import SimpleNamespace
+    from shadow.main import watch_sounds_warm_up
+    chars = SimpleNamespace(_model=None, load_error="download failed")
+    deps = SimpleNamespace(sounds=SimpleNamespace(chars=chars), sounds_error=None)
+    t = threading.Thread(target=lambda: None); t.start()
+    watch_sounds_warm_up(deps, t)
+    assert deps.sounds is None and deps.sounds_error == "download failed"
+    ok = SimpleNamespace(sounds=SimpleNamespace(chars=SimpleNamespace(_model=object())), sounds_error=None)
+    watch_sounds_warm_up(ok, t)
+    assert ok.sounds is not None and ok.sounds_error is None

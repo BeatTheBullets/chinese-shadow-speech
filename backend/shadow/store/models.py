@@ -94,7 +94,7 @@ class SyllableScore(SQLModel, table=True):
     tone_score: float | None = None
     seg_score: float | None = None        # the sound decision's z (Phase 3a), None when not checked
     sound_status: str | None = None       # ok|slip, None when the sound check did not judge the syllable
-    heard_syllable: str | None = None     # on a slip, the syllable heard instead (toned pinyin)
+    heard_syllable: str | None = None     # on a slip, the toneless syllable heard instead
     status: str
 
 

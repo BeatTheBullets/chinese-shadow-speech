@@ -133,16 +133,18 @@ def score_take(*, ref: RefData, syllables: list[dict], text: str, wav: np.ndarra
         try:
             found = sounds.check(take=trimmed, sr=sr, usr_win=usr_win, ref_wav=ref.wav, ref_sr=ref.sr, ref_key=ref_key,
                                  syllables=syllables, statuses=[x["status"] for x in out_syl])
+            if len(found) != len(syllables):
+                raise ValueError(f"the sound check returned {len(found)} results for {len(syllables)} syllables")
+            # everything is computed before anything is applied, so a malformed result leaves no half-applied state
+            applied = [(f, None if f is None else (f["status"], f["heard"], _r(f["z"]))) for f in found]
         except Exception:  # noqa: BLE001
             log.exception("the sound check failed; the take keeps its tone score")
         else:
-            sounds_checked = sum(f is not None for f in found)
-            sounds_off = sum(f is not None and f["status"] == "slip" for f in found)
-            for js, row, f in zip(out_syl, rows, found):
+            sounds_checked = sum(f is not None for f, _ in applied)
+            sounds_off = sum(f is not None and f["status"] == "slip" for f, _ in applied)
+            for js, row, (f, t) in zip(out_syl, rows, applied):
                 js["sound"] = f
-                row["sound_status"] = None if f is None else f["status"]
-                row["heard_syllable"] = None if f is None else f["heard_pinyin"]
-                row["seg_score"] = None if f is None else _r(f["z"])
+                row["sound_status"], row["heard_syllable"], row["seg_score"] = (None, None, None) if t is None else t
 
     overall = sentence_overall([(x["status"], x["tone_score"]) for x in out_syl])
     usr_spans = [(a + off, b + off) for a, b in usr_win]
