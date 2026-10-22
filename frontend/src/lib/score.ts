@@ -19,7 +19,8 @@ const WARNINGS: Record<string, string> = {
 export function withScore(cells: Cell[], score: Score | null | undefined): Cell[] {
   const syl = score?.syllables
   if (!syl?.length || syl.length !== cells.length) return cells
-  return cells.map((c, i) => ({ ...c, status: syl[i].status, score: syl[i].tone_score, target: syl[i].target_tone, heard: syl[i].heard_tone }))
+  return cells.map((c, i) => ({ ...c, status: syl[i].status, score: syl[i].tone_score, target: syl[i].target_tone, heard: syl[i].heard_tone,
+    heardSound: syl[i].sound?.status === 'slip' ? syl[i].sound.heard_pinyin : null }))
 }
 
 export function warningText(score: Score | null | undefined): string | null {

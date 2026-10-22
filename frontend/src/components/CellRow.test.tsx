@@ -26,4 +26,14 @@ describe('<CellRow>', () => {
     expect(b).toHaveClass('ring-2', 'ring-accent')
     expect(a).not.toHaveClass('ring-2'); expect(c).not.toHaveClass('ring-2')
   })
+
+  it('rings soundMarks in purple and the you variant is clickable', () => {
+    const calls: number[] = []
+    render(<CellRow variant="you" soundMarks={[0]} onCellClick={(i) => calls.push(i)} cells={[
+      { ch: '你', pinyin: 'nǐ', tone: 3 }, { ch: '好', pinyin: 'hǎo', tone: 3 },
+    ]} />)
+    const [a, b] = screen.getAllByRole('button')
+    expect(a).toHaveClass('ring-2', 'ring-sound'); expect(b).not.toHaveClass('ring-sound')
+    b.click(); expect(calls).toEqual([1])
+  })
 })

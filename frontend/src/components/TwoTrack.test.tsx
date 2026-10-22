@@ -1,6 +1,6 @@
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import type { Segment } from '../api/types'
+import type { Score, ScoredSyllable, Segment } from '../api/types'
 import TwoTrack from './TwoTrack'
 
 const segment: Segment = {
@@ -26,5 +26,32 @@ describe('<TwoTrack>', () => {
     const cells = screen.getAllByRole('button').filter((b) => b.title !== '' && within(b).queryByText(/[你好吗]/))
     expect(cells).toHaveLength(6)
     expect(cells.map((c) => c.classList.contains('ring-accent'))).toEqual([true, false, true, true, false, true])
+  })
+
+  const syl = (ch: string, pinyin: string, tone: number, sound?: ScoredSyllable['sound']): ScoredSyllable =>
+    ({ ch, pinyin, tone, target_tone: tone, heard_tone: tone, status: 'ok', tone_score: 0.9, p_target: 0.9, contour: 0.9, ...(sound === undefined ? {} : { sound }) })
+  const score = (sounds: (ScoredSyllable['sound'] | undefined)[]): Score => ({ overall: 0.8, tone_overall: 0.8, segmental_overall: null, rate_ratio: 1, ref_contour: null, usr_contour: null, warnings: [],
+    syllables: [syl('你', 'nǐ', 3, sounds[0]), syl('好', 'hǎo', 3, sounds[1]), syl('吗', 'ma', 0, sounds[2])] })
+  const slip = { status: 'slip' as const, heard: 'n', heard_pinyin: 'lǐ', z: 3, rule: 'fused' as const }
+  const props = { segment, refPeaks: null, refDuration: 2, refPlayhead: null, youPeaks: null, youDuration: 0, youPlayhead: null, onPlayRef: () => {}, onPlayYou: () => {}, onPlaySyllable: () => {} }
+  const cellButtons = () => screen.getAllByRole('button').filter((b) => b.title !== '' && within(b).queryByText(/[你好吗]/))
+
+  it('rings the reference cells above heard sounds', () => {
+    render(<TwoTrack {...props} score={score([slip, undefined, undefined])} />)
+    expect(screen.getByText('HEARD')).toBeInTheDocument()
+    expect(screen.getByText('lǐ')).toBeInTheDocument()
+    expect(cellButtons().map((c) => c.classList.contains('ring-sound'))).toEqual([true, false, false, false, false, false])
+  })
+  it('renders as before without sound fields', () => {
+    render(<TwoTrack {...props} score={score([undefined, undefined, undefined])} />)
+    expect(screen.queryByText('HEARD')).toBeNull()
+    expect(cellButtons().some((c) => c.classList.contains('ring-sound'))).toBe(false)
+    expect(cellButtons().map((c) => c.textContent)).toEqual(['你nǐ 3', '好hǎo 3', '吗ma 0', '你390', '好390', '吗090'])
+  })
+  it('clicking a You cell calls onPlayYouSyllable(i)', () => {
+    const calls: number[] = []
+    render(<TwoTrack {...props} score={score([undefined, undefined, undefined])} onPlayYouSyllable={(i) => calls.push(i)} />)
+    fireEvent.click(cellButtons()[4])
+    expect(calls).toEqual([1])
   })
 })

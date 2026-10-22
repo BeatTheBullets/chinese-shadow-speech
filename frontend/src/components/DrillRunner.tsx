@@ -212,6 +212,11 @@ export default function DrillRunner({ session, onFinish }: { session: DrillSessi
   }
   const playRef = () => { const s = segRef.current; if (s) playSolo(api.segments.audioUrl(s.id), setRefHead) }
   const replayYou = () => { const t = takeRef.current; if (t) playSolo(t.url, setYouHead) }
+  // One syllable of the user's take (usr_contour spans are already on the raw take's timeline).
+  function playYouSyllable(cell: number) {
+    const t = takeRef.current, span = t?.score?.usr_contour?.spans[cell]
+    if (t && span) playSolo(t.url, setYouHead, span[0], span[1])
+  }
   // One syllable of the reference (alignment times are source-absolute; the clip starts at start_s).
   function playSyllable(cell: number) {
     const s = segRef.current, span = s?.ref_alignment_json?.[cell]
@@ -276,7 +281,7 @@ export default function DrillRunner({ session, onFinish }: { session: DrillSessi
         translation={seg.translation} showTranslation={false} />
       <TwoTrack segment={seg} refPeaks={refPeaks} refDuration={seg.end_s - seg.start_s} refPlayhead={refHead}
         youPeaks={take?.peaks ?? null} youDuration={take?.duration ?? 0} youPlayhead={youHead}
-        onPlayRef={playRef} onPlayYou={replayYou} onPlaySyllable={playSyllable} highlight={item.targets}
+        onPlayRef={playRef} onPlayYou={replayYou} onPlaySyllable={playSyllable} onPlayYouSyllable={playYouSyllable} highlight={item.targets}
         score={take?.score ?? null} scoreHeader={<ScoreHeader score={take?.score} best={seg.best_score} attempts={seg.attempts} />} />
       <div className="border-t border-line pt-3 text-center space-y-1">
         <div className="flex justify-center gap-2 items-center">

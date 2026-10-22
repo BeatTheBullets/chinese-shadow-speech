@@ -6,13 +6,13 @@ function youMark(c: Cell): string {
   if (c.status === 'missing' || c.score == null) return '–'
   return pct(c.score)
 }
-// highlight: cell indexes to outline (a drill's target syllables).
-export default function CellRow({ cells, variant, onCellClick, highlight }: { cells: Cell[]; variant: 'ref' | 'you'; onCellClick?: (i: number) => void; highlight?: number[] }) {
+// highlight: cell indexes to outline (a drill's target syllables). soundMarks: cells to ring in purple (a heard wrong sound; purple means sound only).
+export default function CellRow({ cells, variant, onCellClick, highlight, soundMarks }: { cells: Cell[]; variant: 'ref' | 'you'; onCellClick?: (i: number) => void; highlight?: number[]; soundMarks?: number[] }) {
   return (
     <div className="flex flex-wrap gap-1 mt-2 justify-center">
       {cells.map((c, i) => (
         <button key={i} title={variant === 'you' ? cellTitle(c) : c.pinyin} onClick={() => onCellClick?.(i)}
-          className={`w-10 max-w-[56px] rounded border px-1 py-1 text-center ${cellClass(c)}${highlight?.includes(i) ? ' ring-2 ring-accent' : ''}`}>
+          className={`w-10 max-w-[56px] rounded border px-1 py-1 text-center ${cellClass(c)}${highlight?.includes(i) ? ' ring-2 ring-accent' : ''}${soundMarks?.includes(i) ? ' ring-2 ring-sound' : ''}`}>
           <span className="block font-hanzi text-fghi text-sm leading-tight">{c.ch}</span>
           <span className="block text-[10px] text-ref">{variant === 'ref' ? `${c.pinyin} ${c.tone >= 0 ? c.tone : ''}`
             : c.status === 'wrong' && c.target != null && c.heard != null ? `${c.target}→${c.heard}` : `${c.tone >= 0 ? c.tone : ''}`}</span>

@@ -419,6 +419,11 @@ export default function Practice() {
     const take = currentTake(usePractice.getState())
     if (take) playSolo(() => player.play(take.url, 1, setYouHead))
   }
+  // One syllable of the user's own take; usr_contour spans are already on the raw take's timeline (backend adds the trim offset).
+  function playYouSyllable(cell: number) {
+    const take = currentTake(usePractice.getState()), span = take?.score?.usr_contour?.spans[cell]
+    if (take && span) playSolo(() => player.playRange(take.url, 1, span[0], span[1], setYouHead))
+  }
   // Plays one syllable of the reference once (addendum §1.2); clicking again plays it again.
   // Alignment times are source-absolute, the clip starts at seg.start_s.
   function playSyllable(cell: number) {
@@ -727,7 +732,7 @@ export default function Practice() {
                 {!(st.textPrefs.hanzi && show) && wipe && <GhostLine count={spans.length} wipe={wipe} />}
                 <TwoTrack segment={seg} refPeaks={refPeaks} refDuration={seg.end_s - seg.start_s} refPlayhead={refHead}
                   youPeaks={youPeaks} youDuration={take?.duration ?? 0} youPlayhead={youHead}
-                  onPlayRef={() => act('play')} onPlayYou={() => act('replayYou')} onPlaySyllable={playSyllable}
+                  onPlayRef={() => act('play')} onPlayYou={() => act('replayYou')} onPlaySyllable={playSyllable} onPlayYouSyllable={playYouSyllable}
                   score={take?.score ?? null} scoreHeader={<ScoreHeader score={take?.score} best={seg.best_score} attempts={seg.attempts} />} />
               </>)}
             </div>

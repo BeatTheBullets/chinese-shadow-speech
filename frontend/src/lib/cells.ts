@@ -1,6 +1,6 @@
 import type { AlignSpan, Word } from '../api/types'
 export type CellStatus = 'ok' | 'close' | 'wrong' | 'suspect' | 'missing' | 'unvoiced' | 'neutral'
-export interface Cell { ch: string; pinyin: string; tone: number; score?: number | null; status?: CellStatus; target?: number | null; heard?: number | null }
+export interface Cell { ch: string; pinyin: string; tone: number; score?: number | null; status?: CellStatus; target?: number | null; heard?: number | null; heardSound?: string | null }
 
 /**
  * One cell per alignment span (backend guarantees one span and one syllable per
