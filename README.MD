@@ -1,13 +1,13 @@
 # chinese-shadow-speech — a Mandarin shadowing studio
 
 **chinese-shadow-speech** turns any Chinese YouTube video or audio file into a shadowing lesson. It cuts the speech into short
-sentences, aligns every character to the audio, adds pinyin and a translation, and gives you four ways to practise
-speaking along. Everything you record is kept. The sentences you have practised go to Anki as listening cards.
+sentences, aligns every character to the audio, adds pinyin and a translation, and gives you two ways to practise
+speaking along: Echo (one sentence at a time) and Flow (a run of sentences, after or along with the speaker). Everything you record is kept. The sentences you have practised go to Anki as listening cards.
 
 It runs locally: a Python backend in WSL2/Linux with GPU speech models, and a React app in the browser (built for
 Brave + Yomitan on Windows).
 
-![Flow mode: the sentence fills with colour in time with the speaker, with count-in dots before your turn](docs/screenshots/flow-listen.png)
+![Flow mode: the sentence fills with colour in time with the speaker](docs/screenshots/flow-listen.png)
 
 > Screenshots show lessons made from Mandarin Click's HSK1 stories.
 
