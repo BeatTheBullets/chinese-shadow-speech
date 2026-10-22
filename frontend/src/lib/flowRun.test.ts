@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { AFTER_PAUSE_MS, playFlow, type FlowClip } from './flowRun'
+import { AFTER_PAUSE_MS, CLIP_GRACE_MS, playFlow, type FlowClip } from './flowRun'
 
 const clips: FlowClip[] = [
   { segmentId: 1, idx: 0, url: '/1', duration: 2 },
@@ -22,6 +22,31 @@ beforeEach(() => { vi.useFakeTimers(); vi.clearAllMocks(); clock = 10; pending =
 afterEach(() => { vi.useRealTimers() })
 
 describe('playFlow', () => {
+  it('a clip that never loads trips the watchdog after duration / rate + grace, keeping the earlier clips', async () => {
+    const run = start('along', undefined, 0.5)
+    await vi.advanceTimersByTimeAsync(0)
+    await finishClip(2)
+    // clip 2 (1 s at half speed = 2 s) never settles: nothing before duration / rate + grace
+    await vi.advanceTimersByTimeAsync(2000 + CLIP_GRACE_MS - 1)
+    expect(player.stop).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1)
+    const r = await run
+    expect(player.stop).toHaveBeenCalled()
+    expect((r.error as Error).message).toMatch(/did not load/)
+    expect(r.actual.filter((a) => a.playEnd != null).map((a) => a.idx)).toEqual([0])
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('a stop during a clip clears the watchdog timer', async () => {
+    const ctrl = new AbortController()
+    const run = start('along', ctrl.signal)
+    await vi.advanceTimersByTimeAsync(0)
+    ctrl.abort()
+    const r = await run
+    expect(r.error).toBeNull()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
   it('along: plays the clips back to back and stamps each on the recording clock', async () => {
     const run = start('along')
     await vi.advanceTimersByTimeAsync(0)

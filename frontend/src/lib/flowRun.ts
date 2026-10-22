@@ -5,6 +5,11 @@ import { gapAfter, type ActualPlay, type FlowSub } from './flow'
 // Extra pause after an `after` gap so the slice (gap + 150 ms slack) ends before the next clip starts.
 export const AFTER_PAUSE_MS = 300
 
+// A clip that has not ended this long after its expected length (duration / rate) never will: its request is stuck
+// (dead backend behind an open socket) and `play()` stays pending, with neither `ended` nor `error`. Covers a slow
+// first-byte on a healthy server.
+export const CLIP_GRACE_MS = 5000
+
 export interface FlowClip { segmentId: number; idx: number; url: string; duration: number }
 export interface PlayFlowOptions {
   player: Pick<ClipPlayer, 'play' | 'stop' | 'preload'>
@@ -35,8 +40,18 @@ export async function playFlow(o: PlayFlowOptions): Promise<FlowPlayback> {
     const rate = o.rate()
     const a: ActualPlay = { segmentId: c.segmentId, idx: c.idx, playStart: o.clock(), refDuration: c.duration / rate }
     actual.push(a)
+    let watchdog: ReturnType<typeof setTimeout> | undefined
     try {
-      await playClip(o.player, c.url, rate, skip.signal, o.onTime)
+      const stalled = new Promise<never>((_, reject) => {
+        watchdog = setTimeout(() => {
+          o.player.stop() // releases the pending playClip too, so nothing is left hanging
+          reject(new Error('the clip did not load — is the backend running?'))
+        }, (c.duration / rate) * 1000 + CLIP_GRACE_MS)
+      })
+      const played = playClip(o.player, c.url, rate, skip.signal, o.onTime)
+      void stalled.catch(() => {}) // a late rejection (clip finished first) must not be unhandled
+      await Promise.race([played, stalled])
+      clearTimeout(watchdog)
       if (skip.signal.aborted) { if (!o.signal.aborted) skipped++; continue }
       a.playEnd = o.clock()
       if (o.sub === 'after') {
@@ -52,6 +67,7 @@ export async function playFlow(o: PlayFlowOptions): Promise<FlowPlayback> {
     } catch (error) {
       return { actual, skipped, error }
     } finally {
+      clearTimeout(watchdog) // finished, skipped, stopped or failed: no stray timer
       o.signal.removeEventListener('abort', onStop)
     }
   }

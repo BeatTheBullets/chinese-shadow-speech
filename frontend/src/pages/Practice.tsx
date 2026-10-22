@@ -663,7 +663,7 @@ export default function Practice() {
             <FlowView segments={segments} current={fs.current} first={fs.range?.from ?? 0} last={fs.range?.to ?? segments.length - 1}
               pending={fs.pending} sub={fs.sub} rate={st.rate} now={now}
               stage={stage} mic={mic} startedAt={fs.turn ? fs.turn.startedAt : runFrom} clipTime={fs.clipTime} turn={fs.turn}
-              showText={!(settings.practice.hideTextWhileRecording && fs.sub === 'after')} />
+              showText={!(settings.practice.hideTextWhileRecording && fs.sub === 'after' && fs.turn != null)} />
             <FlowTransport onAction={act} idx={fs.current} total={segments.length} sound={sound} error={error} hint={st.hint} />
           </>) : (<>
             <div className="flex-1 overflow-y-auto p-6 space-y-6">

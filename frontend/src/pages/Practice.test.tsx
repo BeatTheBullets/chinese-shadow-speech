@@ -746,6 +746,21 @@ describe('<Practice>', () => {
       try { await sleepMs(100); expect(raf).not.toHaveBeenCalled() } finally { raf.mockRestore() }
     })
 
+    it('after with hide-text on: the sentence shows while listening and hides only during your turn', async () => {
+      useSettings.setState({ practice: { ...useSettings.getState().practice, hideTextWhileRecording: true } })
+      clipsTake(2, (n) => n === 1) // the first clip plays until released
+      h.rec.stop.mockReturnValue(new Float32Array(44100 * 10))
+      await startFlow('after')
+      await waitFor(() => expect(h.player.play).toHaveBeenCalledTimes(1))
+      expect(screen.getByTestId('stage')).toHaveTextContent('Listening')
+      expect(screen.getByTestId('stage')).toHaveTextContent('你好')
+      act(() => { h.player.stop() }) // the clip ends: the turn opens
+      await waitFor(() => expect(screen.getByTestId('stage')).toHaveTextContent('Your turn'))
+      expect(screen.getByTestId('stage')).not.toHaveTextContent('你好')
+      press('Enter')
+      expect(await screen.findByText(/Flow finished/)).toBeInTheDocument()
+    })
+
     it('along: the next sentence shows dimmed below the current one', async () => {
       clipsTake(2, () => true)
       await startFlow('along')
