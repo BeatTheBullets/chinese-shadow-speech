@@ -21,10 +21,10 @@ def ref_data(contours=REF_CONTOURS):
     return RefData(p, spans, baseline_of(p.voiced()), wav, SR)
 
 
-def run(take, *, syllables=SYLS, text=TEXT, model=FakeToneModel(tone=1, p=0.9), aligner=FakeAligner(), hear=None, **kw):
+def run(take, *, syllables=SYLS, text=TEXT, model=FakeToneModel(tone=1, p=0.9), aligner=FakeAligner(), hear=None, sounds=None, ref_key="", **kw):
     return score_take(ref=ref_data(), syllables=syllables, text=text, wav=take, sr=SR, aligner=aligner, model=model,
                       embedder=FakeEmbedder(), profile=kw.get("profile"), profile_voiced_s=kw.get("voiced_s", 0.0), cfg=CFG,
-                      hear=hear)
+                      hear=hear, sounds=sounds, ref_key=ref_key)
 
 
 def test_matching_take_is_all_ok():
@@ -185,3 +185,48 @@ def test_the_words_check_band_edges(monkeypatch, sim, warnings, notices):
                    model=FakeToneModel(tone=1, p=0.9), embedder=FakeEmbedder(), profile=None, profile_voiced_s=0.0,
                    cfg=cfg, hear=lambda: "…")
     assert r.json["warnings"] == warnings and r.json["notices"] == notices
+
+
+def _slip(heard="zh"):
+    return {"status": "slip", "heard": 3, "heard_pinyin": "zhōng", "z": 7.5, "rule": "fused"}
+
+
+def _ok():
+    return {"status": "ok", "heard": None, "heard_pinyin": None, "z": -1.0, "rule": "fused"}
+
+
+def test_score_take_stores_sound_results():
+    from shadow.scoring.sounds.detector import FakeSounds
+    take = voice(REF_CONTOURS)
+    plain = run(take)
+    r = run(take, sounds=FakeSounds([_ok(), _slip(), None, None]), ref_key="k")
+    assert r.json["syllables"][1]["sound"]["heard_pinyin"] == "zhōng"
+    assert r.json["syllables"][0]["sound"]["status"] == "ok" and r.json["syllables"][2]["sound"] is None
+    assert r.json["sounds_off"] == 1 and r.json["sounds_checked"] == 2
+    assert r.rows[1]["sound_status"] == "slip" and r.rows[1]["heard_syllable"] == "zhōng" and r.rows[1]["seg_score"] == 7.5
+    assert r.rows[0]["sound_status"] == "ok" and r.rows[2]["sound_status"] is None
+    assert r.json["overall"] == plain.json["overall"]
+    assert plain.json["sounds_off"] is None and plain.json["sounds_checked"] is None
+
+
+def test_sound_failure_keeps_tone_score():
+    from shadow.scoring.sounds.detector import FakeSounds
+    take = voice(REF_CONTOURS)
+    plain = run(take)
+    r = run(take, sounds=FakeSounds(error=True), ref_key="k")
+    assert r.json["overall"] == plain.json["overall"] and r.json["tone_overall"] == plain.json["tone_overall"]
+    assert r.json["sounds_off"] is None and r.json["sounds_checked"] is None
+    assert all(s["sound"] is None for s in r.json["syllables"])
+    assert all(row["sound_status"] is None for row in r.rows)
+
+
+def test_sounds_get_the_trimmed_take_and_its_windows():
+    class Spy:
+        def check(self, **kw):
+            self.kw = kw
+            return [None] * len(kw["syllables"])
+    spy = Spy()
+    take = voice(REF_CONTOURS, lead_s=0.4)
+    run(take, sounds=spy, ref_key="k")
+    assert len(spy.kw["take"]) < len(take) and len(spy.kw["usr_win"]) == 4 and spy.kw["ref_key"] == "k"
+    assert spy.kw["statuses"] == ["ok"] * 4

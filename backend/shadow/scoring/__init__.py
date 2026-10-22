@@ -47,11 +47,14 @@ def score_attempt(deps: Deps, db: Session, segment: Segment, attempt: Attempt) -
                 result = failed_result(syllables, ["no_tone_model"])
             else:
                 wav, sr = audio.read_wav(Path(attempt.audio_path))
+                ref_key = (f"{segment.clip_wav_path}|{segment.text}|"        # the detector caches the reference by key
+                           + " ".join(s["pinyin_toneless"] for s in syllables))
                 ref = RefData(ref_pitch, reference_spans(segment), ref_base, *reference_audio(segment))
                 result = score_take(ref=ref, syllables=syllables, text=segment.text, wav=wav, sr=sr,
                                     aligner=deps.aligner, embedder=deps.embedder, model=deps.tone_model,
                                     profile=profile_baseline(prof), profile_voiced_s=prof.voiced_s or 0.0, cfg=cfg,
-                                    hear=(lambda: _hear(deps, attempt)) if deps.hearer else None)
+                                    hear=(lambda: _hear(deps, attempt)) if deps.hearer else None,
+                                    sounds=deps.sounds, ref_key=ref_key)
             attempt.score_json = result.json
             for row in result.rows:
                 db.add(SyllableScore(attempt_id=attempt.id, segment_id=segment.id, **row))

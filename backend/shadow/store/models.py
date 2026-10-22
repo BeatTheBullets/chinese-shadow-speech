@@ -92,7 +92,9 @@ class SyllableScore(SQLModel, table=True):
     target_tone: int | None = None        # the tone the speaker produced (Phase 2 spec §3)
     heard_tone: int | None = None         # the classifier's top tone on the learner's syllable
     tone_score: float | None = None
-    seg_score: float | None = None
+    seg_score: float | None = None        # the sound decision's z (Phase 3a), None when not checked
+    sound_status: str | None = None       # ok|slip, None when the sound check did not judge the syllable
+    heard_syllable: str | None = None     # on a slip, the syllable heard instead (toned pinyin)
     status: str
 
 

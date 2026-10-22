@@ -1,5 +1,6 @@
 import logging
 import os
+import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI
@@ -12,6 +13,7 @@ from shadow.jobs import JobManager
 from shadow.ingest.asr import ParaformerASR
 from shadow.ingest.rebuild import recover_rebuild
 from shadow.scoring.embed import Wav2Vec2Embedder
+from shadow.scoring.sounds.charctc import CharCtc
 from sqlalchemy import Engine
 from sqlmodel import Session, select
 from shadow.store.db import make_engine, init_db
@@ -32,6 +34,14 @@ def create_app(settings: Settings | None = None, deps: Deps | None = None) -> Fa
             app.state.deps.embedder.warm_up()
         if isinstance(app.state.deps.asr, ParaformerASR):          # the words check of every take uses it
             app.state.deps.asr.warm_up()
+        sounds = app.state.deps.sounds
+        if isinstance(getattr(sounds, "chars", None), CharCtc):          # real deps only
+            warm = sounds.chars.warm_up()
+            def note_failure():                  # warm_up logs and swallows; surface its error on /health
+                warm.join()
+                if sounds.chars._model is None:
+                    app.state.deps.sounds_error = sounds.chars.load_error or "the sound model failed to load"
+            threading.Thread(target=note_failure, name="charctc-warm-up-watch", daemon=True).start()
         yield
         await app.state.jobs.stop()
 

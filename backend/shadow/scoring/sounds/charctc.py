@@ -42,6 +42,7 @@ class CharCtc:
     def __init__(self, name: str, revision: str, device: str):
         self.name, self.revision, self.device = name, revision, device
         self._model = None
+        self.load_error: str | None = None   # the last warm-up failure's text, for /health
         self._Mt = None
         self._sid: dict[str, int] = {}
         self._col: dict[str, int] | None = None
@@ -68,7 +69,9 @@ class CharCtc:
             try:
                 with self._lock:
                     self._load()
-            except Exception:
+                self.load_error = None
+            except Exception as e:
+                self.load_error = str(e) or type(e).__name__
                 log.exception("warming up the char-CTC model %s failed", self.name)
             finally:
                 trim_heap()

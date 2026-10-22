@@ -13,6 +13,7 @@ def health(request: Request):
         "aligner": settings.resolved_aligner(),
         "models_loaded": loaded.loaded_models() if loaded else [],
         "tone_model": _tone_model(loaded),
+        "sounds_error": getattr(loaded, "sounds_error", None),
         "versions": {"fastapi": fastapi.__version__, "sqlmodel": sqlmodel.__version__, "pydantic": pydantic.__version__},
     }
 

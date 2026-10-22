@@ -2,6 +2,7 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable
+import logging
 import numpy as np
 from shadow.config import ScoringCfg
 from shadow.ingest.align import Aligner
@@ -9,9 +10,11 @@ from shadow.scoring.embed import Embedder, pool
 from shadow.scoring.features import FEATURE_VERSION, SylPitch, feature_matrix, syllable_pitch
 from shadow.scoring.gate import align_gate, clipped_ratio, level_dbfs, pre_gate, text_similarity
 from shadow.scoring.pitch import Baseline, Pitch, baseline_of, blend, normalise, track_pitch, trim_silence
+from shadow.scoring.sounds.detector import Sounds
 from shadow.scoring.windows import windows
 from shadow.scoring.tone import ToneModel, contour_similarity, judge, sentence_overall, target_tone
 
+log = logging.getLogger(__name__)
 MIN_SPAN_S = 0.03                         # a learner span shorter than this was skipped or collapsed: missing
 
 
@@ -34,7 +37,7 @@ class TakeResult:
 def _syl_json(s: dict, status: str, **kw) -> dict:
     base = {"ch": s["ch"], "pinyin": s.get("pinyin", ""), "tone": s["tone"], "target_tone": None, "heard_tone": None,
             "status": status, "tone_score": None, "p_target": None, "contour": None, "seg_score": None,
-            "ref_f0": None, "usr_f0": None, "ref_dur": None, "usr_dur": None}
+            "ref_f0": None, "usr_f0": None, "ref_dur": None, "usr_dur": None, "sound": None}
     return {**base, **kw}
 
 
@@ -43,7 +46,7 @@ def failed_result(syllables: list[dict], warnings: list[str], quality: dict | No
     """No score: every syllable missing, no rows, so stats and the voice profile ignore the take."""
     return TakeResult({"overall": None, "tone_overall": None, "segmental_overall": None, "rate_ratio": None,
                        "heard_text": heard_text, "ref_contour": None, "usr_contour": None, "syllables": [_syl_json(s, "missing") for s in syllables],
-                       "pitch_range_st": None, "warnings": warnings, "notices": [], "quality": quality,
+                       "pitch_range_st": None, "sounds_off": None, "sounds_checked": None, "warnings": warnings, "notices": [], "quality": quality,
                        "model_version": model_version, "feature_version": FEATURE_VERSION})
 
 
@@ -59,7 +62,8 @@ def _r(x: float | None, nd: int = 3) -> float | None:
 
 def score_take(*, ref: RefData, syllables: list[dict], text: str, wav: np.ndarray, sr: int, aligner: Aligner,
                embedder: Embedder, model: ToneModel | None, profile: Baseline | None, profile_voiced_s: float, cfg: ScoringCfg,
-               hear: Callable[[], str | None] | None = None) -> TakeResult:
+               hear: Callable[[], str | None] | None = None, sounds: Sounds | None = None,
+               ref_key: str = "") -> TakeResult:
     """`hear` returns what the take says (the recogniser); without it, or when it returns None, the words check is
     skipped."""
     trimmed, off = trim_silence(wav, sr)
@@ -120,8 +124,25 @@ def score_take(*, ref: RefData, syllables: list[dict], text: str, wav: np.ndarra
         out_syl.append(js)
         rows.append({"idx": i, "ch": s["ch"], "pinyin_toneless": s.get("pinyin_toneless", ""), "tone": s["tone"],
                      "prev_tone": prev, "target_tone": target, "heard_tone": heard,
-                     "tone_score": js["tone_score"], "status": js["status"]})
+                     "tone_score": js["tone_score"], "status": js["status"], "sound_status": None, "heard_syllable": None})
         prev = target if target is not None else s["tone"]
+
+    sounds_off = sounds_checked = None
+    if sounds is not None:
+        # a sound failure never fails a take: the tone result above is already final and stays identical without sounds
+        try:
+            found = sounds.check(take=trimmed, sr=sr, usr_win=usr_win, ref_wav=ref.wav, ref_sr=ref.sr, ref_key=ref_key,
+                                 syllables=syllables, statuses=[x["status"] for x in out_syl])
+        except Exception:  # noqa: BLE001
+            log.exception("the sound check failed; the take keeps its tone score")
+        else:
+            sounds_checked = sum(f is not None for f in found)
+            sounds_off = sum(f is not None and f["status"] == "slip" for f in found)
+            for js, row, f in zip(out_syl, rows, found):
+                js["sound"] = f
+                row["sound_status"] = None if f is None else f["status"]
+                row["heard_syllable"] = None if f is None else f["heard_pinyin"]
+                row["seg_score"] = None if f is None else _r(f["z"])
 
     overall = sentence_overall([(x["status"], x["tone_score"]) for x in out_syl])
     usr_spans = [(a + off, b + off) for a, b in usr_win]
@@ -130,7 +151,7 @@ def score_take(*, ref: RefData, syllables: list[dict], text: str, wav: np.ndarra
         "rate_ratio": _r((spans[-1].end - spans[0].start) / ref_speech_s) if ref_speech_s > 0 else None,
         "ref_contour": _contour_json(ref.pitch.t0, norm_r, ref_win),
         "usr_contour": _contour_json(pitch.t0 + off, norm_u, usr_spans),
-        "syllables": out_syl, "pitch_range_st": {"ref": _r(ref.baseline.spread_st), "usr": _r(base.spread_st)},
+        "syllables": out_syl, "sounds_off": sounds_off, "sounds_checked": sounds_checked, "pitch_range_st": {"ref": _r(ref.baseline.spread_st), "usr": _r(base.spread_st)},
         "warnings": [], "quality": quality, "model_version": model.version, "feature_version": FEATURE_VERSION,
         # scored, but some words sounded different (spec §1): `warnings` stays empty, as it does for every scored take
         "notices": ["words_differ"] if quality["text_sim"] is not None and quality["text_sim"] < cfg.words_ok_at else [],

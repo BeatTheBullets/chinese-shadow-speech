@@ -149,3 +149,18 @@ def test_a_take_during_an_import_is_scored_without_the_words_check(client, tmp_p
         sj = _post(client, make_tone_wav(tmp_path / "t.wav", 2.6), seg["id"]).json()["score_json"]
     assert sj["warnings"] == [] and sj["overall"] is not None and sj["heard_text"] is None
     assert "words check skipped" in caplog.text
+
+
+def test_sound_results_are_stored_on_the_rows(client, tmp_path):
+    from shadow.scoring.sounds.detector import FakeSounds
+    lid, seg = _first_segment(client, tmp_path)
+    n = len([s for w in seg["words_json"] for s in w["syllables"]])
+    res = [{"status": "slip", "heard": 3, "heard_pinyin": "zhōng", "z": 6.0, "rule": "fused"}] + [None] * (n - 1)
+    client.app.state.deps.sounds = FakeSounds(res)
+    r = _post(client, make_tone_wav(tmp_path / "t.wav", 2.6), seg["id"])
+    sj = r.json()["score_json"]
+    assert sj["sounds_off"] == 1 and sj["sounds_checked"] == 1
+    with Session(client.app.state.engine) as db:
+        rows = db.exec(select(SyllableScore).where(SyllableScore.attempt_id == r.json()["id"]).order_by(SyllableScore.idx)).all()
+    assert rows[0].sound_status == "slip" and rows[0].heard_syllable == "zhōng" and rows[0].seg_score == 6.0
+    assert rows[1].sound_status is None

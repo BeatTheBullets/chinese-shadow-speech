@@ -61,3 +61,9 @@ def test_spa_catch_all_never_serves_files_outside_dist(data_dir, tmp_path, monke
 def test_health_reports_the_tone_model(client):
     tm = client.get("/health").json()["tone_model"]
     assert tm == {"loaded": True, "version": "fake", "accuracy": None}
+
+
+def test_health_reports_sounds_error(client):
+    assert client.get("/health").json()["sounds_error"] is None
+    client.app.state.deps.sounds_error = "boom"
+    assert client.get("/health").json()["sounds_error"] == "boom"
