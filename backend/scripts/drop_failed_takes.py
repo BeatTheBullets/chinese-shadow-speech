@@ -2,8 +2,8 @@
 SyllableScore rows and the attempt. Since Task 14 such takes are dropped on upload; this removes the older ones.
 
     cd backend && ~/.local/bin/uv run python scripts/drop_failed_takes.py [--data-dir DIR] [--dry-run]
-Takes failing for server-side reasons (score_failed, no_reference, no_tone_model) are kept. --dry-run prints the
-counts but writes nothing. Back up the database first."""
+Takes failing for server-side reasons (score_failed, no_reference, ref_align_failed, no_tone_model) are kept.
+--dry-run prints the counts but writes nothing. Back up the database first."""
 from __future__ import annotations
 import argparse
 from collections import Counter

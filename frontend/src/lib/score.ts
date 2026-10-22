@@ -12,6 +12,7 @@ const WARNINGS: Record<string, string> = {
   no_tone_model: 'Tone model missing — not scored. See docs/running.md.',
   no_reference: 'This sentence has no reference timing — not scored.',
   align_failed: 'Could not align this take — not scored.',
+  ref_align_failed: "This sentence's reference timing is broken — not scored. Rebuild the lesson text.",
   score_failed: 'Scoring failed — the take is saved.',
 }
 

@@ -20,7 +20,8 @@ from shadow.store.models import Attempt, DrillSession, PracticeSession, Segment,
 router = APIRouter()
 
 # A take rejected because of the recording itself (its first warning) is not kept: no audio, no row, no try. Takes
-# failing for server-side reasons (score_failed, no_reference, no_tone_model) stay, they can be rescored later.
+# failing for server-side reasons (score_failed, no_reference, ref_align_failed, no_tone_model) stay, they can be
+# rescored later.
 DROP_WARNINGS = frozenset({"too_short", "too_quiet", "no_voice", "clipped", "wrong_or_unclear", "different_words", "align_failed"})
 
 RUN_GAP_S = 60      # Flow attempts of one session further apart than this belong to different runs

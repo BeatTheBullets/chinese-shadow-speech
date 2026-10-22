@@ -78,6 +78,15 @@ def test_span_count_mismatch_is_align_failed():
     assert r.json["warnings"] == ["align_failed"] and r.json["overall"] is None
 
 
+def test_a_broken_reference_is_ref_align_failed():
+    # the reference's spans do not match the sentence's syllables: the lesson's fault, not the take's
+    ref = ref_data()
+    broken = RefData(ref.pitch, ref.spans[:-1], ref.baseline, ref.wav, ref.sr)
+    r = score_take(ref=broken, syllables=SYLS, text=TEXT, wav=voice(REF_CONTOURS), sr=SR, aligner=FakeAligner(),
+                   model=FakeToneModel(tone=1, p=0.9), embedder=FakeEmbedder(), profile=None, profile_voiced_s=0.0, cfg=CFG)
+    assert r.json["warnings"] == ["ref_align_failed"] and r.json["overall"] is None
+
+
 def test_low_confidence_alignment_is_wrong_or_unclear():
     class Unsure:
         def align(self, wav, sr, text): return [Span(s.ch, s.start, s.end, 0.05) for s in FakeAligner().align(wav, sr, text)]

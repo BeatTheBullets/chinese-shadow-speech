@@ -97,8 +97,12 @@ def score_take(*, ref: RefData, syllables: list[dict], text: str, wav: np.ndarra
         quality["text_sim"] = round(text_similarity(syllables, heard_text), 3)
         if quality["text_sim"] < cfg.min_text_similarity:
             return failed_result(syllables, ["different_words"], quality, model.version, heard_text)
+    if len(ref.spans) != len(syllables):
+        # The reference's timing does not fit the sentence (a stale or broken lesson): not the learner's fault, so
+        # its own warning, which is not a drop gate (the take is kept), and no need to align the take.
+        return failed_result(syllables, ["ref_align_failed"], quality, model.version, heard_text)
     spans = aligner.align(trimmed, sr, text)
-    if len(spans) != len(syllables) or len(ref.spans) != len(syllables):
+    if len(spans) != len(syllables):
         return failed_result(syllables, ["align_failed"], quality, model.version, heard_text)
     ref_win = windows(ref.spans, len(ref.wav) / ref.sr)
     usr_win = windows([(s.start, s.end) for s in spans], len(trimmed) / sr)

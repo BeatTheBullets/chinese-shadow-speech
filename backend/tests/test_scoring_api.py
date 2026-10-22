@@ -163,3 +163,16 @@ def test_sound_results_are_stored_on_the_rows(client, tmp_path):
         rows = db.exec(select(SyllableScore).where(SyllableScore.attempt_id == r.json()["id"]).order_by(SyllableScore.idx)).all()
     assert rows[0].sound_status == "slip" and rows[0].heard_syllable == "zhong" and rows[0].seg_score == 6.0
     assert rows[1].sound_status is None
+
+
+def test_a_take_against_a_broken_reference_is_kept(client, tmp_path):
+    lid, seg = _first_segment(client, tmp_path)
+    with Session(client.app.state.engine) as db:
+        row = db.get(Segment, seg["id"])
+        row.ref_alignment_json = row.ref_alignment_json[:-1]       # reference timing one syllable short
+        db.add(row); db.commit()
+    r = _post(client, make_tone_wav(tmp_path / "t.wav", 2.6), seg["id"])
+    assert r.status_code == 201 and r.json()["dropped"] is False
+    assert r.json()["score_json"]["warnings"] == ["ref_align_failed"]
+    with Session(client.app.state.engine) as db:
+        assert db.exec(select(Attempt)).one().id == r.json()["id"]

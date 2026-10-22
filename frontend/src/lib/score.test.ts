@@ -21,6 +21,8 @@ describe('score', () => {
   it('explains a gated take', () => {
     expect(warningText(score({ overall: null, warnings: ['too_quiet'] }))).toBe('Too quiet — not scored. Move closer to the mic.')
     expect(warningText(score({ overall: null, warnings: ['odd_code'] }))).toBe('Not scored (odd_code).')
+    expect(warningText(score({ overall: null, warnings: ['ref_align_failed'] })))
+      .toBe("This sentence's reference timing is broken — not scored. Rebuild the lesson text.")
     expect(warningText(score())).toBeNull()
   })
   it('says what it heard when the words were different', () => {
