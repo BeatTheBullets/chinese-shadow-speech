@@ -36,6 +36,20 @@ class LockedAligner:
         with self._lock:
             return self.inner.align(wav, sr, text)
 
+    # Wrong-sound detection (Phase 3a) reads the MMS letter posteriors; same model, same lock.
+    @property
+    def blank(self) -> int:
+        with self._lock:
+            return self.inner.blank
+
+    def emissions(self, wav: np.ndarray, sr: int):
+        with self._lock:
+            return self.inner.emissions(wav, sr)
+
+    def letter_ids(self, syllable: str) -> list[int]:
+        with self._lock:
+            return self.inner.letter_ids(syllable)
+
 
 def speech_chars(text: str) -> list[str]:
     return [c for c in text if not is_punct(c)]
@@ -64,6 +78,23 @@ class MmsAligner:
     def __init__(self, device: str):
         self.device = device
         self._bundle = self._model = self._tok = self._al = None
+        self._dict: dict[str, int] | None = None
+
+    def _letters(self) -> dict[str, int]:
+        # the letter dictionary needs no model weights, so letter_ids/blank never load the model
+        if self._dict is None:
+            import torchaudio
+            self._dict = torchaudio.pipelines.MMS_FA.get_dict(star=None)
+        return self._dict
+
+    @property
+    def blank(self) -> int:
+        return self._letters()["-"]       # 0 for MMS_FA, the blank the 3a spike used
+
+    def letter_ids(self, syllable: str) -> list[int]:
+        """Letter ids of a toneless syllable as the 3a spike spelled it (ü/v as u; nothing spellable gives "a")."""
+        d = self._letters()
+        return [d[c] for c in syllable.replace("v", "u") if c in d] or [d["a"]]
 
     def _load(self):
         if self._model is None:
@@ -74,21 +105,26 @@ class MmsAligner:
             self._al = self._bundle.get_aligner()
         return self._model
 
-    def align(self, wav: np.ndarray, sr: int, text: str) -> list[Span]:
+    def emissions(self, wav: np.ndarray, sr: int):
+        """Frame letter log-probs (T x letters, an inference-mode tensor) and seconds per frame, as align uses them.
+        The bundle's model already ends in log_softmax; the 3a spike scored GOP on this raw output, so add none."""
         import torch
         model = self._load()
-        chars = speech_chars(text)
-        if not chars:
-            return []
-        words = romanise_for_mms(text)
         x = torch.from_numpy(wav).float().unsqueeze(0).to(self.device)
         if sr != self._bundle.sample_rate:
             import torchaudio.functional as F
             x = F.resample(x, sr, self._bundle.sample_rate)
         with torch.inference_mode():
             emission, _ = model(x)
-        token_spans = self._al(emission[0], self._tok(words))
-        ratio = x.size(1) / emission.size(1) / self._bundle.sample_rate
+        return emission[0], x.size(1) / emission.size(1) / self._bundle.sample_rate
+
+    def align(self, wav: np.ndarray, sr: int, text: str) -> list[Span]:
+        chars = speech_chars(text)
+        if not chars:
+            return []
+        words = romanise_for_mms(text)
+        emission, ratio = self.emissions(wav, sr)
+        token_spans = self._al(emission, self._tok(words))
         out: list[Span] = []
         for ch, spans in zip(chars, token_spans, strict=True):
             out.append(Span(ch, spans[0].start * ratio, spans[-1].end * ratio,

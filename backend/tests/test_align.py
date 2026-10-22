@@ -120,3 +120,30 @@ def test_locked_aligner_serialises_calls():
     ts = [threading.Thread(target=la.align, args=(np.zeros(10), 16000, "我")) for _ in range(4)]
     [t.start() for t in ts]; [t.join() for t in ts]
     assert inner.peak == 1 and la._model == "m"
+
+
+def test_mms_letter_ids_and_blank_need_no_model():
+    m = MmsAligner("cpu")
+    d = {'-': 0, 'a': 1, 'i': 2, 'h': 15, 'c': 20, 'u': 6, 'l': 12}
+    assert m.blank == 0
+    assert m.letter_ids("chi") == [d["c"], d["h"], d["i"]]
+    assert m.letter_ids("lv") == [d["l"], d["u"]]       # ü (v) is spelled u, as romanise_for_mms does
+    assert m.letter_ids("") == [d["a"]]
+    assert m._model is None
+
+
+def test_locked_aligner_forwards_sound_calls_under_its_lock():
+    import numpy as np
+    from shadow.ingest.align import LockedAligner
+
+    class Inner:
+        blank = 7
+        def __init__(self): self.locked = []
+        def emissions(self, wav, sr): self.locked.append(la._lock.locked()); return "E", 0.02
+        def letter_ids(self, s): self.locked.append(la._lock.locked()); return [1]
+
+    inner = Inner(); la = LockedAligner(inner)
+    assert la.emissions(np.zeros(1), 16000) == ("E", 0.02)
+    assert la.letter_ids("a") == [1]
+    assert la.blank == 7 and la.inner is inner
+    assert inner.locked == [True, True]
