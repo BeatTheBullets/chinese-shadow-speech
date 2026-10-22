@@ -59,3 +59,15 @@ def test_drill_defaults_and_config_toml():
     assert (d.window_days, d.min_rows, d.queue_size, d.max_tries, d.max_per_lesson) == (30, 8, 10, 3, 4)
     assert (d.min_syllables, d.max_syllables, d.rotate_within) == (4, 15, 0.05)
     assert load_settings(Path(__file__).resolve().parents[2] / "config.toml").drill == d
+
+
+def test_sounds_defaults_and_config_toml():
+    from pathlib import Path
+    from shadow.config import Settings, load_settings
+    d = Settings().sounds
+    assert d.enabled is True
+    assert (d.model, d.revision) == ("wbbbbb/wav2vec2-large-chinese-zh-cn", "b654b5f3df69725df32808de454a1b865c829e4c")
+    assert (d.z_a_mean, d.z_a_sd, d.z_b_mean, d.z_b_sd) == (-4.006537, 2.974512, 1.239741, 3.072057)
+    assert (d.fused_threshold, d.b_only_threshold) == (5.3036, 11.6518)
+    s = load_settings(Path(__file__).resolve().parents[2] / "config.toml")
+    assert s.sounds == d

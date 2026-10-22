@@ -65,3 +65,14 @@ max_per_lesson = 4
 min_syllables = 4
 max_syllables = 15
 rotate_within = 0.05
+
+[sounds]
+enabled = true                      # wrong-sound (initial/final) checks on takes
+model = "wbbbbb/wav2vec2-large-chinese-zh-cn"
+revision = "b654b5f3df69725df32808de454a1b865c829e4c"
+z_a_mean = -4.006537                # z-normalisers for model A (GOP on the planned syllable)
+z_a_sd = 2.974512
+z_b_mean = 1.239741                 # normalisers for model B (bad-pronunciation score)
+z_b_sd = 3.072057
+fused_threshold = 5.3036            # slip when z_a + z_b exceeds this
+b_only_threshold = 11.6518          # slip on raw model-B score alone when model A has no reading

@@ -81,6 +81,20 @@ class DrillCfg(BaseModel):
     rotate_within: float = 0.05       # foci this close to the weakest rotate instead of repeating
 
 
+class SoundsCfg(BaseModel):
+    # Phase 3a wrong-sound detector (spec §3). z-normalisers put model A (GOP on the planned syllable) and
+    # model B (bad-pronunciation score) on a common scale before they are summed; constants are the spike's.
+    enabled: bool = True
+    model: str = "wbbbbb/wav2vec2-large-chinese-zh-cn"
+    revision: str = "b654b5f3df69725df32808de454a1b865c829e4c"
+    z_a_mean: float = -4.006537
+    z_a_sd: float = 2.974512
+    z_b_mean: float = 1.239741
+    z_b_sd: float = 3.072057
+    fused_threshold: float = 5.3036   # slip when the summed z-scores exceed this (both models ran)
+    b_only_threshold: float = 11.6518  # raw model-B score alone; used when model A has no reading for the syllable
+
+
 class Settings(BaseModel):
     server: ServerCfg = Field(default_factory=ServerCfg)
     models: ModelsCfg = Field(default_factory=ModelsCfg)
@@ -91,6 +105,7 @@ class Settings(BaseModel):
     youtube: YoutubeCfg = Field(default_factory=YoutubeCfg)
     anki: AnkiCfg = Field(default_factory=AnkiCfg)
     drill: DrillCfg = Field(default_factory=DrillCfg)
+    sounds: SoundsCfg = Field(default_factory=SoundsCfg)
     data_dir: Path = Path("data")
 
     def resolved_device(self) -> str:
