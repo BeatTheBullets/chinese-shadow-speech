@@ -10,6 +10,7 @@ const h = vi.hoisted(() => ({
   drill: { focuses: vi.fn(), recent: vi.fn(), start: vi.fn(), end: vi.fn(), summary: vi.fn() },
   segments: { audioUrl: (id: number, fmt = 'opus') => `/seg/${id}.${fmt}`, postAttempt: vi.fn() },
   rec: { start: vi.fn(), stop: vi.fn(), sampleRate: 44100 },
+  findSilenceEnd: vi.fn((): number | null => null), // the auto-stop's VAD: null = still speaking (or not yet)
   toWav16k: vi.fn(() => new Blob(['wav'])),
   playSequence: vi.fn(() => Promise.resolve()),
   takePeaks: new Float32Array(4), // what peaks() returns for a fresh take's You waveform
@@ -28,6 +29,7 @@ vi.mock('../audio/recorder', () => ({
   },
   toWav16k: h.toWav16k,
 }))
+vi.mock('../audio/pcm', async (importOriginal) => ({ ...(await importOriginal<typeof import('../audio/pcm')>()), findSilenceEnd: h.findSilenceEnd }))
 vi.mock('../audio/player', () => ({
   ClipPlayer: class { constructor() { return h.player } },
   playSequence: h.playSequence,
@@ -86,6 +88,7 @@ beforeEach(() => {
   h.segments.postAttempt.mockResolvedValue({ id: 99, score_json: green })
   h.rec.start.mockResolvedValue(undefined)
   h.rec.stop.mockReturnValue(new Float32Array(44100))
+  h.findSilenceEnd.mockReset().mockReturnValue(null)
   h.player.play.mockImplementation(() => Promise.resolve())
   h.playSequence.mockImplementation(() => Promise.resolve())
   h.takePeaks = new Float32Array(4)
@@ -198,6 +201,17 @@ describe('<Drill> runner', () => {
     expect(screen.getByText('Try 1 / 3')).toBeInTheDocument()
     await flush()
     expect(h.player.play).toHaveBeenLastCalledWith('/seg/12.opus', 1, expect.any(Function))
+  })
+
+  it('stops recording by itself after the silence that follows your speech, as Echo does', async () => {
+    h.segments.postAttempt.mockResolvedValue({ id: 1, score_json: green })
+    await startRun()
+    press('Enter'); await flush()
+    expect(h.rec.start).toHaveBeenCalled()
+    expect(h.segments.postAttempt).not.toHaveBeenCalled()
+    h.findSilenceEnd.mockReturnValue(1.0)
+    await waitFor(() => expect(h.segments.postAttempt).toHaveBeenCalledWith(11, expect.any(Blob), { mode: 'drill', drill_session_id: 7 }))
+    expect(h.rec.stop).toHaveBeenCalledTimes(1)
   })
 
   it('retries while the targets are not green, and moves on after the third scored try', async () => {

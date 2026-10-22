@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { api, ApiError } from '../api/client'
 import type { DrillItem, DrillSession, Score, Segment } from '../api/types'
 import { playClip } from '../audio/abortable'
+import { findSilenceEnd } from '../audio/pcm'
 import { ClipPlayer, peaks as peaksOf, playSequence } from '../audio/player'
 import { toWav16k } from '../audio/recorder'
 import { useMic } from '../audio/useMic'
@@ -69,6 +70,7 @@ export default function DrillRunner({ session, onFinish }: { session: DrillSessi
   // Uploads not answered yet, of any sentence: finishing waits for them so the summary has every take.
   const inflight = useRef(new Set<Promise<unknown>>())
   const [saving, setSaving] = useState(false)
+  const vadTimer = useRef<number | null>(null)            // the auto-stop's silence check while recording
   const seqCtrl = useRef<AbortController | null>(null)   // the playback in flight (listen clip, reference then take, replays)
   const [refPeaks, setRefPeaks] = useState<Float32Array | null>(null)
   const [refHead, setRefHead] = useState<number | null>(null)
@@ -90,7 +92,7 @@ export default function DrillRunner({ session, onFinish }: { session: DrillSessi
     alive.current = true
     return () => {
       alive.current = false
-      seqCtrl.current?.abort(); player.stop()
+      clearVad(); seqCtrl.current?.abort(); player.stop()
       setTimeout(() => { if (!alive.current && !finished.current) { finished.current = true; api.drill.end(session.id).catch(() => {}) } }, 0)
     }
   }, [player, session.id])
@@ -133,7 +135,7 @@ export default function DrillRunner({ session, onFinish }: { session: DrillSessi
 
   function stopPlayback() { seqCtrl.current?.abort(); seqCtrl.current = null; player.stop() }
   // A pending upload carries on (and is ignored once the run has moved to another sentence).
-  function cancelActivity() { stopPlayback(); mic.abandon(); setRecording(false) }
+  function cancelActivity() { clearVad(); stopPlayback(); mic.abandon(); setRecording(false) }
 
   function finish() {
     if (finished.current) return
@@ -159,11 +161,23 @@ export default function DrillRunner({ session, onFinish }: { session: DrillSessi
     if (recRef.current || uploadRef.current !== 0 || stRef.current.step !== 'record') return
     stopPlayback(); setError('')
     setRecording(true)
-    try { await mic.open() }
-    catch (e) { setRecording(false); setError(`Microphone unavailable: ${message(e)}`) }
+    try {
+      const rec = await mic.open()
+      if (!rec) return
+      // Stop after 1.2 s of silence following speech, as Echo does (Enter still stops it early)
+      const tick = () => {
+        vadTimer.current = null
+        if (findSilenceEnd(rec.snapshot(), rec.sampleRate) != null) void stopRecording()
+        else vadTimer.current = window.setTimeout(tick, 200)
+      }
+      vadTimer.current = window.setTimeout(tick, 400)
+    } catch (e) { setRecording(false); setError(`Microphone unavailable: ${message(e)}`) }
   }
 
+  function clearVad() { if (vadTimer.current != null) { clearTimeout(vadTimer.current); vadTimer.current = null } }
+
   async function stopRecording() {
+    clearVad()
     if (!recRef.current) return
     if (!mic.capturing()) { cancelActivity(); return } // still at the permission prompt: abandon it
     const got = mic.finish()
