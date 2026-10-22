@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
-import type { ActivityStats, DrillRecent, SentenceStats, SyllableStats, ToneStats } from '../api/types'
+import type { ActivityStats, DrillRecent, SentenceStats, SoundStats, SyllableStats, ToneStats } from '../api/types'
 import Shell from '../components/Shell'
+import SoundsPanel from '../components/SoundsPanel'
 import ToneMatrix from '../components/ToneMatrix'
 import ToneTrend from '../components/ToneTrend'
 import { TONE_NAMES, pct } from '../lib/score'
@@ -57,6 +58,7 @@ export default function Stats() {
   const [sentences, setSentences] = useState<SentenceStats | null>(null)
   const [syllables, setSyllables] = useState<SyllableStats | null>(null)
   const [tones, setTones] = useState<ToneStats | null>(null)
+  const [sounds, setSounds] = useState<SoundStats | null>(null)
   const [drills, setDrills] = useState<DrillRecent[] | null>(null)
   const [error, setError] = useState('')
   const navigate = useNavigate()
@@ -65,7 +67,7 @@ export default function Stats() {
     let cancelled = false
     const run = <T,>(p: Promise<T>, set: (v: T) => void) => p.then((v) => { if (!cancelled) set(v) }).catch((e) => { if (!cancelled) setError(`Could not load stats: ${message(e)}`) })
     void run(api.stats.activity(30), setActivity); void run(api.stats.sentences(), setSentences)
-    void run(api.stats.syllables(), setSyllables); void run(api.stats.tones(), setTones); void run(api.drill.recent(10), setDrills)
+    void run(api.stats.syllables(), setSyllables); void run(api.stats.tones(), setTones); void run(api.stats.sounds(), setSounds); void run(api.drill.recent(10), setDrills)
     return () => { cancelled = true }
   }, [])
   const small = 'text-xs text-accent ml-auto'
@@ -105,6 +107,7 @@ export default function Stats() {
           <ToneMatrix pairs={tones.pairs} onDrill={(k) => drill('pair', k)} />
         </>) : <Empty />}
       </Panel>
+      <Panel title="Sounds">{sounds ? <SoundsPanel stats={sounds} onDrill={(k) => drill('sound', k)} /> : <p className="text-sm text-fgdim">Loading…</p>}</Panel>
     </div></Shell>
   )
 }
