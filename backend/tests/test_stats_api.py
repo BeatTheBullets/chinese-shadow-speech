@@ -127,3 +127,28 @@ def test_syllable_stats_per_character_with_trend(client):
     assert hao["n"] == 20 and hao["tone"] == 3 and abs(hao["trend"] - 0.6) < 1e-9
     assert next(s for s in out if s["ch"] == "是")["trend"] is None
     assert out[0]["ch"] == "好"                              # weakest first
+
+
+def test_stats_sounds_rates_by_direction(client):
+    from sqlmodel import Session
+    from shadow.store.models import Attempt, Lesson, Segment, SyllableScore
+    with Session(client.app.state.engine) as db:
+        les = Lesson(title="t", source_type="upload"); db.add(les); db.commit(); db.refresh(les)
+        seg = Segment(lesson_id=les.id, idx=0, start_s=0, end_s=1, text="x"); db.add(seg); db.commit(); db.refresh(seg)
+        att = Attempt(segment_id=seg.id, mode="echo", audio_path="x", duration_s=1, created_at=_now()); db.add(att); db.commit()
+        def row(i, py, st, heard=None):
+            db.add(SyllableScore(attempt_id=att.id, segment_id=seg.id, idx=i, ch="x", pinyin_toneless=py, tone=1,
+                                 status="ok", sound_status=st, heard_syllable=heard))
+        for i in range(10):
+            row(i, "Chi" if i == 0 else "chi", "slip" if i < 2 else "ok", "ci" if i < 2 else None)
+        for i in range(5):
+            row(20 + i, "ping", "ok")
+        row(30, "chi", None)                                  # not checked: no chance
+        db.commit()
+    r = client.get("/stats/sounds").json()
+    ch = next(s for s in r["sounds"] if s["key"] == "ch>c")
+    assert (ch["slips"], ch["chances"], ch["rate"], ch["label"]) == (2, 10, 0.2, "ch said as c")
+    assert all(s["key"] != "ng>n" for s in r["sounds"])
+    assert r["weeks"] and all(w["key"] in {s["key"] for s in r["sounds"]} for w in r["weeks"])
+    w = next(w for w in r["weeks"] if w["key"] == "ch>c")
+    assert (w["slips"], w["chances"]) == (2, 10)

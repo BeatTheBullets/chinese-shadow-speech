@@ -182,3 +182,48 @@ def test_summary_skips_deleted_segments(client, db):
     db.add(ds); db.commit(); db.refresh(ds)
     assert client.get(f"/drill/sessions/{ds.id}/summary").json()["items"] == []
     assert client.get("/drill/sessions/9999/summary").status_code == 404
+
+
+PY = {"她": "ta", "喜": "xi", "欢": "huan", "吃": "chi", "苹": "ping", "果": "guo"}
+
+
+def _sound_syls():
+    return [{"ch": c, "pinyin": p, "pinyin_toneless": p.upper() if c == "吃" else p, "tone": 1} for c, p in PY.items()]
+
+
+def test_sound_targets():
+    s = _sound_syls()
+    assert targets_for(s, "sound", "ch>c") == [3]       # case differences in pinyin_toneless are ignored
+    assert targets_for(s, "sound", "ng>n") == [4]
+
+
+def _sound_take(db, ds, seg_id, statuses):
+    att = Attempt(segment_id=seg_id, mode="drill", audio_path="x.wav", duration_s=1, drill_session_id=ds.id,
+                  score_json={"overall": 0.5}); db.add(att); db.commit()
+    for i, st in enumerate(statuses):
+        db.add(SyllableScore(attempt_id=att.id, segment_id=seg_id, idx=i, ch="x", pinyin_toneless="chi", tone=1,
+                             tone_score=0.9, status="ok", sound_status=st))
+    db.commit(); return att
+
+
+def test_sound_green_needs_every_target_checked_ok(db):
+    les = lesson(db); a = seg(db, les, 0, [1, 1, 1])
+    ds = DrillSession(kind="sound", key="ch>c", label="x", items_json=[{"segment_id": a.id, "targets": [0, 1]}])
+    db.add(ds); db.commit(); db.refresh(ds)
+    _sound_take(db, ds, a.id, ["ok", None, "ok"])
+    assert went_green(db, ds.id, a.id, [0, 1], kind="sound") is False
+    assert went_green(db, ds.id, a.id, [0, 1]) is True          # tone kind still reads status
+    _sound_take(db, ds, a.id, ["ok", "ok", "slip"])
+    assert went_green(db, ds.id, a.id, [0, 1], kind="sound") is True
+
+
+def test_sound_summary_mean_is_share_ok(client, db):
+    from shadow.drill.summary import target_mean
+    assert target_mean({0: "ok", 1: "slip"}, [0, 1, 2], "sound") == (pytest.approx(1 / 3), 1)
+    les = lesson(db); a = seg(db, les, 0, [1, 1, 1])
+    ds = DrillSession(kind="sound", key="ch>c", label="x", items_json=[{"segment_id": a.id, "targets": [0, 1]}])
+    db.add(ds); db.commit(); db.refresh(ds)
+    _sound_take(db, ds, a.id, ["ok", "slip", "ok"])
+    client.patch(f"/drill/sessions/{ds.id}", json={"ended": True})
+    it = client.get(f"/drill/sessions/{ds.id}/summary").json()["items"][0]
+    assert it["first"]["mean"] == pytest.approx(0.5) and it["first"]["green"] == 1 and it["went_green"] is False

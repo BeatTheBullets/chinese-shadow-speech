@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func
 from sqlmodel import Session, select
+from shadow.scoring.sounds.contrasts import direction, direction_label, directions_of
 from shadow.store.db import get_session
 from shadow.store.models import Attempt, DrillSession, Lesson, PracticeSession, Segment, SyllableScore
 
@@ -115,3 +116,33 @@ def tones(db: Session = Depends(get_session)):
     return {"tones": [{"tone": t, "mean": m, "n": n} for t, m, n in db.exec(q1).all()],
             "pairs": [{"prev_tone": p, "tone": t, "mean": m, "n": n} for p, t, m, n in db.exec(q2).all()],
             "weeks": [{"week": wk, "tone": t, "mean": sum(v) / len(v), "n": len(v)} for (wk, t), v in sorted(weeks.items())]}
+
+
+_MIN_CHANCES = 8   # fewer checked syllables than this say too little about a direction
+
+
+@router.get("/stats/sounds")
+def sounds(db: Session = Depends(get_session)):
+    """Slip rate per sound direction. Every checked syllable is a chance for each direction its pinyin offers;
+    a slip counts for the direction actually heard."""
+    since = datetime.combine(datetime.now(timezone.utc).date() - timedelta(weeks=12), datetime.min.time(), tzinfo=timezone.utc)
+    q = (select(SyllableScore.pinyin_toneless, SyllableScore.sound_status, SyllableScore.heard_syllable, Attempt.created_at)
+         .join(Attempt, Attempt.id == SyllableScore.attempt_id).where(SyllableScore.sound_status.is_not(None)))
+    tot: dict[str, list[int]] = defaultdict(lambda: [0, 0])                       # key -> [slips, chances]
+    wk: dict[tuple[str, str], list[int]] = defaultdict(lambda: [0, 0])
+    for py, status, heard, created in db.exec(q).all():
+        py = py.lower()
+        slip = direction(py, heard.lower()) if status == "slip" and heard else None
+        y, w, _ = created.isocalendar()
+        recent = (created if created.tzinfo else created.replace(tzinfo=timezone.utc)) >= since
+        for key in directions_of(py):
+            hit = key == slip
+            tot[key][0] += hit; tot[key][1] += 1
+            if recent:
+                wk[(f"{y}-W{w:02d}", key)][0] += hit; wk[(f"{y}-W{w:02d}", key)][1] += 1
+    kept = {k: v for k, v in tot.items() if v[1] >= _MIN_CHANCES}
+    rows = [{"key": k, "label": direction_label(k), "slips": s, "chances": c, "rate": s / c} for k, (s, c) in kept.items()]
+    rows.sort(key=lambda r: (-r["rate"], -r["chances"], r["key"]))
+    return {"sounds": rows,
+            "weeks": [{"week": w, "key": k, "rate": s / c, "slips": s, "chances": c}
+                      for (w, k), (s, c) in sorted(wk.items()) if k in kept]}

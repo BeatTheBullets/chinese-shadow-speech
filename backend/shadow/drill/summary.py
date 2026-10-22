@@ -8,7 +8,11 @@ from shadow.store.models import Attempt, DrillSession, Lesson, Segment, Syllable
 HAS_TAKES = DrillSession.id.in_(select(Attempt.drill_session_id).where(Attempt.drill_session_id.is_not(None)))
 
 
-def target_mean(rows: dict[int, tuple[str, float | None]], targets: list[int]) -> tuple[float | None, int]:
+def target_mean(rows: dict, targets: list[int], kind: str = "tone") -> tuple[float | None, int]:
+    if kind == "sound":
+        # rows: idx -> sound_status. Share of targets ok; targets the check did not judge stay in the denominator.
+        ok = sum(rows.get(i) == "ok" for i in targets)
+        return (ok / len(targets) if targets else None), ok
     vals, green = [], 0
     for i in targets:
         status, score = rows.get(i, ("unvoiced", None))
@@ -27,8 +31,10 @@ def _takes(db: Session, ds: DrillSession, segment_id: int, targets: list[int]) -
     for a in atts:
         if not a.score_json or a.score_json.get("overall") is None:
             continue
-        rows = {r.idx: (r.status, r.tone_score) for r in db.exec(select(SyllableScore).where(SyllableScore.attempt_id == a.id)).all()}
-        mean, green = target_mean(rows, targets)
+        srows = db.exec(select(SyllableScore).where(SyllableScore.attempt_id == a.id)).all()
+        rows = ({r.idx: r.sound_status for r in srows} if ds.kind == "sound"
+                else {r.idx: (r.status, r.tone_score) for r in srows})
+        mean, green = target_mean(rows, targets, ds.kind)
         out.append({"attempt_id": a.id, "mean": mean, "green": green})
     return out
 

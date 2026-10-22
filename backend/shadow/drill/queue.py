@@ -4,6 +4,7 @@ from sqlmodel import Session, select
 from shadow.api.lessons import _attempt_stats
 from shadow.config import DrillCfg
 from shadow.scoring.reference import segment_syllables
+from shadow.scoring.sounds.contrasts import directions_of
 from shadow.store.models import Attempt, DrillSession, Lesson, Segment, SyllableScore
 
 
@@ -15,15 +16,18 @@ def targets_for(syllables: list[dict], kind: str, key: str) -> list[int]:
         p, t = key.split("-")
         return [i for i in range(1, len(syllables))
                 if str(syllables[i - 1]["tone"]) == p and str(syllables[i]["tone"]) == t]
+    if kind == "sound":
+        return [i for i, s in enumerate(syllables) if key in directions_of(s["pinyin_toneless"].lower())]
     return [i for i, s in enumerate(syllables) if s["ch"] == key]
 
 
-def went_green(db: Session, drill_session_id: int, segment_id: int, targets: list[int]) -> bool:
-    """Some drill take of this sentence in that session had every target syllable ok."""
+def went_green(db: Session, drill_session_id: int, segment_id: int, targets: list[int], kind: str = "tone") -> bool:
+    """Some drill take of this sentence in that session had every target syllable ok (sound drills: sound_status ok,
+    so a syllable the sound check did not judge is not ok)."""
     atts = db.exec(select(Attempt.id).where(Attempt.drill_session_id == drill_session_id,
                                             Attempt.segment_id == segment_id)).all()
     for aid in atts:
-        rows = {r.idx: r.status for r in db.exec(select(SyllableScore).where(SyllableScore.attempt_id == aid)).all()}
+        rows = {r.idx: (r.sound_status if kind == "sound" else r.status) for r in db.exec(select(SyllableScore).where(SyllableScore.attempt_id == aid)).all()}
         if targets and all(rows.get(i) == "ok" for i in targets):
             return True
     return False
@@ -35,7 +39,7 @@ def _recent_green(db: Session, kind: str, key: str) -> set[int]:
     out = set()
     for ds in sessions:
         for it in ds.items_json or []:
-            if went_green(db, ds.id, it["segment_id"], it["targets"]):
+            if went_green(db, ds.id, it["segment_id"], it["targets"], ds.kind):
                 out.add(it["segment_id"])
     return out
 

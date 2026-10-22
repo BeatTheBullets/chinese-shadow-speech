@@ -11,6 +11,7 @@ from shadow.drill.queue import build_queue, queue_from_ids
 from shadow.drill.summary import recent_sessions, session_summary
 from shadow.ingest.text import is_hanzi
 from shadow.scoring.reference import segment_syllables
+from shadow.scoring.sounds.contrasts import DIRECTIONS
 from shadow.store.db import get_session
 from shadow.store.models import DrillSession, Lesson
 
@@ -41,6 +42,8 @@ def _valid(kind: str, key: str) -> bool:
     if kind == "pair":
         parts = key.split("-")
         return len(parts) == 2 and all(p in {"1", "2", "3", "4"} for p in parts)
+    if kind == "sound":
+        return key in DIRECTIONS
     return kind == "char" and len(key) == 1 and is_hanzi(key)
 
 

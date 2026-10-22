@@ -19,3 +19,17 @@ def test_a_drill_take_is_an_attempt_linked_to_its_drill_session(client, tmp_path
     with Session(client.app.state.engine) as db:
         assert db.get(Attempt, r.json()["id"]).drill_session_id == ds.id
     assert _post(client, make_tone_wav(tmp_path / "u.wav", 2.6), sid, mode="drill", drill_session_id="9999").status_code == 404
+
+
+def test_create_sound_drill(client):
+    from sqlmodel import Session
+    from shadow.store.models import Lesson, Segment
+    with Session(client.app.state.engine) as db:
+        les = Lesson(title="L", source_type="upload", status="ready"); db.add(les); db.commit(); db.refresh(les)
+        db.add(Segment(lesson_id=les.id, idx=0, start_s=0, end_s=1, text="吃吃吃吃", clip_wav_path="c.wav",
+                       words_json=[{"word": "吃吃吃吃", "pinyin": "", "tones": [1] * 4, "char_from": 0, "char_to": 4,
+                                    "syllables": [{"ch": "吃", "pinyin": "chi", "pinyin_toneless": "chi", "tone": 1}] * 4}]))
+        db.commit()
+    r = client.post("/drill/sessions", json={"kind": "sound", "key": "ch>c"})
+    assert r.status_code == 201 and r.json()["label"] == "ch (not c)"
+    assert client.post("/drill/sessions", json={"kind": "sound", "key": "x>y"}).status_code == 400

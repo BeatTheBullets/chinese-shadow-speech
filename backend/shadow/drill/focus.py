@@ -7,6 +7,7 @@ from sqlmodel import Session, select
 from shadow.config import DrillCfg
 from shadow.drill.summary import HAS_TAKES
 from shadow.ingest.text import is_hanzi
+from shadow.scoring.sounds.contrasts import drill_label
 from shadow.store.models import Attempt, DrillSession, SyllableScore
 
 TONE_NAMES = {1: "high", 2: "rising", 3: "low", 4: "falling"}
@@ -28,6 +29,8 @@ def focus_label(kind: str, key: str, pinyin: str | None = None) -> str:
     if kind == "pair":
         p, t = key.split("-")
         return f"tone pair {p}→{t}"
+    if kind == "sound":
+        return drill_label(key)
     return f"{key} {pinyin}" if pinyin else key
 
 
