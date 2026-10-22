@@ -15,7 +15,7 @@ Items 1-8 are the checks automated tests and reviewers could not run; do them fi
 
 ## Feature checklist
 
-- [ ] Upload a 5-10 min Mandarin video: tile shows stages normalise, transcribe, rectify, align, enrich; lesson ready with 6-25-char sentences; clips start/end cleanly.
+- [ ] Upload a 5-10 min Mandarin video: tile shows stages normalise, transcribe, rectify, align, enrich; lesson ready, split into sentences at punctuation; clips start/end cleanly.
 - [ ] Upload the same video with its .srt: sentences follow the subtitles.
 - [ ] Upload it again with the .srt shifted by a few seconds (or from a release with a different intro): clips still start and end on the spoken sentences.
 - [ ] Upload it with a plain-text transcript (.txt, one line per sentence or paragraph): the lesson's text is the transcript's, not the ASR's.

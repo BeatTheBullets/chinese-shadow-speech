@@ -19,16 +19,7 @@ class ModelsCfg(BaseModel):
     tone_layer: int = 6
 
 
-class LlmCfg(BaseModel):
-    model: str = "claude-sonnet-5-5"
-    effort: str = "low"
-    rectify: bool = True
-    translate: bool = True
-
-
 class SegmentationCfg(BaseModel):
-    min_chars: int = 6
-    max_chars: int = 25
     pad_ms: int = 120
 
 
@@ -98,7 +89,6 @@ class SoundsCfg(BaseModel):
 class Settings(BaseModel):
     server: ServerCfg = Field(default_factory=ServerCfg)
     models: ModelsCfg = Field(default_factory=ModelsCfg)
-    llm: LlmCfg = Field(default_factory=LlmCfg)
     segmentation: SegmentationCfg = Field(default_factory=SegmentationCfg)
     scoring: ScoringCfg = Field(default_factory=ScoringCfg)
     practice: PracticeCfg = Field(default_factory=PracticeCfg)

@@ -12,7 +12,7 @@ spec are wrong or fragile enough that they should change before building:
 
 1. **Whisper word timestamps for Chinese do not work.** Whisper only starts a
    new "word" at a leading-space token; Chinese has none, so a segment often
-   comes back as one word. The rectification trick (§2.3) assumes a flat list
+   comes back as one word. The sentence splitting (§2.3) assumes a flat list
    of timed 1–3 character tokens that Whisper will not deliver. Fix in §3.1.
 2. **The v1 segmental scorer will be noisier than the learner.** The Chinese
    wav2vec2 CTC models the spec points at have a 12–19 % character error rate
@@ -105,7 +105,6 @@ orange mispronounced, green correct) come from that article.
 | YouTube | yt-dlp | Needs Deno + PO-token plugin + cookies | Risky; make optional |
 | Browser recording | `audio/webm;codecs=opus` | iOS < 18.4 records `audio/mp4` only | Partly; probe and fall back |
 | Slow playback | AudioBuffer + rate | `AudioBufferSourceNode.playbackRate` shifts pitch; only `HTMLMediaElement.preservesPitch` keeps it | Gap in spec |
-| LLM rectification | Anthropic API, "current Sonnet", temperature 0 | `claude-sonnet-5-5` rejects non-default sampling parameters with a 400 | Fix: drop `temperature`, use structured outputs |
 | Ingest target: 10 min in < 5 min on CPU | Whisper turbo int8 | Estimated 5–8 min on a 6-core Ryzen | Missed on CPU; trivial on the 3070, or < 1 min with Paraformer |
 | Score target < 1.5 s | | F0 ms, alignment 0.5–2 s CPU, CTC ASR ~0.5 s | Borderline CPU, easy GPU |
 
@@ -117,17 +116,16 @@ Stop treating ASR output as timed tokens. Make text and timing independent:
    ASR (Paraformer-zh via FunASR gives punctuation and simplified output
    natively; or Belle-whisper-zh-punct CT2 int8 as a faster-whisper drop-in).
    Keep segment-level times only (±1 s is enough).
-2. **Rectify and segment** with the LLM over *character* indices of the raw
-   text, same output contract as the spec (ranges + corrected text), same
-   validators. The overlap/chunking logic stays.
+2. **Segment** over *character* indices of the raw text at punctuation and
+   segment ends, as ranges, so timing stays attached.
 3. **Force-align** each corrected sentence to the audio inside its segment
    window (padded 1 s). This yields character/syllable times for the reference
-   and is the same alignment call the scorer needs, so cache it. Character
-   edits by the LLM now cost nothing because timing is recomputed from the
+   and is the same alignment call the scorer needs, so cache it. Manual
+   character edits now cost nothing because timing is recomputed from the
    corrected text.
 
-If human subtitles exist, skip ASR entirely: cues already carry timing; the LLM
-only merges/splits cues to 6–25 characters; alignment supplies syllable times.
+If human subtitles exist, skip ASR entirely: cues already carry timing and
+are split at punctuation; alignment supplies syllable times.
 This removes the subtitle-to-Whisper edit-distance matching in §2.2 of the spec.
 
 ### 3.2 Alignment is the hidden crux
@@ -159,11 +157,6 @@ it is what Trancy lacks, and it depends only on parselmouth and alignment.
 
 ## 4. Smaller corrections to the spec
 
-- **Rectification call**: use `claude-sonnet-5-5` (the spec's "current Sonnet")
-  or `claude-opus-5-5` (Anthropic's current default recommendation; the task is
-  small enough that cost is cents either way). Do not pass `temperature`. Use
-  structured outputs (`output_config.format`) instead of "strict JSON, nothing
-  else" in the prompt. Keep the hash cache.
 - **Slow playback**: use an `<audio>` element with `preservesPitch` (widely
   supported since late 2023) for the reference instead of decoded
   `AudioBuffer`s, or pre-render a 0.75× clip with ffmpeg `atempo` at ingest.
@@ -174,8 +167,7 @@ it is what Trancy lacks, and it depends only on parselmouth and alignment.
   learner fixture use parselmouth's Manipulation/PitchTier (set to constant),
   not librosa pitch shift, which cannot flatten.
 - **pypinyin**: `tone_sandhi=True`, `neutral_tone_with_five=True`, jieba
-  pre-segmentation. Still display-only; the LLM could also emit pinyin for
-  polyphones but will need the `PATCH` fix path regardless.
+  pre-segmentation. Still display-only; polyphones need the `PATCH` fix path.
 - **Data model**: add `session_id` to `Attempt`; store the reference alignment
   JSON on `Segment`; `PATCH /segments/{id}` with new text must invalidate
   pinyin, clip and alignment. `resplit at_char_index` becomes trivial: look up
@@ -200,7 +192,7 @@ it is what Trancy lacks, and it depends only on parselmouth and alignment.
 
 0. Skeleton as specified.
 1. **Loop without scoring**, with upload as the primary ingest path, Chinese
-   ASR (Paraformer or Belle-whisper), LLM rectification over characters,
+   ASR (Paraformer or Belle-whisper), segmentation over characters,
    forced alignment for clip boundaries, speak-along/chorus mode, auto-hide
    text while recording. Daily-usable milestone.
 2. **Alignment bake-off, then tone overlay and tone score.** Sentence-wide

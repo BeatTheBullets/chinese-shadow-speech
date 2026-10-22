@@ -21,7 +21,7 @@ Priorities, in order: (1) a practice loop pleasant enough for 20 minutes a day,
 ┌────────────────────────────┐  HTTP/SSE   ┌─────────────────────────────────┐
 │ Frontend (SPA, in Brave on │ ──────────▶ │ FastAPI backend (Python, WSL2)  │
 │ Windows)                   │             │  ingest jobs                    │
-│ React + Vite + TS          │ ◀────────── │  ASR, rectify, align, enrich    │
+│ React + Vite + TS          │ ◀────────── │  ASR, segment, align, enrich    │
 │ AudioWorklet recorder      │  JSON/audio │  scoring service                │
 │ <audio> playback           │             │  SQLite + files on disk         │
 │ AnkiConnect client ────────┼─▶ Anki on Windows, 127.0.0.1:8765            │
@@ -31,7 +31,6 @@ Priorities, in order: (1) a practice loop pleasant enough for 20 minutes a day,
                                               │ wav2vec2 Chinese CTC (GOP, Phase 3)
                                               │ parselmouth (F0)
                                               │ ffmpeg, yt-dlp (optional), jieba, pypinyin, opencc
-                                              │ Anthropic API (rectification, translation)
 ```
 
 The browser talks to AnkiConnect directly because both Brave and Anki run on
@@ -50,7 +49,7 @@ shadow/
       schemas.py           pydantic API types (single source of truth)
       config.py            config.toml loader
     tests/
-    fixtures/              committed TTS WAVs + TextGrids + cached LLM responses
+    fixtures/              committed TTS WAVs + TextGrids
   frontend/                React + Vite + TypeScript, Tailwind
   data/                    runtime (gitignored): lessons/, attempts/, models/
   config.toml
@@ -155,51 +154,16 @@ Everything is passed through `opencc` (t2s). The result is the lesson's
 from the ASR timestamps, plus the list of coarse segment boundaries (one per
 cue or plain-text line for subtitles, VAD segments otherwise).
 
-### 3.3 Rectify and segment (LLM)
+### 3.3 Segment
 
-Purpose: fix ASR errors and choose shadowable sentence boundaries without
-detaching timing. Boundaries are expressed as **character index ranges** into
-the raw transcript.
+Sentences are cut from the raw transcript as **character index ranges**, so
+timing is never detached. Each range ends at sentence punctuation 。！？；,
+clause punctuation ，、：, or a coarse segment boundary (a run of punctuation
+stays with the text before it). Paraformer punctuates its own output, so ASR
+text splits the same way as punctuated subtitles. The text is not changed;
+wrong characters are fixed by hand with edit / resplit / merge (§7).
 
-```
-INPUT per chunk (≤ 600 raw characters, cut at coarse segment boundaries,
-~60 characters of preceding context marked as context-only):
-  { "chars": [ {"i": 0, "c": "我"}, {"i": 1, "c": "今"}, ... ] }
-
-OUTPUT (structured output, schema enforced by the API):
-  { "sentences": [ {"from": 0, "to": 11, "text": "我今天想跟你们聊一聊学中文的方法。"}, ... ] }
-```
-
-Instructions to the model:
-- Group characters into natural, shadowable sentences or clauses of about
-  6–25 characters. Split long sentences at commas, 的时候, 但是, 所以 and
-  similar.
-- `text` is the corrected, punctuated text for exactly characters
-  `from..to` inclusive. Fix homophone errors, punctuation and clearly wrong
-  fillers. Do not paraphrase, add or drop content.
-- Ranges are contiguous, non-overlapping and cover every character.
-
-Subtitle text is a verified human transcript, so it is rectified in a
-**locked** mode: a prompt variant tells the model the text is already correct
-and it may only choose sentence boundaries and add or adjust punctuation, never
-change, add or drop characters. Rectification still runs because unpunctuated
-subtitles need sentences of 6–25 characters and punctuation.
-
-Validation in code; on failure the chunk falls back to coarse segments split
-at 。！？； and clause punctuation ，、： (so pieces stay near the 6–25 character
-target):
-- coverage and contiguity;
-- ASR text: `edit_distance(strip_punct(text), raw[from..to]) / len(raw[from..to]) < 0.25`;
-  locked (subtitle) text: `strip_punct(text) == strip_punct(raw[from..to])` exactly;
-- 2 ≤ len(text) ≤ 60.
-
-Model: Anthropic Messages API, `ANTHROPIC_API_KEY`, default
-`claude-sonnet-5-5`, effort `low`, structured outputs
-(`output_config.format`), no `temperature` (Sonnet 5.5 rejects non-default
-sampling). Responses cached by hash of mode (repair or locked) and chunk
-characters, so reruns cost nothing.
-
-Anki-sourced lessons skip this step: the note text is already clean.
+Anki-sourced lessons skip this step: each note is one sentence.
 
 ### 3.4 Align
 
@@ -232,8 +196,7 @@ Known limitation: erhua (花儿) is two characters but one syllable; v1 treats
   per word with its character range (needed for ruby rendering). Display and
   canonical-tone labels only; the tone scorer compares against the reference
   recording.
-- **Translation**: batched LLM call (20 sentences per request), English,
-  optional, cached.
+- **Translation**: none is generated; Anki notes bring their own (§8).
 - **Clips**: `ffmpeg` cut of the padded sentence → `clips/{idx}.wav` (16 kHz)
   and `clips/{idx}.opus`; `.mp3` rendered on demand for Anki export.
 
@@ -604,15 +567,7 @@ asr = "iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-p
 aligner = "auto"                    # auto → qwen3_fa on cuda, mms_fa on cpu | qwen3_fa | mms_fa | mfa
 gop_model = "wbbbbb/wav2vec2-large-chinese-zh-cn"
 
-[llm]
-model = "claude-sonnet-5-5"
-effort = "low"
-rectify = true
-translate = true
-
 [segmentation]
-min_chars = 6
-max_chars = 25
 pad_ms = 120
 
 [scoring]
@@ -655,9 +610,8 @@ default_url = "http://127.0.0.1:8765"
   `qwen3_fa`, `mms_fa`, `ctc-forced-aligner`, and the GOP model via
   `torchaudio.functional.forced_align`, against the TextGrids. Pick the
   default by error; keep the interface.
-- **Rectification**: unit tests on hand-made character lists for coverage,
-  contiguity, edit-distance and fallback; one test against a cached API
-  response. No network in tests.
+- **Segmentation**: unit tests on hand-made character lists for chunking and
+  splitting at punctuation and segment ends. No network in tests.
 - **Anki import**: tests against recorded `notesInfo` JSON and a sample mp3.
 - **Flow slicing**: unit tests for schedule → slice times with slack and VAD
   trim.
@@ -672,7 +626,7 @@ default_url = "http://127.0.0.1:8765"
 ffmpeg wrapper, config loader, `make dev`, docker-compose optional.
 
 **Phase 1 — loop without scoring.** Upload ingest through Paraformer,
-rectification, alignment and clips; Anki import and export; practice page
+segmentation, alignment and clips; Anki import and export; practice page
 with Echo, Chorus, Flow and Guided modes, back-to-back playback, toggles,
 auto-hide text, flags, manual edit / resplit / merge; Yomitan-compatible
 rendering; library by speaker. *Daily-usable milestone.* Flow mode in this

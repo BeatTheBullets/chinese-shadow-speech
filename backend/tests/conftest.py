@@ -33,7 +33,6 @@ def fake_transcript():
 @pytest.fixture
 def client(data_dir, fake_transcript):
     settings = Settings(data_dir=data_dir)
-    settings.llm.translate = True
     app = create_app(settings, deps=fake_deps(settings, fake_transcript))
     with TestClient(app) as c:
         yield c

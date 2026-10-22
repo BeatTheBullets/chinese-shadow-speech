@@ -201,17 +201,12 @@ def test_reimport_with_only_a_bad_audio_note_keeps_lesson_ready_and_does_not_rep
     assert client.post("/lessons/anki", json={"query_name": "q", "notes": again}).json() == {"jobs": []}
 
 
-def test_notes_with_a_translation_are_not_sent_to_the_llm(client, tmp_path):
-    asked: list[list[str]] = []
-    llm = client.app.state.deps.llm
-    orig = llm._t
-    llm._t = lambda xs: (asked.append(list(xs)), orig(xs))[1]
+def test_a_notes_translation_is_kept_and_a_note_without_one_has_none(client, tmp_path):
     b64 = _b64(tmp_path)
     notes = [_dict(1, "你好。", "v10.mp4 (1s)", b64, "Hello"), _dict(2, "再见。", "v10.mp4 (5s)", b64)]
     job = client.post("/lessons/anki", json={"query_name": "q", "notes": notes}).json()["jobs"][0]
     assert wait_job(client, job["job_id"])["status"] == "done"
-    assert asked == [["再见。"]]
-    assert [s.translation for s in _segments(client.app.state.engine, job["lesson_id"])] == ["Hello", "en:再见。"]
+    assert [s.translation for s in _segments(client.app.state.engine, job["lesson_id"])] == ["Hello", None]
 
 
 def test_title_and_speaker_are_simplified_but_source_ref_keeps_the_raw_name(client, tmp_path):

@@ -7,7 +7,6 @@ from pathlib import Path
 import jieba
 from pypinyin import lazy_pinyin, Style
 from shadow.ingest import audio
-from shadow.ingest.llm import LLM
 from shadow.ingest.text import is_hanzi, is_punct, strip_punct
 from shadow.store.files import FileLayout
 
@@ -71,13 +70,6 @@ def syllables_for(text: str) -> list[dict]:
     out = [s for w in words_for(text) for s in w["syllables"]]
     if [s["ch"] for s in out] != chars:
         raise ValueError(f"syllables do not match speech characters for {text!r}")
-    return out
-
-
-def translate_all(llm: LLM, texts: list[str], batch: int = 20) -> list[str]:
-    out: list[str] = []
-    for i in range(0, len(texts), batch):
-        out.extend(llm.translate(texts[i:i + batch]))
     return out
 
 

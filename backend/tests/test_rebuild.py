@@ -147,7 +147,6 @@ def test_rebuild_keeps_a_subtitle_lessons_text_and_retimes_it(data_dir, tmp_path
         assert [s.text for s in segs] == [t for _, _, t in LESSON_TEXT]            # the subtitles' 学
         assert segs[0].start_s == 0.38                                            # 0.5 s, padded
         assert lesson.meta_json["subtitle_match"] == 0.97 and lesson.status == "ready"
-    assert deps.llm.rectify_locked == [True, True]
     assert [s for s in dict.fromkeys(stages)] == ["transcribe", "rectify", "align", "enrich", "clips", "rescore", "done"]
 
 

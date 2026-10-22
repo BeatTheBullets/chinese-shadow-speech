@@ -1,7 +1,6 @@
 import pytest
 from shadow.ingest import enrich
-from shadow.ingest.enrich import words_for, syllables_for, translate_all
-from shadow.ingest.llm import FakeLLM
+from shadow.ingest.enrich import words_for, syllables_for
 from shadow.ingest.text import is_punct
 from shadow.store.files import FileLayout
 from tests.helpers import make_tone_wav
@@ -20,15 +19,6 @@ def test_tone_sandhi_and_neutral():
     assert [x["tone"] for x in s][:2] == [2, 3]            # 3+3 → 2+3
     assert s[2]["tone"] == 0 and s[2]["pinyin_toneless"] == "men"
     assert s[0]["pinyin_toneless"] == "ni"
-
-
-def test_translate_batches_of_20():
-    sizes = []
-
-    def t(xs):
-        sizes.append(len(xs)); return [f"en:{x}" for x in xs]
-    out = translate_all(FakeLLM(lambda a, b: None, t), [f"句{i}" for i in range(45)])
-    assert sizes == [20, 20, 5] and out[44] == "en:句44"
 
 
 @pytest.mark.parametrize("text", [

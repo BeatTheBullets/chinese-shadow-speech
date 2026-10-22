@@ -1,19 +1,16 @@
 """Re-processing of single segments after a manual edit (text change, resplit, merge)."""
 from __future__ import annotations
-import logging
 from pathlib import Path
 from sqlalchemy import Engine
 from sqlmodel import Session, select
 from shadow.deps import Deps
 from shadow.ingest import audio
 from shadow.ingest.align import sentence_bounds, spans_to_json
-from shadow.ingest.enrich import make_clips, translate_all, words_for
+from shadow.ingest.enrich import make_clips, words_for
 from shadow.ingest.pipeline import MIN_CLIP_S, WINDOW_MARGIN_S, _align
 from shadow.ingest.repair import Times, clamp_spans, coarse_times, repair_spans
 from shadow.ingest.transcript import Transcript
 from shadow.store.models import Lesson, Segment
-
-log = logging.getLogger(__name__)
 
 
 def _neighbours(db: Session, seg: Segment, total: float) -> tuple[float, float]:
@@ -21,16 +18,6 @@ def _neighbours(db: Session, seg: Segment, total: float) -> tuple[float, float]:
     prev = db.exec(select(Segment).where(Segment.lesson_id == seg.lesson_id, Segment.idx == seg.idx - 1)).first()
     nxt = db.exec(select(Segment).where(Segment.lesson_id == seg.lesson_id, Segment.idx == seg.idx + 1)).first()
     return (prev.end_s if prev else 0.0, nxt.start_s if nxt else total)
-
-
-def _translate(deps: Deps, text: str) -> str | None:
-    if deps.llm is None or not deps.settings.llm.translate:
-        return None
-    try:
-        return translate_all(deps.llm, [text])[0] or None
-    except Exception:  # noqa: BLE001  translation is optional (spec §3.5)
-        log.warning("translation failed for %r; storing the segment without one", text, exc_info=True)
-        return None
 
 
 def _unlink(*paths: Path) -> None:
@@ -54,9 +41,9 @@ def _coarse(lesson: Lesson, seg: Segment, window: tuple[float, float]) -> list[T
 
 def reenrich_segment(deps: Deps, engine: Engine, segment_id: int, window: tuple[float, float] | None = None,
                      text: str | None = None) -> None:
-    """Re-align `seg.text` (or the new `text`), rebuild words, translation and clips (spec §4: an edit re-runs
-    align + enrich). All or nothing: the text and its enrichment are committed together, and clip files are only
-    replaced once both are encoded, so a failure leaves the segment and its clips as they were.
+    """Re-align `seg.text` (or the new `text`), rebuild words and clips and clear the translation (spec §4: an
+    edit re-runs align + enrich). All or nothing: the text and its enrichment are committed together, and clip
+    files are only replaced once both are encoded, so a failure leaves the segment and its clips as they were.
 
     Upload lessons: aligned inside `window` (default: the segment's span ±1 s); the clip becomes the padded
     alignment clamped to the neighbouring segments, or keeps its bounds when alignment finds nothing.
@@ -85,7 +72,7 @@ def reenrich_segment(deps: Deps, engine: Engine, segment_id: int, window: tuple[
                 seg.start_s, seg.end_s = start, end
         seg.ref_alignment_json = spans_to_json(spans)
         seg.words_json = words_for(seg.text)
-        seg.translation = _translate(deps, seg.text)
+        seg.translation = None
         wav_p, opus_p = make_clips(deps.files, seg.lesson_id, seg.idx, source, seg.start_s, seg.end_s)
         seg.clip_wav_path, seg.clip_opus_path = str(wav_p), str(opus_p)
         _unlink(deps.files.clip_mp3(seg.lesson_id, seg.idx))      # rendered lazily from the new wav

@@ -10,7 +10,7 @@ from sqlmodel import Session
 from shadow.deps import Deps
 from shadow.ingest import audio
 from shadow.ingest.align import Span, align_in_window, sentence_bounds, spans_to_json
-from shadow.ingest.enrich import make_clips, translate_all, words_for
+from shadow.ingest.enrich import make_clips, words_for
 from shadow.ingest.passages import rebuild_passages
 from shadow.ingest.rectify import RectSentenceOut, rectify_transcript
 from shadow.ingest.repair import clamp_spans, coarse_times, repair_spans
@@ -107,8 +107,8 @@ def build_segments(deps: Deps, engine: Engine, lesson_id: int, source_wav: Path,
     padded alignment clamped to its neighbours (`clip_bounds`); a sentence that cannot be aligned falls back
     to its coarse times. With `fixed_spans` (Anki, one per sentence) each sentence is aligned inside exactly
     its span (clamped to the audio), the span is the clip, and the segment has no transcript char range; `tr`
-    is then unused and may be None. `translations` (aligned with `sentences`) holds ready-made translations; only
-    sentences whose entry is None are sent to the LLM."""
+    is then unused and may be None. `translations` (aligned with `sentences`) holds ready-made translations (Anki
+    notes); without them segments have none."""
     if fixed_spans is None and tr is None:
         raise ValueError("a transcript is required unless fixed_spans are given")
     if fixed_spans is not None and len(fixed_spans) != len(sentences):
@@ -155,17 +155,6 @@ def build_segments(deps: Deps, engine: Engine, lesson_id: int, source_wav: Path,
 
     progress("enrich", 0.0)
     translations = list(translations) if translations is not None else [None] * n
-    todo = [i for i, t in enumerate(translations) if not t]
-    if todo and deps.llm is not None and deps.settings.llm.translate:
-        try:
-            got = translate_all(deps.llm, [texts[i] for i in todo])
-            if len(got) != len(todo):
-                raise ValueError(f"{len(got)} translations for {len(todo)} sentences")
-            for i, t in zip(todo, got):
-                translations[i] = t
-        except Exception as e:  # noqa: BLE001  translation is optional (spec §3.5)
-            log.warning("translation failed; storing segments without translations", exc_info=True)
-            _merge_meta(engine, lesson_id, translation_error=str(e) or type(e).__name__)
 
     with Session(engine) as db:
         if db.get(Lesson, lesson_id) is None:     # deleted while this job ran: write no orphan rows
@@ -240,17 +229,15 @@ def ingest_upload(deps: Deps, engine: Engine, lesson_id: int, media_path: Path,
         tr = deps.asr.transcribe(source_wav)        # always: even with subtitles, timing comes from the ASR
         if not _has_speech(tr):
             raise NoSpeechError("no speech found in the recording")
-        from_subtitles = False
         if subtitle is not None:
             sub_tr, meta = _subtitle_transcript(subtitle, tr)
             _merge_meta(engine, lesson_id, **meta)
             if sub_tr is not None:
-                tr, from_subtitles = sub_tr, True
+                tr = sub_tr
         progress("transcribe", 1.0)
 
         progress("rectify", 0.0)
-        # subtitle text is a human transcript: the LLM may only choose boundaries and punctuation
-        sentences = rectify_transcript(tr, deps.llm, enabled=deps.settings.llm.rectify, locked=from_subtitles)
+        sentences = rectify_transcript(tr)
         progress("rectify", 1.0)
 
         build_segments(deps, engine, lesson_id, source_wav, tr, sentences, progress)

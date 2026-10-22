@@ -168,18 +168,17 @@ def rebuild_lesson(deps: Deps, engine: Engine, lesson_id: int, progress: Progres
         tr = deps.asr.transcribe(source_wav)
         if not _has_speech(tr):
             raise NoSpeechError("no speech found in the recording")
-        from_subtitles = False
         if subtitle is not None:
             sub_tr, meta = _subtitle_transcript(subtitle, tr)
             _merge_meta(engine, lesson_id, **meta)
             if sub_tr is not None:
-                tr, from_subtitles = sub_tr, True
+                tr = sub_tr
             else:                                  # the ASR text replaces the subtitles' from now on
                 _drop_meta(engine, lesson_id, "subtitle_match")
         progress("transcribe", 1.0)
 
         progress("rectify", 0.0)
-        sentences = rectify_transcript(tr, deps.llm, enabled=deps.settings.llm.rectify, locked=from_subtitles)
+        sentences = rectify_transcript(tr)
         progress("rectify", 1.0)
 
         build_segments(deps, engine, lesson_id, source_wav, tr, sentences, progress, idx_offset=offset)

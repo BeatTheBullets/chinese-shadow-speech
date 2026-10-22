@@ -11,15 +11,7 @@ tone_embedder = "TencentGameMate/chinese-wav2vec2-base"
 tone_embedder_revision = "3991242c806928916fff4a8c0e4f76acf661b743"
 tone_layer = 6
 
-[llm]
-model = "claude-sonnet-5-5"
-effort = "low"
-rectify = true
-translate = true
-
 [segmentation]
-min_chars = 6
-max_chars = 25
 pad_ms = 120
 
 [scoring]

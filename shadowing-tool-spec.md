@@ -17,7 +17,7 @@ scoring but a great loop is useful on day one; scoring with a clunky loop is not
 ┌──────────────────────┐   HTTP/SSE    ┌──────────────────────────────┐
 │  Frontend (SPA)      │ ───────────▶  │  FastAPI backend (Python)    │
 │  React + Vite + TS   │               │  - ingestion jobs             │
-│  MediaRecorder, Web  │ ◀───────────  │  - transcription + rectify    │
+│  MediaRecorder, Web  │ ◀───────────  │  - transcription + segment    │
 │  Audio, canvas plots │   JSON/audio  │  - scoring service            │
 └──────────────────────┘               │  - SQLite + files on disk     │
                                        └──────────────────────────────┘
@@ -25,7 +25,6 @@ scoring but a great loop is useful on day one; scoring with a clunky loop is not
                                           │ wav2vec2 CTC (alignment / ASR)
                                           │ parselmouth (F0)
                                           │ yt-dlp, ffmpeg
-                                          │ Anthropic API (rectification, translation)
 ```
 
 One repo, two packages:
@@ -84,49 +83,15 @@ file (SRT/VTT/plain text).
   edit distance (`rapidfuzz`) to inherit timings. Fall back to Whisper text if
   alignment coverage < 80 %.
 
-### 2.3 Transcript rectification (the "écho trick")
+### 2.3 Sentence segmentation
 
-Problem: Whisper's Chinese segments are badly punctuated, mis-split, and
-occasionally wrong on homophones. Fixing the text by hand loses the timing;
-keeping Whisper's segments gives bad shadowing units.
-
-Solution: let an LLM fix text *and* choose sentence boundaries, but express
-boundaries only as **token index ranges**, so timing is never detached.
-
-```
-INPUT  (per chunk of ≤ 250 tokens, chunks split at Whisper segment
-        boundaries, ~20-token overlap for context, overlap not re-emitted):
-  { "tokens": [ {"i": 0, "t": "我"}, {"i": 1, "t": "今天"}, ... ] }
-
-OUTPUT (strict JSON, nothing else):
-  { "sentences": [
-      { "from": 0, "to": 11, "text": "我今天想跟你们聊一聊学中文的方法。" },
-      ...
-  ] }
-```
-
-Rules given to the model:
-- Group tokens into natural, shadowable sentences or clauses of roughly 6–25
-  characters. Prefer splitting long sentences at commas / 的时候 / 但是 / 所以.
-- `text` is the corrected, punctuated text for exactly tokens `from..to`
-  (inclusive). Fix homophone errors, punctuation, and fillers only if clearly
-  wrong; do not paraphrase or add content.
-- Ranges must be contiguous, non-overlapping, and cover every token.
-
-Validation in code (reject chunk and fall back to raw Whisper segments if any
-fails):
-- coverage and contiguity of ranges;
-- `edit_distance(text_stripped_of_punct, concat(tokens[from..to])) / len
-  < 0.25`;
-- no sentence shorter than 2 characters or longer than 60.
-
-Timing: `sentence.start = tokens[from].start`, `sentence.end = tokens[to].end`,
-then pad ±120 ms and clamp to neighbours. Segment-level timing is all the
-practice loop needs; syllable timing comes from forced alignment later
+Split the timed tokens into shadowable sentences at sentence punctuation
+(。！？；), clause punctuation (，、：) and Whisper segment ends. Boundaries are
+token index ranges, so timing is never detached:
+`sentence.start = tokens[from].start`, `sentence.end = tokens[to].end`, then
+pad ±120 ms and clamp to neighbours. Wrong characters are fixed by hand
+(manual split/edit, Phase 1); syllable timing comes from forced alignment
 (§4.1), so character edits inside a sentence cost nothing.
-
-Model: Anthropic Messages API, env `ANTHROPIC_API_KEY`, model name in config
-(default to the current Sonnet). Temperature 0. Cache by hash of chunk tokens.
 
 ### 2.4 Enrichment per sentence
 
@@ -135,8 +100,6 @@ Model: Anthropic Messages API, env `ANTHROPIC_API_KEY`, model name in config
   neutral-tone syllables (tone 5/0). Known limitation: pypinyin gives
   dictionary tones, not sandhi — the tone scorer compares against the native
   *recording*, not against these numbers, so this is display-only.
-- `translation`: batched LLM call, 20 sentences per request, English. Optional,
-  togglable, cached.
 - `clip`: `ffmpeg` cut of the padded sentence → `data/lessons/{id}/clips/{n}.wav`
   (16 kHz) plus an Opus copy for the browser.
 
@@ -268,9 +231,8 @@ Also compute sentence-level pitch range and declination so the UI can say
   should score high; (b) pitch-flattened version (`librosa` pitch shift +
   flatten) = tone score must drop, segmental must stay high; (c) one syllable
   cut out = that character must be `missing`.
-- Rectification: unit tests on hand-made token lists for coverage, contiguity,
-  and fallback behaviour; one recorded-fixture test against a cached LLM
-  response (no network in CI).
+- Segmentation: unit tests on hand-made token lists for splitting at
+  punctuation and segment ends (no network in CI).
 
 ---
 
@@ -346,7 +308,7 @@ set in a proper CJK font (Noto Sans SC), pinyin in a humanist sans.
 **Phase 0 — skeleton.** Repo layout, FastAPI with `/health`, Vite app, SQLite,
 ffmpeg + yt-dlp wrappers, docker-compose, `make dev`.
 
-**Phase 1 — loop without scoring.** Ingestion through rectification and
+**Phase 1 — loop without scoring.** Ingestion through segmentation and
 clips; practice page with play/record/back-to-back playback, toggles, flags,
 manual split/edit. *Daily-usable milestone.*
 
@@ -370,10 +332,6 @@ whisper = "large-v3-turbo"      # or "small" for dev
 asr_ctc = "<hf repo id for Chinese wav2vec2 CTC>"
 aligner = "mms_fa"              # or "mfa"
 device = "auto"
-[llm]
-model = "<current sonnet>"
-rectify = true
-translate = true
 [scoring]
 tone_weight = 0.5
 dtw_band = 4

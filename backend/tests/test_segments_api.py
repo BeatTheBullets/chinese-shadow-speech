@@ -67,7 +67,7 @@ def test_patch_flag_and_text(client, tmp_path):
     changed = client.patch(f"/segments/{seg['id']}", json={"text": "其实办法有很多。"}).json()
     assert changed["text"] == "其实办法有很多。" and changed["words_json"][1]["word"] == "办法"
     assert len(changed["ref_alignment_json"]) == 7
-    assert changed["translation"] == "en:其实办法有很多。"
+    assert changed["translation"] is None
     assert client.app.state.files.clip_wav(lid, 1).stat().st_mtime_ns != before
     _assert_clips_consistent(client, lid)
 
@@ -88,17 +88,6 @@ def test_patch_text_rejects_text_without_speech(client, tmp_path):
     assert client.patch(f"/segments/{seg['id']}", json={"text": "。。"}).status_code == 400
     assert _segments(client, lid)[1]["text"] == seg["text"]
     assert client.patch("/segments/999", json={"difficulty_flag": True}).status_code == 404
-
-
-def test_patch_text_survives_translation_failure(client, tmp_path, monkeypatch):
-    lid = _upload(client, tmp_path)
-    seg = _segments(client, lid)[1]
-
-    def boom(xs):
-        raise RuntimeError("llm down")
-    monkeypatch.setattr(client.app.state.deps.llm, "translate", boom)
-    out = client.patch(f"/segments/{seg['id']}", json={"text": "其实办法有很多。"})
-    assert out.status_code == 200 and out.json()["translation"] is None
 
 
 def test_patch_records_the_exported_anki_note_without_reenrich(client, tmp_path):
@@ -177,7 +166,7 @@ def test_resplit_and_merge(client, tmp_path):
     assert segs2[0]["text"] == "我今天想跟你们" and segs2[1]["text"] == "聊一聊学中文的方法。"
     assert [s["id"] for s in segs2[2:]] == [s["id"] for s in segs[1:]]
     assert abs(segs2[0]["end_s"] - segs2[1]["start_s"]) < 0.3
-    assert segs2[0]["translation"] == "en:我今天想跟你们" and len(segs2[1]["ref_alignment_json"]) == 9
+    assert segs2[0]["translation"] is None and len(segs2[1]["ref_alignment_json"]) == 9
     assert client.app.state.files.clip_wav(lid, 3).exists()
     _assert_clips_consistent(client, lid, mp3=True)
 

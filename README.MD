@@ -1,7 +1,7 @@
 # chinese-shadow-speech — a Mandarin shadowing studio
 
 **chinese-shadow-speech** turns any Chinese YouTube video or audio file into a shadowing lesson. It cuts the speech into short
-sentences, aligns every character to the audio, adds pinyin and a translation, and gives you four ways to practise
+sentences, aligns every character to the audio, adds pinyin, and gives you four ways to practise
 speaking along. Everything you record is kept. The sentences you have practised go to Anki as listening cards.
 
 It runs locally: a Python backend in WSL2/Linux with GPU speech models, and a React app in the browser (built for
@@ -31,7 +31,7 @@ Brave + Yomitan on Windows).
 Paste a YouTube link into the Library, or click the **→ chinese-shadow-speech** bookmarklet on a YouTube page. You can also
 drop an audio or video file, with or without a subtitle file. A few minutes later the lesson is ready:
 
-- The whole video becomes one lesson, split into sentences of about 6–25 characters.
+- The whole video becomes one lesson, split into sentences and clauses at its punctuation.
 - Long videos are split into **passages** of about 2–3 minutes. YouTube chapters are used when the video has them.
 - Lessons are grouped by speaker (the YouTube channel). Each tile shows how many sentences and passages you have practised.
 
@@ -50,7 +50,7 @@ recogniser. Machine-translated auto-captions are refused, and so are subtitles t
 | **Flow** | Shadow a whole passage without stopping. *After*: each sentence plays, then you repeat it in the pause. *Along*: speak at the same time as the audio (use headphones). |
 | **Guided** | Four steps per sentence: listen → whisper along with the text → say it with the text hidden → next. |
 
-The stage shows the sentence with pinyin and a translation. Below it, a **two-track feedback block** puts the
+The stage shows the sentence with pinyin (and a translation, for lessons imported from Anki notes that have one). Below it, a **two-track feedback block** puts the
 reference and your take on the same time scale, with a cell per syllable. Click a cell to hear that syllable once.
 
 After a take, the cells on your track show how each tone went: **green** is ok, **orange** is close, **red** is wrong and
@@ -96,7 +96,7 @@ Hover over a mode tab for a one-line explanation, or press `?` for the full help
 ### Fix the text when the machine got it wrong
 
 From the lesson drawer you can **edit** a sentence's text, **split** it in two, or **merge** it with the next one.
-Each change re-aligns the audio, rebuilds the pinyin and translation, and cuts new clips.
+Each change re-aligns the audio, rebuilds the pinyin, and cuts new clips.
 
 ### Works with Yomitan
 
@@ -109,7 +109,7 @@ is drawn as a separate layer and never changes the sentence's markup.
 Speaking happens in the app; Anki is used for **listening** review.
 
 - **One-click setup:** Settings → **Set up chinese-shadow-speech deck** creates a deck and a *Shadow Listening* note type.
-  The front is the audio only ("What did you hear?"). The back shows the hanzi, pinyin, translation and a link back
+  The front is the audio only ("What did you hear?"). The back shows the hanzi, pinyin, translation (when the sentence has one) and a link back
   to the moment in the YouTube video.
 - **End of session:** a dialog offers the sentences you practised. Fillers like 嗯, 对 and 好的 start unticked.
 - **Nothing gets lost:** if Anki was closed, Review lists everything **practised but not yet in Anki**.
@@ -187,17 +187,15 @@ YouTube link / file
 Speech recognition          FunASR Paraformer-zh, per-character timestamps
    │  + Chinese subtitles   text from the subtitles, timing from the recogniser
    ▼
-Sentences                   Claude (optional) splits into 6–25-character sentences and fixes ASR errors;
-   │                        subtitle text is locked, only punctuation and boundaries may change
+Sentences                   split at punctuation (the recogniser adds it) and at its segment ends
    ▼
 Forced alignment            MMS_FA per sentence, repaired against the recogniser's character times
    ▼
-Enrichment                  jieba words + pypinyin (tone sandhi), translation, Opus/WAV clips, passages
+Enrichment                  jieba words + pypinyin (tone sandhi), Opus/WAV clips, passages
 ```
 
 All models run locally; the default device is the GPU (CUDA), with a CPU fallback. The only network calls are the
-YouTube download, the one-time model downloads, and the optional Anthropic API, used to split sentences and
-translate. Without an API key, sentences are split at punctuation and there are no translations.
+YouTube download and the one-time model downloads.
 
 ---
 
@@ -227,7 +225,6 @@ translate. Without an API key, sentences are split at punctuation and there are 
 - [uv](https://docs.astral.sh/uv/) (Python 3.12 is installed by uv), Node 20, ffmpeg.
 - Optional:
   - [Deno](https://deno.com), which recent yt-dlp versions need for YouTube.
-  - An `ANTHROPIC_API_KEY`, for sentence splitting and translations.
   - Anki with [AnkiConnect](https://ankiweb.net/shared/info/2055492159).
 
 ### Install and run
@@ -235,7 +232,6 @@ translate. Without an API key, sentences are split at punctuation and there are 
 ```bash
 cd backend && uv sync --extra dev --extra models   # PyTorch (cu126), FunASR, aligners
 cd ../frontend && npm install
-export ANTHROPIC_API_KEY=...                       # optional
 cd .. && make dev                                  # backend on :8000, frontend on :5173
 ```
 
@@ -277,7 +273,7 @@ fake implementation.
 
 | Path | What's there |
 |---|---|
-| `backend/shadow/ingest/` | download, ASR, subtitle alignment, rectification, forced alignment and repair, enrichment, passages |
+| `backend/shadow/ingest/` | download, ASR, subtitle alignment, sentence splitting, forced alignment and repair, enrichment, passages |
 | `backend/shadow/api/` | FastAPI routes: lessons, segments, attempts, sessions, review, stats, drills (`/drill/focuses`, `/drill/sessions`), Anki import |
 | `backend/shadow/drill/` | drills: focus ranking and rotation, the cross-lesson queue, summaries |
 | `backend/shadow/store/` | SQLModel tables (SQLite) and the on-disk audio layout |

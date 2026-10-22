@@ -13,7 +13,7 @@ def test_coarse_times_match_speech_chars_and_skip_punctuation():
 
 
 def test_coarse_times_line_up_edited_text_and_leave_added_chars_none():
-    # the LLM repaired 雪 → 学 (a substitution keeps its time) and added 啊 (no ASR char)
+    # the edited text has 学 where the ASR heard 雪 (a substitution keeps its time) and adds 啊 (no ASR char)
     chars = [TimedChar("我", 0.0, 0.2), TimedChar("雪", 0.2, 0.4), TimedChar("中", 0.4, 0.6), TimedChar("文", 0.6, 0.8)]
     assert coarse_times("我学中文啊", chars) == [(0.0, 0.2), (0.2, 0.4), (0.4, 0.6), (0.6, 0.8), None]
 

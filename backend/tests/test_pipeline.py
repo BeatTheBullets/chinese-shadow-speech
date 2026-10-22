@@ -48,11 +48,10 @@ def test_ingest_upload_creates_segments(data_dir, fake_transcript, tmp_path):
     assert segs[0].start_s == 0.0 and segs[0].end_s <= segs[1].start_s
     assert segs[0].words_json[1]["word"] == "今天"
     assert len(segs[0].ref_alignment_json) == 16
-    assert segs[0].translation.startswith("en:")
+    assert segs[0].translation is None
     assert deps.files.clip_wav(lid, 0).exists() and deps.files.clip_opus(lid, 2).exists()
     assert lesson.transcript_json["chars"][0]["c"] == "我"
     assert list(dict.fromkeys(stages))[:2] == ["normalise", "transcribe"] and stages[-1] == "done"
-    assert deps.llm.rectify_locked == [False]           # ASR text is repaired, not locked
 
 
 def test_ingest_upload_segments_cover_transcript_in_order(data_dir, fake_transcript, tmp_path):
@@ -109,7 +108,6 @@ def test_ingest_upload_takes_text_from_subtitles_and_timing_from_asr(data_dir, t
     assert lesson.transcript_json["chars"][10]["c"] == "学"            # the subtitle's text, not the ASR's 雪
     assert lesson.meta_json["subtitle_match"] == 0.97                   # 31 of 32 speech chars
     assert "subtitle_ignored" not in lesson.meta_json
-    assert deps.llm.rectify_locked == [True]
 
 
 def test_ingest_upload_uses_a_plain_text_transcript(data_dir, fake_transcript, tmp_path):
@@ -136,7 +134,6 @@ def test_ingest_upload_ignores_subtitles_for_other_speech_and_uses_asr(data_dir,
     assert [s.text for s in _segments(engine, lid)] == [t for _, _, t in LESSON_TEXT]
     assert lesson.meta_json == {"subtitle_ignored": "subtitles don't match the audio (0 % of characters matched)"}
     assert "match" in caplog.text
-    assert deps.llm.rectify_locked == [False]
 
 
 def test_subtitles_just_under_the_match_threshold_are_ignored_and_reported_rounded_down():
@@ -196,21 +193,6 @@ def test_ingest_upload_with_subtitles_and_no_speech_sets_error(data_dir, tmp_pat
     assert lesson.status == "error" and "no speech" in lesson.error.lower()
 
 
-def test_ingest_upload_rectifies_subtitle_text_locked_and_simplifies_llm_output(data_dir, tmp_path):
-    from shadow.ingest.llm import RectifyOutput, RectSentence
-    deps, engine, lid = _setup(data_dir, transcript_from_cues([Cue(0.0, 2.0, "欢迎回来")]))
-    calls = []
-
-    def rectify(chunk, ctx):
-        calls.append("".join(chunk))
-        return RectifyOutput(sentences=[RectSentence(**{"from": 0, "to": len(chunk) - 1, "text": "歡迎回來。"})])
-    deps.llm._r = rectify
-    srt = "1\n00:00:00,000 --> 00:00:02,000\n欢迎回来\n"
-    ingest_upload(deps, engine, lid, make_tone_wav(tmp_path / "t.wav", 2.0), ("a.srt", srt), lambda s, f: None)
-    assert calls == ["欢迎回来"] and deps.llm.rectify_locked == [True]
-    assert [s.text for s in _segments(engine, lid)] == ["欢迎回来。"]
-
-
 def test_ingest_upload_with_no_speech_sets_error(data_dir, tmp_path):
     deps, engine, lid = _setup(data_dir, Transcript())
     with pytest.raises(NoSpeechError):
@@ -224,21 +206,6 @@ def test_ingest_upload_with_punctuation_only_asr_sets_no_speech_error(data_dir, 
     with pytest.raises(NoSpeechError):
         ingest_upload(deps, engine, lid, make_tone_wav(tmp_path / "t.wav", 2.0), None, lambda s, f: None)
     assert "no speech" in _get_lesson(engine, lid).error.lower()
-
-
-def test_translation_failure_keeps_lesson_and_records_error(data_dir, fake_transcript, tmp_path, caplog):
-    deps, engine, lid = _setup(data_dir, fake_transcript)
-
-    def broken(xs):
-        raise RuntimeError("api down")
-    deps.llm._t = broken
-    with caplog.at_level(logging.WARNING):
-        ingest_upload(deps, engine, lid, make_tone_wav(tmp_path / "t.wav", 8.0), None, lambda s, f: None)
-    lesson, segs = _get_lesson(engine, lid), _segments(engine, lid)
-    assert lesson.status == "ready" and len(segs) == 3
-    assert all(s.translation is None for s in segs)
-    assert "api down" in lesson.meta_json["translation_error"]
-    assert "translation" in caplog.text.lower()
 
 
 class _FlakyAligner:
@@ -326,19 +293,15 @@ def test_build_segments_clamps_fixed_spans_to_audio(data_dir, tmp_path, caplog):
     assert "degenerate" in caplog.text
 
 
-def test_build_segments_translates_only_sentences_without_one(data_dir, tmp_path):
+def test_build_segments_keeps_the_given_translations(data_dir, tmp_path):
     from shadow.ingest import audio
     deps, engine, lid = _setup(data_dir, Transcript())
-    deps.settings.llm.translate = True
-    asked = []
-    deps.llm._t = lambda xs: (asked.append(list(xs)), [f"en:{x}" for x in xs])[1]
     src = deps.files.source_wav(lid)
     audio.normalise(make_tone_wav(tmp_path / "t.wav", 4.0), src)
     sentences = [RectSentenceOut(0, 0, "你好。"), RectSentenceOut(0, 0, "谢谢你。")]
     build_segments(deps, engine, lid, src, None, sentences, lambda s, f: None,
                    fixed_spans=[(0.0, 1.5), (2.0, 3.5)], translations=["Hello", None])
-    assert asked == [["谢谢你。"]]
-    assert [s.translation for s in _segments(engine, lid)] == ["Hello", "en:谢谢你。"]
+    assert [s.translation for s in _segments(engine, lid)] == ["Hello", None]
 
 
 class _EarlyZeroLengthStart:

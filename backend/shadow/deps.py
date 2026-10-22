@@ -1,10 +1,8 @@
 from __future__ import annotations
-import os
 from dataclasses import dataclass
 from shadow.config import Settings
 from shadow.ingest.align import Aligner, FakeAligner, LockedAligner, MmsAligner, make_aligner
 from shadow.ingest.asr import ASR, AsrHearer, FakeASR, Hearer, ParaformerASR
-from shadow.ingest.llm import LLM, AnthropicLLM, FakeLLM, RectifyOutput
 from shadow.ingest.transcript import Transcript
 from shadow.ingest.youtube import Downloader, YtDlpDownloader
 from shadow.scoring.embed import Embedder, FakeEmbedder, Wav2Vec2Embedder
@@ -17,7 +15,6 @@ from shadow.store.files import FileLayout
 @dataclass
 class Deps:
     asr: ASR
-    llm: LLM | None
     aligner: Aligner
     files: FileLayout
     settings: Settings
@@ -43,13 +40,9 @@ class Deps:
 
 
 def build_deps(settings: Settings) -> Deps:
-    """Real adapters. Models load lazily on first use; the LLM is used only with an API key."""
+    """Real adapters. Models load lazily on first use."""
     device = settings.resolved_device()
     files = FileLayout(settings.data_dir)
-    llm = None
-    if os.environ.get("ANTHROPIC_API_KEY") and (settings.llm.rectify or settings.llm.translate):
-        llm = AnthropicLLM(settings.llm.model, settings.llm.effort, files.cache_dir("llm"),
-                           settings.segmentation.min_chars, settings.segmentation.max_chars)
     asr = ParaformerASR(settings.models.asr, device)
     aligner = LockedAligner(make_aligner(settings.resolved_aligner(), device))
     sounds, sounds_error = None, None
@@ -59,7 +52,7 @@ def build_deps(settings: Settings) -> Deps:
             sounds = SoundDetector(aligner, CharCtc(cfg.model, cfg.revision, device), cfg)
         else:
             sounds_error = "sounds need the MMS aligner"
-    return Deps(asr=asr, llm=llm, hearer=AsrHearer(asr), sounds=sounds, sounds_error=sounds_error,
+    return Deps(asr=asr, hearer=AsrHearer(asr), sounds=sounds, sounds_error=sounds_error,
                 aligner=aligner, files=files, settings=settings,
                 downloader=YtDlpDownloader(settings.youtube.cookies_file),
                 tone_model=load_tone_model(settings.scoring.tone_model),
@@ -68,9 +61,6 @@ def build_deps(settings: Settings) -> Deps:
 
 
 def fake_deps(settings: Settings, transcript: Transcript) -> Deps:
-    def rectify(chunk_chars, ctx):
-        return RectifyOutput(sentences=[])          # forces punctuation fallback in tests
-    llm = FakeLLM(rectify, lambda xs: [f"en:{x}" for x in xs])
-    return Deps(asr=FakeASR(transcript), llm=llm, aligner=FakeAligner(),
+    return Deps(asr=FakeASR(transcript), aligner=FakeAligner(),
                 files=FileLayout(settings.data_dir), settings=settings, tone_model=FakeToneModel(),
                 embedder=FakeEmbedder())
