@@ -404,13 +404,9 @@ export default function Practice() {
     if (m === usePractice.getState().mode) return
     if (runRef.current?.kind === 'flow') await flow.stop()
     if (!alive.current) return
+    // The sentence stays as it is either way: Flow's run starts from it (flowRange), Echo goes on from where Flow was.
     cancelActivity(); flow.clear(); flow.setForm({ to: null })
-    const ps = usePractice.getState()
-    ps.setMode(m)
-    // Flow starts at the current sentence's passage (addendum §4): the sentence moves there, so the stage, the bar and
-    // every key act on the sentence the run starts from.
-    const span = m === 'flow' ? passageSpanAt(ps.idx) : null
-    if (span && span.from !== ps.idx) ps.setIdx(span.from)
+    usePractice.getState().setMode(m)
   }
 
   function passageSpanAt(i: number) {
@@ -418,9 +414,10 @@ export default function Practice() {
     const k = passageIndexOf(passages, segs, i)
     return k >= 0 ? passageSpan(passages[k], segs) : null
   }
-  // Flow: the run's range. Before a run one sentence drives everything: the run starts at the current sentence (the
-  // stage shows it; ‹ ›, the drawer and the form's "Flow from" all move it). It ends at the form's "to", by default the
-  // end of the current sentence's passage, or the last sentence when the lesson has none; never before it starts.
+  // Flow: the run's range. Before a run one sentence drives everything: the run starts at the current sentence, the one
+  // the learner was on in Echo (the stage shows it; ‹ ›, the drawer and the form's "Flow from" all move it). It ends at
+  // the form's "to", by default the end of the current sentence's passage (addendum §4), or the last sentence when the
+  // lesson has none; never before it starts.
   function flowRange() {
     const ps = usePractice.getState(), last = Math.max(0, (ps.lesson?.segments.length ?? 0) - 1)
     const from = Math.max(0, Math.min(last, ps.idx))

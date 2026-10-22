@@ -633,7 +633,7 @@ describe('<Practice>', () => {
       expect(await screen.findByText(/Flow finished/)).toBeInTheDocument()
     })
 
-    it('before a run one sentence drives the stage and the bar: Flow opens on the passage start; ›, Flow from, Space and F all agree', async () => {
+    it('before a run one sentence drives the stage and the bar: Flow opens on the sentence you are on; ›, Flow from, Space and F all agree', async () => {
       h.api.lessons.get.mockResolvedValue({ ...lesson, passages: [{ idx: 0, title: 'P1', start_s: 0, end_s: 4, segment_ids: [11, 12], done: false }] })
       h.api.segments.patch.mockResolvedValue(seg(12, 1, '再见'))
       h.player.play.mockImplementation(() => new Promise(() => {}))
@@ -643,22 +643,26 @@ describe('<Practice>', () => {
       expect(await screen.findByText('再见', { selector: 'p.sentence' })).toBeInTheDocument()
       await enterFlow()
       const from = () => (screen.getByRole('combobox', { name: 'Flow from' }) as HTMLSelectElement).value
-      expect(screen.getByTestId('stage')).toHaveTextContent('你好')              // the passage's first sentence starts the run…
-      expect(screen.getByTestId('position')).toHaveTextContent('1 / 2')          // …and the bar is on it too
+      const to = () => (screen.getByRole('combobox', { name: 'Flow to' }) as HTMLSelectElement).value
+      expect(screen.getByTestId('stage')).toHaveTextContent('再见')              // Echo → Flow keeps the sentence (12)…
+      expect(screen.getByTestId('position')).toHaveTextContent('2 / 2')          // …the bar stays on it…
+      expect([from(), to()]).toEqual(['1', '1'])                                  // …the run starts there and ends with the passage
+      fireEvent.change(screen.getByRole('combobox', { name: 'Flow from' }), { target: { value: '0' } })
+      await waitFor(() => expect(screen.getByTestId('stage')).toHaveTextContent('你好'))
+      expect(screen.getByTestId('position')).toHaveTextContent('1 / 2')
       expect(from()).toBe('0')
       press('ArrowRight')                                                         // › inside the passage: stage and bar move together
       await waitFor(() => expect(screen.getByTestId('stage')).toHaveTextContent('再见'))
       expect(screen.getByTestId('position')).toHaveTextContent('2 / 2')
       expect(from()).toBe('1')
-      fireEvent.change(screen.getByRole('combobox', { name: 'Flow from' }), { target: { value: '0' } })
-      await waitFor(() => expect(screen.getByTestId('stage')).toHaveTextContent('你好'))
-      expect(screen.getByTestId('position')).toHaveTextContent('1 / 2')
-      press('ArrowRight'); await waitFor(() => expect(screen.getByTestId('position')).toHaveTextContent('2 / 2'))
       press(' ')
       await waitFor(() => expect(screen.getByTestId('stage')).toHaveAttribute('data-stage', 'listen'))
       expect(h.player.play).toHaveBeenLastCalledWith('/seg/12.opus', 1, expect.any(Function))
       press('f'); await flush()
       expect(h.api.segments.patch).toHaveBeenCalledWith(12, { difficulty_flag: true })
+      fireEvent.click(screen.getByRole('button', { name: 'Echo' })); await flush()  // back to Echo: still on the same sentence
+      expect(screen.getByTestId('position')).toHaveTextContent('2 / 2')
+      expect(screen.getByText('再见', { selector: 'p.sentence' })).toBeInTheDocument()
     })
 
     it('along plays every clip at the guide level and hints at headphones', async () => {
