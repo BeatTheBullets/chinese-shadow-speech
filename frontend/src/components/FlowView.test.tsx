@@ -10,30 +10,42 @@ const seg = (id: number, idx: number, text: string, start: number): Segment => (
 })
 const base = {
   segments: [seg(1, 0, '你好', 0), seg(2, 1, '再见', 2), seg(3, 2, '谢谢', 4)], current: 0, first: 0, last: 2, pending: new Set<number>(), rate: 1, now: 100,
-  level: 0.1, cue: { icon: '🎧', text: 'Listen', tone: 'ref' as const }, clipTime: null, turn: null,
+  mic: { snapshot: () => null }, stage: 'listen' as const, recordingS: 0, clipTime: null, turn: null,
 }
 const original = Range.prototype.getClientRects
 
 describe('<FlowView>', () => {
   afterEach(() => { cleanup(); Range.prototype.getClientRects = original })
 
-  it('shows the cue with the mic meter, the current line large and the next line dimmed below it', () => {
-    render(<FlowView {...base} sub="along" showText />)
-    expect(screen.getByTestId('cue-line')).toHaveTextContent('Listen')
-    expect(screen.getByRole('meter', { name: 'Microphone level' })).toBeInTheDocument()
+  it('along: the speak-along stage with the live waveform, the current line large and the next line dimmed below it', () => {
+    render(<FlowView {...base} stage="along" recordingS={3} sub="along" showText />)
+    expect(screen.getByTestId('stage')).toHaveTextContent('Speak along')
+    expect(screen.getByTestId('stage')).toHaveClass('border-record')
+    expect(screen.getByTestId('rec-timer')).toHaveTextContent('0:03')
+    expect(screen.getByTestId('live-wave')).toBeInTheDocument()
+    expect(screen.queryByRole('meter')).toBeNull()
     expect(screen.getByText('你好', { selector: 'p.sentence' })).toBeInTheDocument()
     expect(screen.getByTestId('next-line')).toHaveTextContent('再见')
     expect(screen.getByTestId('next-line').className).toContain('text-fgdim')
   })
   it('after, during the turn: the turn bar shrinks and the ghost line fills at the reference pace', () => {
-    render(<FlowView {...base} sub="after" showText={false} now={101} turn={{ startedAt: 99, duration: 4 }} />)
+    render(<FlowView {...base} stage="yourTurn" sub="after" showText={false} now={101} turn={{ startedAt: 99, duration: 4 }} />)
+    expect(screen.getByTestId('stage')).toHaveTextContent('Your turn')
+    expect(screen.getByTestId('live-wave')).toBeInTheDocument()
     expect((screen.getByTestId('turn-bar').firstChild as HTMLElement).style.width).toBe('50%')
     const cells = screen.getByTestId('ghost-line').querySelectorAll('span > span')
     expect([...cells].map((c) => (c as HTMLElement).style.width)).toEqual(['100%', '100%'])
   })
-  it('after: count-in dots over the last 1.5 s of the clip', () => {
-    render(<FlowView {...base} sub="after" showText clipTime={1.0} />)
-    expect(screen.getByLabelText('starting in 2')).toBeInTheDocument()
+  it('Flow after shows 3·2·1 over the end of the clip', () => {
+    const { rerender } = render(<FlowView {...base} sub="after" showText clipTime={0.4} />)
+    expect(screen.getByTestId('stage')).toHaveTextContent('Listening')            // before the last 1.5 s: listening
+    expect(screen.queryByText('Get ready')).toBeNull()
+    const at = (t: number) => { rerender(<FlowView {...base} sub="after" showText clipTime={t} />); return screen.getByTestId('countdown').textContent }
+    expect([at(0.5), at(1.0), at(1.6)]).toEqual(['3', '2', '1'])
+    expect(screen.getByLabelText('starting in 1')).toHaveClass('text-accent')
+    expect(screen.getByText('Get ready')).toBeInTheDocument()
+    expect(screen.getByTestId('stage')).not.toHaveClass('border-record')
+    expect(screen.queryByTestId('live-wave')).toBeNull()                          // listening still: no waveform of you yet
     expect(screen.queryByTestId('turn-bar')).toBeNull()
   })
   it('the colour wipe follows the clip-relative media time, on a layer outside the sentence', () => {

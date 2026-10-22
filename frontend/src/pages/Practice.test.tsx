@@ -668,7 +668,7 @@ describe('<Practice>', () => {
       h.rec.stop.mockReturnValue(new Float32Array(44100 * 10))
       await startFlow('along')
       await waitFor(() => expect(h.player.play).toHaveBeenCalledTimes(2))
-      expect(screen.getByTestId('cue-line')).toHaveTextContent('Speak along')
+      expect(screen.getByTestId('stage')).toHaveTextContent('Speak along')
       press('Enter')
       expect(await screen.findByText(/Flow finished · 1 sentences/)).toBeInTheDocument()
       await waitFor(() => expect(h.api.segments.postAttempt).toHaveBeenCalledTimes(1))
@@ -724,18 +724,20 @@ describe('<Practice>', () => {
       const stops = h.player.stop.mock.calls.length
       fireEvent.click(screen.getByRole('button', { name: 'Flow' }))
       await sleepMs(100)
-      expect(screen.getByTestId('cue-line')).toHaveTextContent('Listen')
+      expect(screen.getByTestId('stage')).toHaveTextContent('Listening')
       expect(h.player.stop).toHaveBeenCalledTimes(stops)
       expect(h.rec.stop).not.toHaveBeenCalled()
       expect(h.api.segments.postAttempt).not.toHaveBeenCalled()
       expect(usePractice.getState().recordingNow).toBe(true)
     })
 
-    it('after: the cue line says your turn during the pause, with the turn bar', async () => {
+    it('after: the stage says your turn during the pause, with the record frame, live waveform and turn bar', async () => {
       clipsTake(2)
       h.rec.stop.mockReturnValue(new Float32Array(44100 * 10))
       await startFlow('after')
-      await waitFor(() => expect(screen.getByTestId('cue-line')).toHaveTextContent('Your turn — speak now'))
+      await waitFor(() => expect(screen.getByTestId('stage')).toHaveTextContent('Your turn'))
+      expect(screen.getByTestId('stage')).toHaveClass('border-record')
+      expect(screen.getByTestId('live-wave')).toBeInTheDocument()
       expect(screen.getByTestId('turn-bar')).toBeInTheDocument()
       press('Enter')
       expect(await screen.findByText(/Flow finished/)).toBeInTheDocument()
@@ -749,7 +751,8 @@ describe('<Practice>', () => {
       await startFlow('along')
       await waitFor(() => expect(h.player.play).toHaveBeenCalledTimes(1))
       expect(screen.getByTestId('next-line')).toHaveTextContent('再见')
-      expect(screen.getByRole('meter', { name: 'Microphone level' })).toBeInTheDocument()
+      expect(screen.getByTestId('live-wave')).toBeInTheDocument()
+      expect(screen.queryByRole('meter')).toBeNull()
     })
 
     it('unmounting mid-run closes the mic and uploads nothing', async () => {
@@ -782,7 +785,7 @@ describe('<Practice>', () => {
       clipsTake(2, () => true)
       await startFlow('along')
       await waitFor(() => expect(h.player.play).toHaveBeenCalledTimes(1))
-      expect(screen.getByTestId('cue-line')).toHaveTextContent('Speak along')
+      expect(screen.getByTestId('stage')).toHaveTextContent('Speak along')
       expect(screen.queryByTestId('next-line')).toBeNull()
     })
 
@@ -1227,16 +1230,24 @@ describe('<Practice>', () => {
     } finally { window.removeEventListener('keydown', taken) }
   })
 
-  it('the cue line says what to do: ready, your turn with a moving mic meter, then done', async () => {
+  it('recording shows Your turn with a live waveform and no mic meter', async () => {
     renderPractice()
     await screen.findByText('你好', { selector: 'p.sentence' })
-    expect(screen.getByTestId('cue-line')).toHaveTextContent('Ready — Enter to start')
+    expect(screen.getByTestId('stage')).toHaveTextContent('Ready — Enter to start')
+    expect(screen.getByTestId('stage')).not.toHaveClass('border-record')
     press('Enter')
-    await waitFor(() => expect(screen.getByTestId('cue-line')).toHaveTextContent('Your turn — speak now'))
-    expect(await screen.findByRole('meter', { name: 'Microphone level' })).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByTestId('stage')).toHaveTextContent('Your turn'))
+    expect(screen.getByTestId('stage')).toHaveClass('border-record')
+    expect(screen.getByTestId('rec-dot')).toBeInTheDocument()
+    expect(screen.getByTestId('rec-timer')).toHaveTextContent(/^0:0\d$/)
+    expect(screen.getByTestId('stage')).toContainElement(screen.getByTestId('live-wave'))
+    await waitFor(() => expect(screen.getAllByTestId('wave-bar').length).toBeGreaterThan(0)) // the mic is open: flat bars
+    expect(screen.queryByRole('meter')).toBeNull()
+    expect(screen.queryByLabelText(/starting in/)).toBeNull() // Echo: no countdown, straight to your turn
     press('Enter'); await flush()
-    await waitFor(() => expect(screen.getByTestId('cue-line')).toHaveTextContent('Done — → for the next sentence, Enter to try again'))
-    await waitFor(() => expect(screen.queryByRole('meter', { name: 'Microphone level' })).toBeNull()) // next 50 ms poll
+    await waitFor(() => expect(screen.getByTestId('stage')).toHaveTextContent('Done — → for the next sentence, Enter to try again'))
+    expect(screen.queryByTestId('live-wave')).toBeNull()
+    expect(screen.getByTestId('stage')).not.toHaveClass('border-record')
   })
 
   it('an error clears when the reference plays and when the sentence changes', async () => {
@@ -1246,16 +1257,14 @@ describe('<Practice>', () => {
     await screen.findByText('你好', { selector: 'p.sentence' })
     press('f')
     expect(await screen.findByRole('alert')).toHaveTextContent('Could not flag: boom')
-    expect(screen.getByTestId('cue-line')).toHaveTextContent('Something went wrong')
     press(' ')
-    await waitFor(() => expect(screen.getByTestId('cue-line')).toHaveTextContent('Listen'))
+    await waitFor(() => expect(screen.getByTestId('stage')).toHaveTextContent('Listening'))
     expect(screen.queryByRole('alert')).toBeNull()
     press('f')
     expect(await screen.findByRole('alert')).toHaveTextContent('Could not flag: boom')
     press('ArrowRight')
     expect(await screen.findByText('再见', { selector: 'p.sentence' })).toBeInTheDocument()
     expect(screen.queryByRole('alert')).toBeNull()
-    expect(screen.getByTestId('cue-line')).not.toHaveTextContent('Something went wrong')
   })
 
   it('the reference playback draws the colour wipe on an aligned sentence; without alignment only the cue shows', async () => {
@@ -1266,12 +1275,12 @@ describe('<Practice>', () => {
     await screen.findByText('你好', { selector: 'p.sentence' })
     expect(screen.queryByTestId('wipe')).toBeNull()
     press(' ')
-    await waitFor(() => expect(screen.getByTestId('cue-line')).toHaveTextContent('Listen'))
+    await waitFor(() => expect(screen.getByTestId('stage')).toHaveTextContent('Listening'))
     expect(screen.getByTestId('wipe')).toHaveAttribute('aria-hidden', 'true')
     press('ArrowRight') // 再见 has no alignment
     expect(await screen.findByText('再见', { selector: 'p.sentence' })).toBeInTheDocument()
     press(' ')
-    await waitFor(() => expect(screen.getByTestId('cue-line')).toHaveTextContent('Listen'))
+    await waitFor(() => expect(screen.getByTestId('stage')).toHaveTextContent('Listening'))
     expect(screen.queryByTestId('wipe')).toBeNull()
   })
 
@@ -1425,7 +1434,7 @@ describe('<Practice>', () => {
       await sleepMs(300)
       expect(usePractice.getState().recordingNow).toBe(true)
       expect(h.rec.stop).toHaveBeenCalledTimes(stops)
-      expect(screen.getByTestId('cue-line')).toHaveTextContent('Speak along')
+      expect(screen.getByTestId('stage')).toHaveTextContent('Speak along')
       expect(screen.queryByRole('dialog')).toBeNull()
       expect(screen.queryByText('library page')).toBeNull()
     })

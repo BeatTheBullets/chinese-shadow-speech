@@ -404,6 +404,23 @@ describe('<Drill> runner', () => {
     expect(screen.getByText('Your turn — Enter to record')).toBeInTheDocument()
   })
 
+  it('Drill recording shows the same Your turn stage', async () => {
+    await startRun()
+    expect(screen.getByTestId('stage')).not.toHaveClass('border-record')
+    press('Enter'); await flush()
+    const stage = screen.getByTestId('stage')
+    expect(stage).toHaveTextContent('Your turn')
+    expect(stage).toHaveClass('border-record')
+    expect(screen.getByTestId('rec-dot')).toBeInTheDocument()
+    expect(screen.getByTestId('rec-timer')).toHaveTextContent(/^0:0\d$/)
+    expect(stage).toContainElement(screen.getByTestId('live-wave'))
+    expect(screen.queryByRole('meter')).toBeNull()
+    expect(screen.queryByLabelText(/starting in/)).toBeNull()
+    press('Enter'); await flush()
+    expect(screen.queryByTestId('live-wave')).toBeNull()
+    expect(screen.getByTestId('stage')).not.toHaveClass('border-record')
+  })
+
   it('hides the text while recording when the setting says so', async () => {
     await startRun()
     expect(screen.getByText('你好吗', { selector: 'p.sentence' })).toBeInTheDocument()

@@ -6,21 +6,24 @@ import { findSilenceEnd } from '../audio/pcm'
 import { ClipPlayer, peaks as peaksOf, playSequence } from '../audio/player'
 import { toWav16k } from '../audio/recorder'
 import { useMic } from '../audio/useMic'
-import type { Cue } from '../lib/cue'
+import type { Stage } from '../lib/cue'
 import { advance, listened, MAX_TRIES, scored, skip, startDrill, targetsGreen, type DrillState } from '../lib/drill'
 import { MIN_TAKE_S } from '../lib/echo'
 import { clipSpans, stageWipe } from '../lib/karaoke'
 import { actionForKey, type Action } from '../lib/keys'
 import { applyAttempt, noticeText, warningText } from '../lib/score'
 import { speechBounds } from '../lib/speech'
+import { useNow } from '../lib/useNow'
 import { clamp01, playbackVolume } from '../lib/volume'
 import { defaultTextPrefs, useSettings, type TextPrefs } from '../store/settings'
+import { TOKENS } from '../theme/tokens'
 import Button from '../ui/Button'
-import CueLine, { WithMicLevel } from './CueLine'
 import KaraokeSentence from './KaraokeSentence'
+import LiveWave from './LiveWave'
 import ScoreHeader from './ScoreHeader'
 import SentenceTools from './SentenceTools'
 import type { SoundControls } from './SoundPopover'
+import StageState from './StageState'
 import Transport from './Transport'
 import TwoTrack from './TwoTrack'
 
@@ -34,17 +37,19 @@ const TOGGLE: Record<keyof TextPrefs, Action> = { hanzi: 'toggleHanzi', pinyin: 
 interface DrillTake { url: string; duration: number; peaks: Float32Array; score?: Score | null }
 
 // `playback`: the take's reference-then-you playback is running; `scoring`: its upload has not answered yet.
-function cueOf(st: DrillState, recording: boolean, playback: boolean, scoring: boolean, green: boolean, saving: boolean): Cue {
-  if (saving) return { icon: '⏳', text: 'Saving your take…', tone: 'neutral' }
-  if (st.step === 'listen') return { icon: '🎧', text: 'Listen and speak along', tone: 'ref' }
-  if (recording) return { icon: '🗣', text: 'Your turn — speak now', tone: 'you' }
+// The stage (the same as Echo's, spec §8: listen, then "Your turn" with the record frame) and its small note.
+function drillStage(st: DrillState, recording: boolean, playback: boolean, scoring: boolean, green: boolean, saving: boolean): { stage: Stage; note?: string } {
+  if (saving) return { stage: 'idle', note: 'Saving your take…' }
+  if (st.step === 'listen') return { stage: 'listen', note: 'Speak along with it' }
+  if (recording) return { stage: 'yourTurn' }
+  const stage = playback ? 'review' : 'idle'
   if (st.step === 'review') {
-    if (st.outcome === 'retry') return { icon: '↻', text: 'Not green yet — Enter to try again', tone: 'you' }
-    return green ? { icon: '✓', text: 'Green — Enter for the next sentence', tone: 'ok' } : { icon: '→', text: 'Enter for the next sentence', tone: 'neutral' }
+    if (st.outcome === 'retry') return { stage, note: 'Not green yet — Enter to try again' }
+    return { stage, note: green ? 'Green — Enter for the next sentence' : 'Enter for the next sentence' }
   }
-  if (playback) return { icon: '🎧', text: 'Listen — the original, then you', tone: 'ref' }
-  if (scoring) return { icon: '⏳', text: 'Scoring…', tone: 'neutral' }
-  return { icon: '🗣', text: 'Your turn — Enter to record', tone: 'you' }
+  if (playback) return { stage }
+  if (scoring) return { stage, note: 'Scoring…' }
+  return { stage, note: 'Your turn — Enter to record' }
 }
 
 // One drill run (spec §4): per sentence, listen along once at the guide level, then Echo takes until the target
@@ -71,6 +76,8 @@ export default function DrillRunner({ session, onFinish }: { session: DrillSessi
   const [uploading, setUploadingState] = useState(false)
   const [playback, setPlayback] = useState(false)          // a take's reference-then-you playback is running
   const setRecording = (v: boolean) => { recRef.current = v; setRecordingState(v) }
+  const [recAt, setRecAt] = useState(0)                    // performance-clock second the take began: the stage's timer
+  const now = useNow(recording)
   const setUploading = (id: number) => { uploadRef.current = id; setUploadingState(id !== 0) }
   const takeNo = useRef(0)
   // Uploads not answered yet, of any sentence: finishing waits for them so the summary has every take.
@@ -172,7 +179,7 @@ export default function DrillRunner({ session, onFinish }: { session: DrillSessi
     // Not while the last take uploads: its score decides whether there is another try.
     if (recRef.current || uploadRef.current !== 0 || stRef.current.step !== 'record') return
     stopPlayback(); setError('')
-    setRecording(true)
+    setRecording(true); setRecAt(performance.now() / 1000)
     try {
       const rec = await mic.open()
       if (!rec) return
@@ -324,6 +331,7 @@ export default function DrillRunner({ session, onFinish }: { session: DrillSessi
     onReference: (v) => settings.set({ referenceVolume: clamp01(v) }), onGuide: (v) => settings.set({ guideLevel: clamp01(v) }),
   } }
   // What Enter does when not recording: record (now, again) or go on to the next sentence.
+  const stage = drillStage(st, recording, playback, uploading, green, saving)
   const enterLabel = st.step === 'listen' ? 'Record now' : st.step === 'review' ? (st.outcome === 'retry' ? 'Again' : 'Next') : undefined
   const tools = <SentenceTools flagged={seg.difficulty_flag} onFlag={() => act('flag')} prefs={prefs} onToggle={(k) => act(TOGGLE[k])} />
   return (
@@ -334,9 +342,11 @@ export default function DrillRunner({ session, onFinish }: { session: DrillSessi
         <span>{item.lesson_title}</span>
         <span className="ml-auto"><Button label="Finish drill" onClick={finish} /></span>
       </div>
-      <WithMicLevel mic={mic}>{(level) => <CueLine cue={cueOf(st, recording, playback, uploading, green, saving)} level={level} />}</WithMicLevel>
-      <KaraokeSentence wipe={wipe} text={seg.text} words={seg.words_json} showHanzi={prefs.hanzi && show} showPinyin={prefs.pinyin && show}
-        translation={seg.translation} showTranslation={prefs.translation && show} tools={tools} />
+      <StageState {...stage} recordingS={Math.max(0, now - recAt)}>
+        <KaraokeSentence wipe={wipe} text={seg.text} words={seg.words_json} showHanzi={prefs.hanzi && show} showPinyin={prefs.pinyin && show}
+          translation={seg.translation} showTranslation={prefs.translation && show} tools={tools} />
+        {recording && <LiveWave mic={mic} color={TOKENS.you} />}
+      </StageState>
       <TwoTrack segment={seg} refPeaks={refPeaks} refDuration={seg.end_s - seg.start_s} refPlayhead={refHead}
         youPeaks={take?.peaks ?? null} youDuration={take?.duration ?? 0} youPlayhead={youHead}
         onPlayRef={playRef} onPlayYou={replayYou} onPlaySyllable={playSyllable} onPlayYouSyllable={playYouSyllable} highlight={item.targets}

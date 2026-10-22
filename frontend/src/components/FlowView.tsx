@@ -1,26 +1,30 @@
 import { memo, useEffect, useRef, useState } from 'react'
 import type { FlowRun, Segment } from '../api/types'
-import type { Cue } from '../lib/cue'
+import type { Mic } from '../audio/useMic'
+import type { Stage } from '../lib/cue'
 import type { FlowSub } from '../lib/flow'
 import type { Action } from '../lib/keys'
 import { clipSpans, flowWipe, lineLead, nextLineStart } from '../lib/karaoke'
 import { weekdayTime } from '../lib/time'
-import CueLine from './CueLine'
+import { TOKENS } from '../theme/tokens'
 import { dotClass } from './Drawer'
 import KaraokeSentence, { GhostLine } from './KaraokeSentence'
+import LiveWave from './LiveWave'
 import type { SoundControls } from './SoundPopover'
+import StageState from './StageState'
 import Transport from './Transport'
 
 export interface FlowViewProps {
   segments: Segment[]; current: number; pending: Set<number>; sub: FlowSub; showText: boolean
   first: number; last: number // the run's range (indexes into segments)
-  cue: Cue; level: number | null; rate: number; now: number
+  stage: Stage; mic: Pick<Mic, 'snapshot'>; recordingS: number; rate: number; now: number // stage: stageOf() (listen, yourTurn, along)
   clipTime: number | null; turn: { startedAt: number; duration: number } | null
 }
 
-// Flow mode while running (main spec §7.3, addendum §6.5): the lesson as a transcript; the current line large with
-// the cue line, count-in, karaoke wipe (in after: ghost wipe and turn bar during the learner's turn); the run's next
-// line dimmed right below it.
+// Flow mode while running (main spec §7.3, addendum §6.5, style spec §3): the lesson as a transcript; the current
+// line large on the stage, with the karaoke wipe, the 3 · 2 · 1 countdown wherever the count-in window runs (the
+// stage is then getReady), and while the learner speaks (after's turn: ghost wipe and turn bar; along: throughout)
+// the record frame and the live waveform; the run's next line dimmed right below it.
 export default function FlowView(p: FlowViewProps) {
   const { current } = p
   const curRef = useRef<HTMLDivElement | null>(null)
@@ -33,7 +37,8 @@ export default function FlowView(p: FlowViewProps) {
   const k = cur
     ? flowWipe({ spans, sub: p.sub, clipTime: p.clipTime, clipDuration: cur.end_s - cur.start_s, turn: p.turn, now: p.now, rate: p.rate,
       next: along && next ? nextLineStart(cur, next, p.rate) : null, lead: along && prev ? lineLead(prev, cur, p.rate) : null })
-    : { wipe: null, dots: 0, turnLeft: null }
+    : { wipe: null, count: null, turnLeft: null }
+  const speaking = along || p.turn != null
   return (
     <div className="flex-1 overflow-y-auto p-6 space-y-1">
       {p.segments.map((s, i) => {
@@ -41,12 +46,14 @@ export default function FlowView(p: FlowViewProps) {
         return (
           <div key={s.id} ref={curRef} className="flex gap-3 items-start px-3 rounded bg-card py-3">
             <RowMarks s={s} pending={p.pending.has(s.id)} />
-            <div className="flex-1 space-y-2">
-              <CueLine cue={p.cue} level={p.level} dots={k.dots} />
-              <KaraokeSentence wipe={k.wipe} text={s.text} words={s.words_json} showHanzi={p.showText} showPinyin={p.showText} />
-              {!p.showText && <GhostLine count={spans.length} wipe={k.wipe} />}
-              {k.turnLeft != null && (
-                <div data-testid="turn-bar" className="h-1 bg-card rounded overflow-hidden"><div className="h-full bg-you" style={{ width: `${k.turnLeft * 100}%` }} /></div>)}
+            <div className="flex-1">
+              <StageState stage={k.count != null ? 'getReady' : p.stage} count={k.count} recordingS={p.recordingS}>
+                <KaraokeSentence wipe={k.wipe} text={s.text} words={s.words_json} showHanzi={p.showText} showPinyin={p.showText} />
+                {!p.showText && <GhostLine count={spans.length} wipe={k.wipe} />}
+                {k.turnLeft != null && (
+                  <div data-testid="turn-bar" className="h-1 bg-card rounded overflow-hidden"><div className="h-full bg-you" style={{ width: `${k.turnLeft * 100}%` }} /></div>)}
+                {speaking && <LiveWave mic={p.mic} color={TOKENS.you} />}
+              </StageState>
             </div>
           </div>)
       })}

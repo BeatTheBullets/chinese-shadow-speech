@@ -5,6 +5,9 @@ export function concat(chunks: Float32Array[]): Float32Array {
   return out
 }
 
+// How much of the take the live waveform shows (spec §3): its newest 1.6 s, as 80 bars of 20 ms.
+export const LIVE_WINDOW_S = 1.6
+
 // The last n samples of a chunked recording, copying only the chunks it needs.
 export function tail(chunks: Float32Array[], n: number): Float32Array {
   const parts: Float32Array[] = []

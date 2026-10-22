@@ -1,43 +1,38 @@
 import { describe, expect, it } from 'vitest'
-import { cueFor, cuePhase, type PageActivity } from './cue'
+import { idleNote, stageOf, type PageActivity } from './cue'
 
-describe('cueFor', () => {
-  it.each([
-    ['echo', 'ready', '⏸', 'Ready — Enter to start', 'neutral'],
-    ['echo', 'listen', '🎧', 'Listen', 'ref'],
-    ['echo', 'speak', '🗣', 'Your turn — speak now', 'you'],
-    ['echo', 'review', '🎧', 'Listen — the original, then you', 'ref'],
-    ['echo', 'done', '✓', 'Done — → for the next sentence, Enter to try again', 'ok'],
-    ['flow', 'ready', '⏸', 'Ready — Enter to start', 'neutral'],
-    ['flow', 'listen', '🎧', 'Listen', 'ref'],
-    ['flow', 'speak', '🗣', 'Your turn — speak now', 'you'],
-    ['flow', 'along', '🎤', 'Speak along', 'you'],
-    ['flow', 'done', '✓', 'Done — Enter to run it again', 'ok'],
-  ] as const)('%s / %s', (mode, phase, icon, text, tone) => {
-    expect(cueFor(mode, { phase })).toEqual({ icon, text, tone })
-  })
-  it('an error turns the cue red in every mode', () => {
-    for (const m of ['echo', 'flow'] as const) {
-      expect(cueFor(m, { phase: 'listen', error: true })).toEqual({ icon: '⚠', text: 'Something went wrong — see the message below', tone: 'bad' })
-    }
-  })
-})
+const base: PageActivity = { mode: 'echo', echo: 'idle', runKind: null, hasTake: false, flowPhase: 'setup', flowSub: 'after', flowTurn: false }
 
-describe('cuePhase', () => {
-  const base: PageActivity = { mode: 'echo', echo: 'idle', runKind: null, hasTake: false, flowPhase: 'setup', flowSub: 'after', flowTurn: false }
+describe('stageOf', () => {
   it.each([
-    [{}, 'ready'],
-    [{ hasTake: true }, 'done'],
+    [{}, 'idle'],
+    [{ hasTake: true }, 'idle'],
     [{ echo: 'playing' }, 'listen'],
-    [{ echo: 'recording' }, 'speak'],
+    [{ echo: 'recording' }, 'yourTurn'],
     [{ echo: 'uploading' }, 'review'],
     [{ echo: 'playback' }, 'review'],
     [{ mode: 'flow', flowPhase: 'running', flowSub: 'after' }, 'listen'],
-    [{ mode: 'flow', flowPhase: 'running', flowSub: 'after', flowTurn: true }, 'speak'],
+    [{ mode: 'flow', flowPhase: 'running', flowSub: 'after', flowTurn: true }, 'yourTurn'],
     [{ mode: 'flow', flowPhase: 'running', flowSub: 'along' }, 'along'],
-    [{ mode: 'flow', flowPhase: 'summary' }, 'done'],
-    [{ mode: 'flow', hasTake: true }, 'ready'],
+    [{ mode: 'flow', flowPhase: 'summary' }, 'idle'],
+    [{ mode: 'flow', hasTake: true }, 'idle'],
   ] as const)('%o → %s', (over, want) => {
-    expect(cuePhase({ ...base, ...over } as PageActivity)).toBe(want)
+    expect(stageOf({ ...base, ...over } as PageActivity)).toBe(want)
+  })
+})
+
+describe('idleNote', () => {
+  it.each([
+    [{}, 'Ready — Enter to start'],
+    [{ hasTake: true }, 'Done — → for the next sentence, Enter to try again'],
+    [{ mode: 'flow' }, 'Ready — Enter to start'],
+    [{ mode: 'flow', hasTake: true }, 'Ready — Enter to start'],
+    [{ mode: 'flow', flowPhase: 'summary' }, 'Done — Enter to run it again'],
+  ] as const)('%o → %s', (over, want) => {
+    expect(idleNote({ ...base, ...over } as PageActivity)).toBe(want)
+  })
+  it('says nothing outside the idle stage: the stage itself shows what to do', () => {
+    expect(idleNote({ ...base, echo: 'recording' })).toBeUndefined()
+    expect(idleNote({ ...base, mode: 'flow', flowPhase: 'running' })).toBeUndefined()
   })
 })

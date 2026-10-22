@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { rms } from './pcm'
+import { LIVE_WINDOW_S } from './pcm'
 import { Recorder } from './recorder'
 
 export interface Mic {
@@ -13,8 +13,10 @@ export interface Mic {
   capturing(): boolean
   // The recording clock (AudioContext.currentTime), the time base of Recorder.startTime.
   now(): number
-  // RMS of the last 2048 samples while capturing (the level meter, addendum §6.3), else null.
-  level(): number | null
+  // While capturing, the take's newest LIVE_WINDOW_S seconds for the live waveform (spec §3), zero-padded at the front
+  // while the take is shorter, so a sample always spans the same time; else null. Only this bounded tail is copied,
+  // so polling it stays as cheap on a long Flow take as on a short one (the whole take comes from finish()).
+  snapshot(): Float32Array | null
 }
 
 // The page's microphone: one AudioContext and Recorder, created on first use, closed on unmount.
@@ -52,7 +54,16 @@ export function useMic(): Mic {
     },
     capturing: () => capturing.current,
     now: () => ctxRef.current?.currentTime ?? 0,
-    level: () => (capturing.current && recRef.current ? rms(recRef.current.tail(2048)) : null),
+    snapshot() {
+      const rec = recRef.current
+      if (!capturing.current || !rec) return null
+      const n = Math.round(rec.sampleRate * LIVE_WINDOW_S)
+      const t = rec.tail(n)
+      if (t.length === n) return t
+      const out = new Float32Array(n)
+      out.set(t, n - t.length)
+      return out
+    },
   }))
   useEffect(() => () => {
     mic.abandon()

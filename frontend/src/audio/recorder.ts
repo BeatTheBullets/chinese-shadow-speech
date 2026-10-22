@@ -46,7 +46,7 @@ export class Recorder {
     return this.snapshot()
   }
   slice(t0: number, t1: number): Float32Array { return sliceSamples(this.snapshot(), this._start, this.ctx.sampleRate, t0, t1) }
-  // The most recent n samples, cheap enough for a live level meter on a long recording.
+  // The most recent n samples, cheap enough for the live waveform on a long recording.
   tail(n: number): Float32Array { return tail(this.chunks, n) }
 
   private release() {

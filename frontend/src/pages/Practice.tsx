@@ -7,7 +7,6 @@ import { findSilenceEnd } from '../audio/pcm'
 import { ClipPlayer, peaks as peaksOf, playSequence, type SequenceItem } from '../audio/player'
 import { toWav16k } from '../audio/recorder'
 import { useMic } from '../audio/useMic'
-import CueLine, { WithMicLevel } from '../components/CueLine'
 import Drawer from '../components/Drawer'
 import EditDialog from '../components/EditDialog'
 import type { ExportItem } from '../components/ExportList'
@@ -15,14 +14,16 @@ import FlowSummary from '../components/FlowSummary'
 import FlowView, { FlowSetup, FlowTransport } from '../components/FlowView'
 import HelpOverlay from '../components/HelpOverlay'
 import KaraokeSentence, { GhostLine } from '../components/KaraokeSentence'
+import LiveWave from '../components/LiveWave'
 import SentenceTools from '../components/SentenceTools'
 import SessionExportDialog from '../components/SessionExportDialog'
+import StageState from '../components/StageState'
 import ScoreHeader from '../components/ScoreHeader'
 import TopBar from '../components/TopBar'
 import Transport from '../components/Transport'
 import type { SoundControls } from '../components/SoundPopover'
 import TwoTrack from '../components/TwoTrack'
-import { cueFor, cuePhase } from '../lib/cue'
+import { idleNote, stageOf } from '../lib/cue'
 import { echoReducer, MIN_TAKE_S, type EchoEvent, type EchoState } from '../lib/echo'
 import { weakestResults, type FlowResult } from '../lib/flow'
 import { clipSpans, stageWipe } from '../lib/karaoke'
@@ -35,6 +36,7 @@ import { useNow } from '../lib/useNow'
 import { clamp01, guideApplies, playbackVolume } from '../lib/volume'
 import { usePractice, currentSegment, currentTake, type LastAttempt, type StoredTake } from '../store/practice'
 import { useSettings, defaultTextPrefs, type TextPrefs } from '../store/settings'
+import { TOKENS } from '../theme/tokens'
 import { useFlow } from './useFlow'
 
 const MOVE_ON = 'Several tries on this one. Move on and come back later.'
@@ -108,18 +110,22 @@ export default function Practice() {
   }, [lessonId])
   const flow = useFlow({ lessonId, player, mic, beginRun: () => beginRun('flow'), endRun, setError,
     onUploaded: () => { if (usePractice.getState().mode === 'flow') loadFlowRuns() } })
-  const [echoTurn, setEchoTurn] = useState<number | null>(null) // performance-clock second an Echo take began (count-in, ghost wipe)
+  const [echoTurn, setEchoTurn] = useState<number | null>(null) // performance-clock second an Echo take began (ghost wipe, timer)
+  const [runFrom, setRunFrom] = useState(0)                     // session second (elapsed's clock) the Flow run began: along's timer
   const [help, setHelp] = useState(() => !useSettings.getState().helpSeen)
   const helpOpen = useRef(false)
   helpOpen.current = help
-  // A frame clock only while something moves without media time: an Echo take's count-in and ghost wipe, Flow after's turn.
+  // A frame clock only while something moves without media time: an Echo take's ghost wipe and timer, Flow after's turn.
   const now = useNow(echoTurn != null || (flow.state.phase === 'running' && flow.state.turn != null))
 
   useEffect(() => { const t = setInterval(() => setElapsed((Date.now() - started) / 1000), 1000); return () => clearInterval(t) }, [started])
   // The help opens by itself once, on the first visit to a practice page (addendum §6.4).
   useEffect(() => { if (!useSettings.getState().helpSeen) useSettings.getState().set({ helpSeen: true }) }, [])
-  // An Echo take's count-in and ghost wipe last while it records.
+  // An Echo take's ghost wipe and timer last while it records.
   useEffect(() => { if (echo !== 'recording') setEchoTurn(null) }, [echo])
+  // Flow along records the whole run: its timer counts from the start, on the once-a-second session clock.
+  const runPhase = flow.state.phase
+  useEffect(() => { if (runPhase === 'running') setRunFrom((Date.now() - started) / 1000) }, [runPhase, started])
 
   useEffect(() => {
     let cancelled = false
@@ -639,11 +645,11 @@ export default function Practice() {
   } }
   const spans = clipSpans(seg.ref_alignment_json, seg.start_s)
   const refPlaying = echo === 'playing' || echo === 'playback'
-  const { wipe, dots } = stageWipe({ spans, refPlaying, refHead, turnStart: st.mode === 'echo' ? echoTurn : null, now, rate: st.rate })
-  const cue = cueFor(st.mode, {
-    phase: cuePhase({ mode: st.mode, echo, runKind, hasTake: st.lastAttempt != null, flowPhase: fs.phase, flowSub: fs.sub, flowTurn: fs.turn != null }),
-    error: !!error,
-  })
+  const { wipe } = stageWipe({ spans, refPlaying, refHead, turnStart: st.mode === 'echo' ? echoTurn : null, now, rate: st.rate })
+  // The stage (spec §3). Echo goes straight to "Your turn" (no countdown); Flow's countdown is FlowView's.
+  const activity = { mode: st.mode, echo, runKind, hasTake: st.lastAttempt != null, flowPhase: fs.phase, flowSub: fs.sub, flowTurn: fs.turn != null }
+  const stage = stageOf(activity), note = idleNote(activity)
+  const flowRecS = fs.turn ? now - fs.turn.startedAt : elapsed - runFrom
   return (
     <div className="h-full flex flex-col">
       <TopBar title={st.lesson.title} speaker={st.lesson.speaker} idx={flowRunning ? fs.current : st.idx} total={segments.length} mode={st.mode}
@@ -653,29 +659,30 @@ export default function Practice() {
       <div className="flex-1 flex min-h-0">
         <main className="flex-1 flex flex-col min-w-0">
           {flowRunning ? (<>
-            <WithMicLevel mic={mic}>{(level) => (
-              <FlowView segments={segments} current={fs.current} first={fs.range?.from ?? 0} last={fs.range?.to ?? segments.length - 1}
-                pending={fs.pending} sub={fs.sub} rate={st.rate} now={now}
-                cue={cue} level={level} clipTime={fs.clipTime} turn={fs.turn}
-                showText={!(settings.practice.hideTextWhileRecording && fs.sub === 'after')} />)}
-            </WithMicLevel>
+            <FlowView segments={segments} current={fs.current} first={fs.range?.from ?? 0} last={fs.range?.to ?? segments.length - 1}
+              pending={fs.pending} sub={fs.sub} rate={st.rate} now={now}
+              stage={stage} mic={mic} recordingS={Math.max(0, flowRecS)} clipTime={fs.clipTime} turn={fs.turn}
+              showText={!(settings.practice.hideTextWhileRecording && fs.sub === 'after')} />
             <FlowTransport onAction={act} idx={fs.current} total={segments.length} sound={sound} error={error} hint={st.hint} />
           </>) : (<>
             <div className="flex-1 overflow-y-auto p-6 space-y-6">
-              <WithMicLevel mic={mic}>{(level) => <CueLine cue={cue} level={level} dots={dots} />}</WithMicLevel>
-              {st.mode === 'flow' && fs.phase === 'summary' ? (
+              {st.mode === 'flow' && fs.phase === 'summary' ? (<>
+                <StageState stage={stage} note={note} />
                 <FlowSummary segments={segments} results={fs.results} skipped={fs.skipped} elapsedS={fs.elapsedS}
                   onPlayPair={(r) => playItems(resultPair(r))} onReplayAll={() => playItems([...fs.results].sort((x, y) => x.idx - y.idx).flatMap(resultPair))}
                   onRunAgain={() => { if (fs.range) startFlow(fs.range.from, fs.range.to) }} onEcho={(i) => void echoOn(i)}
                   onFlagWeakest={flagWeakest} onExportWeakest={exportWeakest}
                   onDone={() => offerExport(flow.clear)} />
-              ) : (<>
+              </>) : (<>
                 {st.mode === 'flow' && <FlowSetup segments={segments} from={range.from} to={range.to} sub={fs.sub} onChange={flow.setForm} onStart={() => act('record')}
                   runs={flowRuns} onReplay={replayRun} />}
-                <KaraokeSentence wipe={wipe} text={seg.text} words={seg.words_json} showHanzi={st.textPrefs.hanzi && show} showPinyin={st.textPrefs.pinyin && show} translation={seg.translation} showTranslation={st.textPrefs.translation && show}
-                  tools={<SentenceTools flagged={seg.difficulty_flag} onFlag={() => act('flag')} prefs={st.textPrefs} onToggle={(k) => act(TOGGLE[k])} />}>
-                  {!(st.textPrefs.hanzi && show) && wipe && <GhostLine count={spans.length} wipe={wipe} />}
-                </KaraokeSentence>
+                <StageState stage={stage} note={note} recordingS={echoTurn != null ? Math.max(0, now - echoTurn) : 0}>
+                  <KaraokeSentence wipe={wipe} text={seg.text} words={seg.words_json} showHanzi={st.textPrefs.hanzi && show} showPinyin={st.textPrefs.pinyin && show} translation={seg.translation} showTranslation={st.textPrefs.translation && show}
+                    tools={<SentenceTools flagged={seg.difficulty_flag} onFlag={() => act('flag')} prefs={st.textPrefs} onToggle={(k) => act(TOGGLE[k])} />}>
+                    {!(st.textPrefs.hanzi && show) && wipe && <GhostLine count={spans.length} wipe={wipe} />}
+                  </KaraokeSentence>
+                  {stage === 'yourTurn' && <LiveWave mic={mic} color={TOKENS.you} />}
+                </StageState>
                 <TwoTrack segment={seg} refPeaks={refPeaks} refDuration={seg.end_s - seg.start_s} refPlayhead={refHead}
                   youPeaks={youPeaks} youDuration={take?.duration ?? 0} youPlayhead={youHead}
                   onPlayRef={() => act('play')} onPlayYou={() => act('replayYou')} onPlaySyllable={playSyllable} onPlayYouSyllable={playYouSyllable}
