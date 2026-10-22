@@ -445,7 +445,7 @@ git commit -m "feat: pause splitting by default; laptop budget met with int8 on 
 
 | Item | Result |
 |---|---|
-| Baseline budget run (Task 1) | `--device cpu --threads 4`, hard cap 5000 MB: startup peaked 738 MB (models load lazily); killed with exit 137 (SIGKILL, OOM) in the build phase while the job loaded the ASR and punctuation models. The hard-cap sampler did not fire first (RSS probably jumped past the cap between samples, or the sampler thread was starved by native model loading). Build, practice and build+practice not reached. |
+| Baseline budget run (Task 1) | `--device cpu --threads 4`, watchdog cap 5000 MB. Startup peaks 738 MB (models load lazily). Build phase fails every time, three ways: twice SIGKILLed by the kernel (exit 137) with the watchdog having seen a tree peak of 3689 MB, below the cap (the machine had ~3 GB used by other processes, so the OOM killer fired first), and twice a job error (funasr "Cannot copy out of meta tensor", peak 2.6 GB, exit 1). Practice and build+practice never reached. The cap watchdog itself is verified separately (`--hard-cap-mb 500` gives exit 3, tests/test_cpu_budget_watchdog.py). |
 | Gate videos and verdict (Task 4) | |
 | User's go on pause splitting | |
 | int8: alignment / words / CER + gate / sounds / tone (Task 6) | |
