@@ -40,3 +40,22 @@ def test_mms_aligner_int8_gives_one_span_per_speech_character():
     assert [s.ch for s in spans] == speech_chars(text)
     n_q = sum(isinstance(m, torch.ao.nn.quantized.dynamic.Linear) for m in a._model.modules())
     assert n_q > 0
+
+
+def test_build_deps_on_cpu_survives_missing_torch(monkeypatch, tmp_path):
+    import builtins
+    from shadow.deps import build_deps
+    real = builtins.__import__
+
+    def no_torch(name, *a, **k):
+        if name == "torch" or name.startswith("torch."):
+            raise ImportError("no torch")
+        return real(name, *a, **k)
+    monkeypatch.setattr(builtins, "__import__", no_torch)
+    deps = build_deps(Settings(models=ModelsCfg(device="cpu", int8=True), data_dir=tmp_path))
+    assert deps.asr is not None
+
+
+def test_quantize_linear_prints_no_deprecation_warning(recwarn):
+    quantize_linear(torch.nn.Sequential(torch.nn.Linear(8, 8)))
+    assert not [w for w in recwarn if "torch.ao.quantization" in str(w.message)]

@@ -1,4 +1,5 @@
 from __future__ import annotations
+import logging
 from dataclasses import dataclass
 from shadow.config import Settings
 from shadow.ingest.align import Aligner, FakeAligner, LockedAligner, MmsAligner, make_aligner
@@ -11,6 +12,8 @@ from shadow.scoring.sounds.charctc import CharCtc
 from shadow.scoring.sounds.detector import SoundDetector, Sounds
 from shadow.scoring.tone import FakeToneModel, ToneModel, load_tone_model
 from shadow.store.files import FileLayout
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -44,8 +47,11 @@ def build_deps(settings: Settings) -> Deps:
     """Real adapters. Models load lazily on first use."""
     device = settings.resolved_device()
     if device == "cpu":
-        import torch
-        torch.set_num_threads(cpu_threads(settings))
+        try:
+            import torch
+            torch.set_num_threads(cpu_threads(settings))
+        except ImportError:                    # no `models` extra installed: nothing to cap
+            log.debug("torch is not installed; thread cap skipped")
     int8 = int8_wanted(settings)
     files = FileLayout(settings.data_dir)
     asr = ParaformerASR(settings.models.asr, device, punctuation=settings.models.punctuation,

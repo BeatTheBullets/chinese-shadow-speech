@@ -2,6 +2,7 @@
 from __future__ import annotations
 import gc
 import os
+import warnings
 from shadow.config import Settings
 from shadow.memory import trim_heap
 
@@ -10,8 +11,9 @@ def quantize_linear(module):
     """Dynamic qint8 over every torch.nn.Linear (weights stored as int8, activations quantised on the fly); eval mode.
     The fp32 weights are freed once the caller drops its reference."""
     import torch
-    q = torch.ao.quantization.quantize_dynamic(module.eval(), {torch.nn.Linear}, dtype=torch.qint8,
-                                            inplace=True)
+    with warnings.catch_warnings():            # torch 2.11 (pinned) still has it; its torchao pointer is noise
+        warnings.filterwarnings("ignore", message=r"torch\.ao\.quantization is deprecated", category=DeprecationWarning)
+        q = torch.ao.quantization.quantize_dynamic(module.eval(), {torch.nn.Linear}, dtype=torch.qint8, inplace=True)
     gc.collect()
     trim_heap()
     return q.eval()
