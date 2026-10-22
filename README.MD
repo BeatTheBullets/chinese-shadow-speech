@@ -66,16 +66,18 @@ neighbouring sentence that shares most of its words with the one shown can still
 
 ### It always tells you what to do
 
-- **Cue line:** above the sentence it always shows what to do now, in the track colours: 🎧 **Listen**,
-  🗣 **Your turn** (red frame, red dot, timer and a live waveform), **Get ready** 3·2·1 (Flow only; in *along* it shows inside the Speak-along frame), 🎤 **Speak along**, ✓ **Done**.
-- **Mic level meter:** shows that your voice is being picked up.
+- **Stage state:** the stage always shows what to do now:
+  - **Listening** (a small label while the speaker plays; **Listen — the original, then you** while your take is played back).
+  - **Get ready** with a 3·2·1 ring (Flow only; in *along* the ring shows inside the Speak-along frame).
+  - **Your turn** (or **Speak along**): a red frame, a pulsing red dot, the take's timer and a live waveform of your voice.
+  - When nothing is going on, a small note says what Enter does: "Ready — Enter to start", or "Done — → for the next
+    sentence, Enter to try again".
 - **Karaoke cues:**
   - The sentence fills with colour in time with the speaker.
   - During your turn, a fainter amber wipe runs at the speaker's pace.
-  - Count-in dots ● ● ● appear before you have to start.
 - **Flow extras:** a preview of the next line and a bar that shrinks over your speaking window.
 
-![Echo, your turn: amber pacing wipe and mic meter](docs/screenshots/echo-record.png)
+![Echo, your turn: amber pacing wipe](docs/screenshots/echo-record.png)
 
 ![Flow, your turn: the turn bar shrinks while you speak](docs/screenshots/flow-turn.png)
 
@@ -170,7 +172,7 @@ Tune it in `config.toml` under `[drill]`: `window_days` 30, `min_rows` 8, `queue
 
 You can set:
 - the AnkiConnect address, import queries and the export note type;
-- practice preferences: hide the text while recording, the Flow pause length, the "move on" hint and the default speed;
+- practice preferences: hide the text while recording, the Flow gap factor, the "move on" hint and the default speed;
 - the YouTube bookmarklet;
 - your **Voice profile**, the pitch baseline tones are normalised to, with a **Reset voice profile** button.
 
@@ -206,8 +208,8 @@ translate. Without an API key, sentences are split at punctuation and there are 
 The app uses one dark, lacquer-style look on every page and dialog. Characters are set in a serif face, lesson tiles
 and the sentence card have window-frame corners, and the waveforms are rounded and filled in the speaker's and your
 colours. The control bar is `‹ n/N ›`, ▶ Listen, ● Record, Me, Anki and a Sound pop-up (speed, the 0.75× preset,
-speaker volume and guide level). ⚑ Difficult and 字/pīn/EN sit on the sentence card. In the Drill the bar is the same,
-with Anki hidden and Next in the accent colour. There is no Finish session button: the session Anki offer appears
+speaker volume and guide level, which also applies to the Drill's listen-along step). ⚑ Difficult and 字/pīn/EN sit on the sentence card. In the Drill the bar is the same,
+with Anki hidden and Next in the accent colour while you review a sentence. There is no Finish session button: the session Anki offer appears
 when you leave via ⌂ Library, and on the Flow summary's Done.
 
 ## Keyboard shortcuts
@@ -215,14 +217,14 @@ when you leave via ⌂ Library, and on the Flow summary's Done.
 | Key | Action |
 |---|---|
 | `Space` | Listen (play the reference) |
-| `Enter` | Record / stop |
+| `Enter` | Record / stop (also starts and stops a Flow run) |
 | `←` `→` | Previous / next sentence |
 | `R` | Replay your take (Me) |
 | `S` | 0.75× speed |
 | `T` `P` `E` | Hide or show hanzi, pinyin, translation |
 | `F` | Mark the sentence Difficult (⚑) |
 | `A` | Send to Anki |
-| `L` | Collapse the lesson drawer |
+| `L` | Lesson list (toggles the drawer) |
 | `?` | Help |
 
 ---
