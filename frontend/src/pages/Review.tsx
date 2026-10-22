@@ -57,7 +57,7 @@ export default function Review() {
   }
   return (
     <Shell><div className="max-w-4xl mx-auto p-6 space-y-3">
-      <div className="flex justify-between items-center"><h1 className="text-fghi">Review · {rows.length}</h1><button className="btn" onClick={sendAll} disabled={!rows.length || sending || listBusy}>A → Anki all</button></div>
+      <div className="flex justify-between items-center"><h1 className="text-fg">Review · {rows.length}</h1><button className="btn" onClick={sendAll} disabled={!rows.length || sending || listBusy}>A → Anki all</button></div>
       {msg && <p className="text-sm text-fgdim">{msg}</p>}
       {!loading && !rows.length && !msg && <p className="text-sm text-fgdim">Nothing to review. Flag a sentence with ⚑ while practising and it shows up here.</p>}
       {rows.map((r) => (
@@ -67,7 +67,7 @@ export default function Review() {
           <Link className="btn" to={`/practice/${r.lesson.id}?seg=${r.segment.idx}`}>Practise</Link>
         </div>))}
       <section className="space-y-2 pt-6">
-        <h2 className="text-fghi">Practised, not in Anki{unsent ? ` · ${unsent.length}` : ''}</h2>
+        <h2 className="text-fg">Practised, not in Anki{unsent ? ` · ${unsent.length}` : ''}</h2>
         {unsent && (unsent.length
           ? <ExportList items={unsent.map(toItem)} onSent={mark} onBusy={setListBusy} disabled={sending} />
           : <p className="text-sm text-fgdim">Every sentence you practised is in Anki.</p>)}

@@ -15,9 +15,9 @@ export default function FlowSummary(p: Props) {
   const weakest = weakestResults(p.results, scores, 3)
   return (
     <div className="space-y-4">
-      <h2 className="text-fghi">Flow finished · {p.results.length} sentences{p.skipped ? ` · ${p.skipped} skipped` : ''} · {Math.floor(Math.round(p.elapsedS) / 60)} min {Math.round(p.elapsedS) % 60} s</h2>
+      <h2 className="text-fg">Flow finished · {p.results.length} sentences{p.skipped ? ` · ${p.skipped} skipped` : ''} · {Math.floor(Math.round(p.elapsedS) / 60)} min {Math.round(p.elapsedS) % 60} s</h2>
       <div className="grid grid-cols-2 gap-3">
-        <div className="bg-bg border border-line rounded p-3"><div className="text-2xl text-fghi">{mean != null ? Math.round(mean * 100) : '—'}</div><div className="text-fgdim text-sm">{mean != null ? 'mean score' : 'scores arrive in Phase 2'}</div></div>
+        <div className="bg-bg border border-line rounded p-3"><div className="text-2xl text-fg">{mean != null ? Math.round(mean * 100) : '—'}</div><div className="text-fgdim text-sm">{mean != null ? 'mean score' : 'scores arrive in Phase 2'}</div></div>
         <div className="bg-bg border border-line rounded p-3 text-sm">
           <div className="text-[10px] uppercase tracking-widest text-fgdim mb-1">{scored.length ? 'weakest, drill these' : 'replay each line'}</div>
           {(scored.length ? weakest : p.results).map((r) => (

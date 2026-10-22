@@ -4,10 +4,10 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-full">
       <header className="flex items-center justify-between px-6 py-3 border-b border-line">
-        <span className="text-fghi">chinese-shadow-speech</span>
+        <span className="text-fg">chinese-shadow-speech</span>
         <nav className="flex gap-2">
           {[['/library', 'Library'], ['/review', 'Review'], ['/drill', 'Drill'], ['/stats', 'Stats'], ['/settings', 'Settings']].map(([to, label]) => (
-            <NavLink key={to} to={to} className={({ isActive }) => `${tab} ${isActive ? 'bg-[#1c2a3a] border-accent text-white' : 'text-fgdim'}`}>{label}</NavLink>))}
+            <NavLink key={to} to={to} className={({ isActive }) => `${tab} ${isActive ? 'bg-card border-accent text-fg' : 'text-fgdim'}`}>{label}</NavLink>))}
         </nav>
       </header>
       {children}

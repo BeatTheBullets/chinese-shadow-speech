@@ -16,7 +16,7 @@ const startError = (e: unknown) =>
 function FocusRow({ focus, onStart, busy }: { focus: DrillFocus; onStart: (f: DrillFocus) => void; busy: boolean }) {
   return (
     <div className="flex items-center gap-4 border-b border-line py-2">
-      <span className="text-fghi">{focus.label}</span>
+      <span className="text-fg">{focus.label}</span>
       <span className="text-sm text-fgdim">your mean {pct(focus.mean)} · {focus.n} syllables</span>
       <button className="btn ml-auto" disabled={busy} onClick={() => onStart(focus)}>Start</button>
     </div>
@@ -93,13 +93,13 @@ export default function Drill() {
   const alternatives = (list?.focuses ?? []).filter((f) => f !== auto).slice(0, 2)
   return (
     <Shell><div className="max-w-4xl mx-auto p-6 space-y-4">
-      <h1 className="text-fghi">Drill</h1>
+      <h1 className="text-fg">Drill</h1>
       {error && <p className="text-sm text-bad">{error}</p>}
       {kind && key && starting ? <p className="text-sm text-fgdim">Starting…</p>
         : !list ? (!error && <p className="text-sm text-fgdim">Loading…</p>)
         : !list.focuses.length ? <p className="text-sm text-fgdim">{EMPTY} <Link to="/library" className="text-accent underline">Open the Library</Link></p>
         : (<>
-          {auto && <section className="bg-panel border border-line rounded p-4"><h2 className="text-fghi">Today's focus</h2><FocusRow focus={auto} onStart={start} busy={starting} /></section>}
+          {auto && <section className="bg-panel border border-line rounded p-4"><h2 className="text-fg">Today's focus</h2><FocusRow focus={auto} onStart={start} busy={starting} /></section>}
           {alternatives.length > 0 && <section className="bg-panel border border-line rounded p-4"><h2 className="text-fgdim">Or drill</h2>
             {alternatives.map((f) => <FocusRow key={`${f.kind}:${f.key}`} focus={f} onStart={start} busy={starting} />)}</section>}
         </>)}

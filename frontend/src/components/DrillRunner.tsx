@@ -296,11 +296,11 @@ export default function DrillRunner({ session, onFinish }: { session: DrillSessi
     onReference: (v) => settings.set({ referenceVolume: clamp01(v) }), onGuide: (v) => settings.set({ guideLevel: clamp01(v) }),
   }
   const enterLabel = st.step === 'listen' ? 'Record now' : st.step === 'review' ? (st.outcome === 'retry' ? 'Again' : 'Next') : recording ? '■ Stop' : '● Record'
-  const b = 'px-3 py-1 rounded bg-panel2 text-sm disabled:opacity-40'
+  const b = 'px-3 py-1 rounded bg-card text-sm disabled:opacity-40'
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-4 text-sm text-fgdim border-b border-line pb-2">
-        <span className="text-fghi">{session.label}</span>
+        <span className="text-fg">{session.label}</span>
         <span>Sentence {st.i + 1} / {st.n}</span>
         <span>Try {tryNo} / {maxTries}</span>
         <span>{item.lesson_title}</span>

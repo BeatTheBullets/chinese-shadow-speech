@@ -20,12 +20,12 @@ export default function HelpOverlay({ chorusPasses, onClose }: { chorusPasses: n
     <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center" onClick={onClose}>
       <div role="dialog" aria-modal="true" aria-labelledby="help-title" className="bg-panel border border-line rounded p-6 w-[640px] max-h-[90vh] overflow-y-auto space-y-4"
         onClick={(e) => e.stopPropagation()}>
-        <h2 id="help-title" className="text-fghi text-lg">How to practise</h2>
+        <h2 id="help-title" className="text-fg text-lg">How to practise</h2>
         <dl className="space-y-2 text-sm">{MODES.map((m) => (
-          <div key={m}><dt className="text-fghi">{modeName(m)}</dt><dd className="text-fgdim">{modeHelp(m, chorusPasses)}</dd></div>))}</dl>
-        <h3 className="text-fghi">Keys</h3>
+          <div key={m}><dt className="text-fg">{modeName(m)}</dt><dd className="text-fgdim">{modeHelp(m, chorusPasses)}</dd></div>))}</dl>
+        <h3 className="text-fg">Keys</h3>
         <table className="text-sm"><tbody>{KEY_HELP.map(([k, what]) => (
-          <tr key={k}><td className="pr-4 text-fghi font-mono whitespace-pre">{k}</td><td className="text-fgdim">{what}</td></tr>))}</tbody></table>
+          <tr key={k}><td className="pr-4 text-fg font-mono whitespace-pre">{k}</td><td className="text-fgdim">{what}</td></tr>))}</tbody></table>
         <div className="text-right"><button className="btn" onClick={onClose} autoFocus>Got it (Esc)</button></div>
       </div>
     </div>

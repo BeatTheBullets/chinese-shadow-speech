@@ -37,14 +37,14 @@ export default function FlowView(p: FlowViewProps) {
       {p.segments.map((s, i) => {
         if (i !== current) return <FlowRow key={s.id} s={s} pending={p.pending.has(s.id)} place={i < current ? 'past' : next && i === current + 1 ? 'next' : 'later'} />
         return (
-          <div key={s.id} ref={curRef} className="flex gap-3 items-start px-3 rounded bg-[#1c2a3a] py-3">
+          <div key={s.id} ref={curRef} className="flex gap-3 items-start px-3 rounded bg-card py-3">
             <RowMarks s={s} pending={p.pending.has(s.id)} />
             <div className="flex-1 space-y-2">
               <CueLine cue={p.cue} level={p.level} dots={k.dots} />
               <KaraokeSentence wipe={k.wipe} text={s.text} words={s.words_json} showHanzi={p.showText} showPinyin={p.showText} />
               {!p.showText && <GhostLine count={spans.length} wipe={k.wipe} />}
               {k.turnLeft != null && (
-                <div data-testid="turn-bar" className="h-1 bg-panel2 rounded overflow-hidden"><div className="h-full bg-you" style={{ width: `${k.turnLeft * 100}%` }} /></div>)}
+                <div data-testid="turn-bar" className="h-1 bg-card rounded overflow-hidden"><div className="h-full bg-you" style={{ width: `${k.turnLeft * 100}%` }} /></div>)}
             </div>
           </div>)
       })}
@@ -75,10 +75,10 @@ export function FlowSetup({ segments, from, to, sub, onChange, onStart, runs, on
   runs: FlowRun[]; onReplay: (run: FlowRun) => void
 }) {
   const pick = (label: string, value: number, key: 'from' | 'to') => (
-    <select aria-label={label} className="bg-panel2 rounded px-1 py-0.5 text-fg" value={value} onChange={(e) => onChange({ [key]: Number(e.target.value) })}>
+    <select aria-label={label} className="bg-card rounded px-1 py-0.5 text-fg" value={value} onChange={(e) => onChange({ [key]: Number(e.target.value) })}>
       {segments.map((s, i) => <option key={s.id} value={i}>{i + 1}. {s.text.length > 12 ? `${s.text.slice(0, 12)}…` : s.text}</option>)}
     </select>)
-  const tab = (v: FlowSub) => <button aria-pressed={sub === v} className={`px-2 py-0.5 rounded border ${sub === v ? 'bg-[#1c2a3a] border-accent text-white' : 'border-line'}`} onClick={() => onChange({ sub: v })}>{v}</button>
+  const tab = (v: FlowSub) => <button aria-pressed={sub === v} className={`px-2 py-0.5 rounded border ${sub === v ? 'bg-card border-accent text-fg' : 'border-line'}`} onClick={() => onChange({ sub: v })}>{v}</button>
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-center gap-2 text-sm text-fgdim">
@@ -100,7 +100,7 @@ function PastRuns({ runs, onReplay }: { runs: FlowRun[]; onReplay: (run: FlowRun
       {k === 0 ? 'Last run' : 'Earlier run'} · {runLabel(run)}
       <button className="btn" onClick={() => onReplay(run)}>▶ replay</button>
       {runs.length > 1 && (
-        <select aria-label="Run to replay" className="bg-panel2 rounded px-1 py-0.5 text-fg" value={k} onChange={(e) => setK(Number(e.target.value))}>
+        <select aria-label="Run to replay" className="bg-card rounded px-1 py-0.5 text-fg" value={k} onChange={(e) => setK(Number(e.target.value))}>
           {runs.map((r, i) => <option key={i} value={i}>{runLabel(r)}</option>)}
         </select>)}
     </div>
@@ -111,11 +111,11 @@ function PastRuns({ runs, onReplay }: { runs: FlowRun[]; onReplay: (run: FlowRun
 export function FlowTransport({ rate, onRate, sub, onStop, onSkip, error, hint, volume }: {
   rate: number; onRate: (r: number) => void; sub: FlowSub; onStop: () => void; onSkip: () => void; error: string; hint: string; volume: VolumeControls
 }) {
-  const b = 'px-3 py-1 rounded bg-panel2 text-sm'
+  const b = 'px-3 py-1 rounded bg-card text-sm'
   return (
     <div className="border-t border-line p-3 text-center space-y-1">
       <div className="flex justify-center gap-2 items-center">
-        <button className={`${b} bg-[#5a1f26] text-[#ffd7db]`} onClick={onStop} title="Stop and save the finished sentences (Enter)">■ stop</button>
+        <button className={`${b} bg-record text-fg`} onClick={onStop} title="Stop and save the finished sentences (Enter)">■ stop</button>
         <button className={b} onClick={onSkip} title="Skip this sentence (→)">skip ▸▸</button>
         <label className="text-xs text-fgdim flex items-center gap-1">{rate.toFixed(2)}×<input type="range" aria-label="Playback speed" min={0.6} max={1} step={0.05} value={rate}
           onChange={(e) => onRate(Number(e.target.value))} onPointerUp={(e) => e.currentTarget.blur()} /></label>

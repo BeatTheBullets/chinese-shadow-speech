@@ -20,7 +20,7 @@ export function MicMeter({ level }: { level: number }) {
   const v = Math.min(1, level * 3)
   return (
     <span role="meter" aria-label="Microphone level" aria-valuemin={0} aria-valuemax={1} aria-valuenow={v}
-      className="inline-block w-24 h-2 bg-panel2 rounded overflow-hidden">
+      className="inline-block w-24 h-2 bg-card rounded overflow-hidden">
       <span className="block h-full bg-you" style={{ width: `${v * 100}%` }} />
     </span>
   )

@@ -7,6 +7,7 @@ import CellRow from './CellRow'
 import HeardRow from './HeardRow'
 import PitchLine from './PitchLine'
 import Waveform from './Waveform'
+import { TOKENS } from '../theme/tokens'
 
 interface Props {
   segment: Segment
@@ -40,7 +41,7 @@ export default function TwoTrack(p: Props) {
       <div className="bg-bg border border-line rounded p-2">
         <div className={cap}><span>Reference · {p.refDuration.toFixed(1)} s</span><button onClick={p.onPlayRef}>▶ Space</button></div>
         <div className="relative inline-block">
-          <Waveform peaks={p.refPeaks} duration={p.refDuration} pxPerSec={pxPerSec} ticks={ticks} playhead={p.refPlayhead} color="#2f4a66" />
+          <Waveform peaks={p.refPeaks} duration={p.refDuration} pxPerSec={pxPerSec} ticks={ticks} playhead={p.refPlayhead} color={TOKENS.ref} />
           {refPts.length > 0 && <PitchLine series={[{ points: refPts, className: 'stroke-ref' }]} pxPerSec={pxPerSec} duration={p.refDuration} height={44} range={range} />}
         </div>
         <CellRow cells={cells} variant="ref" onCellClick={p.onPlaySyllable} highlight={p.highlight} soundMarks={soundMarks} />
@@ -50,7 +51,7 @@ export default function TwoTrack(p: Props) {
           <span className="flex items-center gap-2">{p.scoreHeader}<button onClick={p.onPlayYou} disabled={!p.youDuration}>▶ R</button></span></div>
         {p.youDuration ? (
           <div className="relative inline-block">
-            <Waveform peaks={p.youPeaks} duration={p.youDuration} pxPerSec={pxPerSec} playhead={p.youPlayhead} color="#5a4a2a" />
+            <Waveform peaks={p.youPeaks} duration={p.youDuration} pxPerSec={pxPerSec} playhead={p.youPlayhead} color={TOKENS.accent} />
             {usrPts.length > 0 && <PitchLine series={[{ points: ghost, className: 'stroke-ref opacity-30' }, { points: usrPts, className: 'stroke-warn' }]} pxPerSec={pxPerSec} duration={p.youDuration} height={44} range={range} />}
           </div>
         ) : <div className="h-11 text-center text-fgdim text-sm leading-[44px]">record to compare</div>}

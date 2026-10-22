@@ -143,13 +143,13 @@ export default function Library() {
                 const j = jobs[l.id]; const busy = l.status !== 'ready' && l.status !== 'error'
                 const frac = busy ? (j?.fraction ?? 0) : (l.segment_count ? l.practised_count / l.segment_count : 0)
                 const inner = (<>
-                    <div className="font-hanzi text-fghi truncate pr-16">{l.title}{l.source_type === 'anki' && <span className="ml-2 text-[10px] px-1 rounded bg-[#2b1f3a] text-[#d6c3f0]">anki</span>}</div>
+                    <div className="font-hanzi text-fg truncate pr-16">{l.title}{l.source_type === 'anki' && <span className="ml-2 text-[10px] px-1 rounded bg-sound/20 text-sound">anki</span>}</div>
                     <div className="text-xs text-fgdim mt-1">
                       {l.status === 'error' ? <span className="text-bad">error: {l.error}</span>
                         : busy ? `${j?.stage ?? l.status}… ${Math.round(frac * 100)} %`
                         : `${l.segment_count} sentences · ${l.practised_count} practised${l.mean_last_score != null ? ` · mean ${Math.round(l.mean_last_score * 100)}` : ''}${l.passage_count ? ` · ${l.passages_done ?? 0} / ${l.passage_count} passages` : ''}`}
                     </div>
-                    <div className="h-1 bg-panel2 rounded mt-2 overflow-hidden"><div className={`h-full ${busy ? 'bg-accent' : 'bg-ok'}`} style={{ width: `${frac * 100}%` }} /></div>
+                    <div className="h-1 bg-card rounded mt-2 overflow-hidden"><div className={`h-full ${busy ? 'bg-accent' : 'bg-ok'}`} style={{ width: `${frac * 100}%` }} /></div>
                   </>)
                 return (
                   <div key={l.id} className="relative group">
@@ -158,8 +158,8 @@ export default function Library() {
                       : <div className="bg-panel border border-line rounded p-3 block">{inner}</div>}
                     {/* outside the link, so the actions never open the lesson; every status, a broken upload included */}
                     <div className="absolute top-2 right-2 flex gap-1 opacity-50 group-hover:opacity-100 focus-within:opacity-100">
-                      <button className="text-xs text-fgdim hover:text-fghi px-1" title="Rename (title, speaker)" aria-label={`Rename ${l.title}`} onClick={() => renameLesson(l)}>✎</button>
-                      {canRebuild(l) && <button className="text-xs text-fgdim hover:text-fghi px-1" title="Rebuild text (transcribe again, keep your takes)" aria-label={`Rebuild the text of ${l.title}`} onClick={() => rebuildLesson(l)}>⟲</button>}
+                      <button className="text-xs text-fgdim hover:text-fg px-1" title="Rename (title, speaker)" aria-label={`Rename ${l.title}`} onClick={() => renameLesson(l)}>✎</button>
+                      {canRebuild(l) && <button className="text-xs text-fgdim hover:text-fg px-1" title="Rebuild text (transcribe again, keep your takes)" aria-label={`Rebuild the text of ${l.title}`} onClick={() => rebuildLesson(l)}>⟲</button>}
                       <button className="text-xs text-fgdim hover:text-bad px-1" title="Delete lesson" aria-label={`Delete ${l.title}`} onClick={() => removeLesson(l)}>✕</button>
                     </div>
                   </div>)

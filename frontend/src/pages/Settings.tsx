@@ -60,18 +60,18 @@ export default function Settings() {
 
   const sel = (label: string, value: string, onChange: (v: string) => void, opts: string[], allowEmpty = false) => (
     <label className="flex flex-col gap-1 text-sm text-fgdim">{label}
-      <select className="bg-panel2 border border-line rounded px-2 py-1 text-fg" value={value} onChange={(e) => onChange(e.target.value)}>
+      <select className="bg-card border border-line rounded px-2 py-1 text-fg" value={value} onChange={(e) => onChange(e.target.value)}>
         {allowEmpty && <option value="">—</option>}{opts.map((o) => <option key={o}>{o}</option>)}
       </select></label>)
 
   return (
     <div className="max-w-3xl mx-auto p-6 space-y-8">
-      <h1 className="text-xl text-fghi">Settings</h1>
+      <h1 className="text-xl text-fg">Settings</h1>
       <section className="space-y-3">
-        <h2 className="text-fghi">Anki</h2>
+        <h2 className="text-fg">Anki</h2>
         <div className="flex gap-2 items-end">
           <label className="flex-1 text-sm text-fgdim">AnkiConnect URL
-            <input className="w-full bg-panel2 border border-line rounded px-2 py-1 text-fg" value={s.ankiUrl} onChange={(e) => s.set({ ankiUrl: e.target.value })} /></label>
+            <input className="w-full bg-card border border-line rounded px-2 py-1 text-fg" value={s.ankiUrl} onChange={(e) => s.set({ ankiUrl: e.target.value })} /></label>
           <button className="btn" onClick={connect}>Connect</button>
         </div>
         <p className="text-sm text-fgdim">{status}</p>
@@ -106,7 +106,7 @@ export default function Settings() {
         </div>
       </section>
       <section className="space-y-2">
-        <h2 className="text-fghi">Practice</h2>
+        <h2 className="text-fg">Practice</h2>
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={s.practice.hideTextWhileRecording} onChange={(e) => s.set({ practice: { ...s.practice, hideTextWhileRecording: e.target.checked } })} /> Hide text while recording</label>
         {([['chorusPasses', 'Chorus passes'], ['flowGapFactor', 'Flow gap factor'], ['moveOnAfter', 'Move-on hint after N attempts'], ['defaultRate', 'Default speed']] as const).map(([k, label]) => {
           const clampFn = k === 'defaultRate' ? (v: number) => Math.max(0.6, Math.min(1.0, v)) : (v: number) => v
@@ -118,7 +118,7 @@ export default function Settings() {
           <input className="inp" value={s.languageParent ?? ''} onChange={(e) => s.set({ languageParent: e.target.value || null })} /></label>
       </section>
       <section className="space-y-2">
-        <h2 className="text-fghi">Voice profile</h2>
+        <h2 className="text-fg">Voice profile</h2>
         <p className="text-sm text-fgdim">{voice?.baseline_hz != null
           ? `Your baseline: ${Math.round(voice.baseline_hz)} Hz · range ${voice.spread_st!.toFixed(1)} st · from ${(voice.voiced_s / 60).toFixed(1)} min of speech`
           : 'No voice profile yet: it builds from your first scored takes.'}</p>
@@ -127,7 +127,7 @@ export default function Settings() {
         {voiceStatus && <p role="alert" className="text-sm text-warn">{voiceStatus}</p>}
       </section>
       <section className="space-y-2">
-        <h2 className="text-fghi">YouTube</h2>
+        <h2 className="text-fg">YouTube</h2>
         <p className="text-sm text-fgdim">Drag this link to the Brave bookmarks bar. On a YouTube video, click it to send the video here.</p>
         <a ref={bookmarklet} className="btn inline-block" onClick={(e) => e.preventDefault()}>→ chinese-shadow-speech</a>
         <p className="text-sm text-fgdim">Videos behind an age or "not a bot" check need your YouTube cookies: export them to a

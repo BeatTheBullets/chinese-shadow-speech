@@ -15,7 +15,7 @@ export default function CellRow({ cells, variant, onCellClick, highlight, soundM
       {cells.map((c, i) => (
         <button key={i} title={variant === 'you' ? cellTitle(c) : c.pinyin} onClick={() => onCellClick?.(i)}
           className={`w-10 max-w-[56px] rounded border px-1 py-1 text-center ${cellClass(c)}${ring(i)}`}>
-          <span className="block font-hanzi text-fghi text-sm leading-tight">{c.ch}</span>
+          <span className="block font-hanzi text-fg text-sm leading-tight">{c.ch}</span>
           <span className="block text-[10px] text-ref">{variant === 'ref' ? `${c.pinyin} ${c.tone >= 0 ? c.tone : ''}`
             : c.status === 'wrong' && c.target != null && c.heard != null ? `${c.target}→${c.heard}` : `${c.tone >= 0 ? c.tone : ''}`}</span>
           {variant === 'you' && <span className="block text-[9px] text-fgdim">{youMark(c)}</span>}
