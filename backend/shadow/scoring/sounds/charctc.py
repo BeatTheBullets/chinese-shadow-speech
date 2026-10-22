@@ -31,15 +31,6 @@ def group_matrix(vocab: dict[str, int], size: int, blank: int, syllables: list[s
 class CharModel(Protocol):
     blank: int                            # blank's column in GROUP space: always 0 (CTC runs over the group log-probs)
 
-    def column(self, s: str) -> int | None:
-        """Group column of any inventory syllable, with characters or not. The spike's expected sequence used it, so a
-        syllable without characters sits in the sequence as its own all-zero column (log 1e-30), not as blank; only
-        syllables outside the inventory map to blank. Needs no model: the columns are the sorted inventory."""
-        if self._col is None:
-            from .contrasts import inventory
-            self._col = {x: i + 1 for i, x in enumerate(sorted(inventory()))}
-        return self._col.get(s)
-
     def group_logp(self, wav: np.ndarray, sr: int): ...   # torch.Tensor, T × (1+S)
     def sid(self, s: str) -> int | None: ...              # column of a syllable that has characters (alternatives)
     def column(self, s: str) -> int | None: ...           # column of any inventory syllable (the expected sequence)
