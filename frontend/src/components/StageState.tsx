@@ -14,7 +14,8 @@ const nowS = () => performance.now() / 1000
 //   when you finish" beside it (Echo, Drill; Flow's turns end on their own clock); `wave` (the live waveform) shows.
 //   No note here: nothing competes with it.
 //   Along records throughout, so its frame stays while it counts in to the next line: the ring shows inside it.
-// `note` is the small line saying what Enter does when nothing is going on (idle, and alongside listen and review).
+// `note` is a page's own small guidance line (the drill's "Scoring…", "Not green yet…"), shown when nothing is going
+// on and alongside listen and review. What to press next is not a line: that button pulses (Transport's pulse).
 // Nothing moves between stages (no page jump): the cue area under the sentence has one min-height that fits the tallest
 // state, the ring is overlaid on it (absolute), and `wave` has a fixed slot, held empty while not speaking.
 // `compact` (Flow, between its transcript lines): the cue area only as tall as the ring, "Get ready" beside the ring

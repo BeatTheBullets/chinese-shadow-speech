@@ -596,7 +596,7 @@ describe('<Practice>', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Start flow (Enter)' }))
     }
 
-    it('choosing Flow shows the Flow screen at once: the start sentence on the stage, a windowed transcript, the settings and the Start; Enter starts the run', async () => {
+    it('choosing Flow shows the Flow screen at once: the start sentence on the stage, a windowed transcript, the settings and a pulsing Start; Enter starts the run', async () => {
       clipsTake(2, () => true)
       renderPractice()
       await screen.findByText('你好', { selector: 'p.sentence' })
@@ -609,13 +609,14 @@ describe('<Practice>', () => {
       expect(screen.queryByTestId('two-track')).toBeNull()                       // not the Echo screen
       expect(screen.getByRole('button', { name: 'after' })).toHaveAttribute('aria-pressed', 'true')
       expect(screen.getByRole('combobox', { name: 'Flow from' })).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: 'Start flow (Enter)' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Start flow (Enter)' })).toHaveClass('pulse-next')
       expect(screen.getByTestId('stage')).not.toHaveTextContent(/Ready|Enter/)
       fireEvent.click(screen.getByRole('button', { name: 'along' }))
       press('Enter')
       await waitFor(() => expect(h.player.play).toHaveBeenCalledTimes(1))
       expect(h.rec.start).toHaveBeenCalledTimes(1)
       expect(screen.getByTestId('stage')).toHaveTextContent('Speak along')
+      expect(screen.getByRole('button', { name: 'Stop (Enter)' })).not.toHaveClass('pulse-next')
       press('Enter')
       expect(await screen.findByText(/Flow finished/)).toBeInTheDocument()
     })
@@ -1287,11 +1288,15 @@ describe('<Practice>', () => {
   it('recording shows Your turn with a live waveform and no mic meter', async () => {
     renderPractice()
     await screen.findByText('你好', { selector: 'p.sentence' })
-    expect(screen.getByTestId('stage')).toHaveTextContent('Ready — Enter to start')
+    expect(screen.getByTestId('stage')).not.toHaveTextContent(/Ready|Enter/)          // no "Ready — Enter to start" line…
+    expect(screen.getByRole('button', { name: 'Record (Enter)' })).toHaveClass('pulse-next') // …Record pulses instead
+    expect(screen.getByRole('button', { name: 'Next sentence (→)' })).not.toHaveClass('pulse-next')
     expect(screen.getByTestId('stage')).not.toHaveClass('border-record')
     press('Enter')
     await waitFor(() => expect(screen.getByTestId('stage')).toHaveTextContent('Your turn'))
     expect(screen.getByTestId('stage')).toHaveClass('border-record')
+    expect(screen.getByRole('button', { name: 'Stop (Enter)' })).not.toHaveClass('pulse-next')
+    expect(screen.getByRole('button', { name: 'Next sentence (→)' })).not.toHaveClass('pulse-next')
     expect(screen.getByTestId('rec-dot')).toBeInTheDocument()
     expect(screen.getByTestId('rec-timer')).toHaveTextContent(/^0:0\d$/)
     expect(screen.getByTestId('stage')).toContainElement(screen.getByTestId('live-wave'))
@@ -1299,7 +1304,10 @@ describe('<Practice>', () => {
     expect(screen.queryByRole('meter')).toBeNull()
     expect(screen.queryByLabelText(/starting in/)).toBeNull() // Echo: no countdown, straight to your turn
     press('Enter'); await flush()
-    await waitFor(() => expect(screen.getByTestId('stage')).toHaveTextContent('Done — → for the next sentence, Enter to try again'))
+    // done: no "Done — → …" line; › pulses (move on), Record no longer does
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Next sentence (→)' })).toHaveClass('pulse-next'))
+    expect(screen.getByRole('button', { name: 'Record (Enter)' })).not.toHaveClass('pulse-next')
+    expect(screen.getByTestId('stage')).not.toHaveTextContent(/Done|Enter/)
     expect(screen.queryByTestId('live-wave')).toBeNull()
     expect(screen.getByTestId('stage')).not.toHaveClass('border-record')
   })

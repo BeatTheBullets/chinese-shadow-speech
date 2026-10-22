@@ -11,10 +11,10 @@ const ago = (s: number) => performance.now() / 1000 - s   // a startedAt `s` sec
 
 describe('<StageState>', () => {
 
-  it('idle: the stage as it is, with the small note saying what Enter does; no frame', () => {
-    render(<StageState stage="idle" note="Ready — Enter to start">{card}</StageState>)
+  it('idle: the stage as it is, with a page\'s own small note (the drill\'s guidance); no frame', () => {
+    render(<StageState stage="idle" note="Your turn — Enter to record">{card}</StageState>)
     expect(screen.getByTestId('stage')).toContainElement(screen.getByTestId('card'))
-    expect(screen.getByText('Ready — Enter to start')).toBeInTheDocument()
+    expect(screen.getByText('Your turn — Enter to record')).toBeInTheDocument()
     expect(screen.getByTestId('stage')).not.toHaveClass('border-record')
   })
   it('listen: a small, calm "▶ Listening" label in the speaker colour', () => {
@@ -121,8 +121,8 @@ describe('<StageState>', () => {
     expect(screen.getByTestId('stage')).not.toHaveClass('border-record')
   })
   it('the moment to speak carries no note: nothing competes with "Your turn"', () => {
-    render(<StageState stage="yourTurn" note="Ready — Enter to start">{card}</StageState>)
-    expect(screen.queryByText('Ready — Enter to start')).toBeNull()
+    render(<StageState stage="yourTurn" note="Scoring…">{card}</StageState>)
+    expect(screen.queryByText('Scoring…')).toBeNull()
   })
   it('compact (Flow): one smaller min-height that still holds the ring, a smaller wave slot, and the ring beside "Get ready"', () => {
     const minH = () => [...screen.getByTestId('stage-cue').classList].filter((c) => c.startsWith('min-h-'))

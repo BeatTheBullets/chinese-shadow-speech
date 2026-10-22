@@ -349,9 +349,10 @@ export default function DrillRunner({ session, onFinish }: { session: DrillSessi
         onPlayRef={playRef} onPlayYou={replayYou} onPlaySyllable={playSyllable} onPlayYouSyllable={playYouSyllable} highlight={item.targets}
         score={take?.score ?? null} scoreHeader={<ScoreHeader score={take?.score} best={seg.best_score} attempts={seg.attempts} />} />
       {/* The Practice bar, minus Anki: position n / N with › skipping (no going back), Listen, Record (Again when
-          reviewing; Next goes on, in accent), Me, Sound. */}
+          reviewing; Next goes on, in accent), Me, Sound. Record pulses while the step waits for a take. */}
       <Transport onAction={act} idx={st.i} total={st.n} recording={recording} busy={uploading && st.step === 'record'} hint={hint} error={error}
         recordLabel={enterLabel} advance={st.step === 'review' && st.outcome !== 'retry'}
+        pulse={st.step === 'record' && !recording && !playback && !uploading && !saving ? 'record' : undefined}
         canPrev={false} showAnki={false} sound={sound} />
     </div>
   )

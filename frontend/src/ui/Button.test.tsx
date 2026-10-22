@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { TOKENS, contrast } from '../theme/tokens'
 import Button from './Button'
+import { readFileSync } from 'node:fs'
 
 describe('Button', () => {
   it('shows the key hint under the label, not as the face', () => {
@@ -34,5 +35,17 @@ describe('Button', () => {
     expect(screen.getByRole('button')).toHaveAttribute('aria-expanded', 'true')
     rerender(<Button label="Sound" onClick={() => {}} />)
     expect(screen.getByRole('button')).not.toHaveAttribute('aria-expanded')
+  })
+  it('pulse: the next expected action breathes (pulse-next); without it, nothing moves', () => {
+    const { rerender } = render(<Button label="Record" keyHint="Enter" variant="record" pulse onClick={() => {}} />)
+    expect(screen.getByRole('button')).toHaveClass('pulse-next')
+    rerender(<Button label="Record" keyHint="Enter" variant="record" onClick={() => {}} />)
+    expect(screen.getByRole('button')).not.toHaveClass('pulse-next')
+  })
+  it('the pulse is a ~1.6 s CSS animation, switched off under prefers-reduced-motion', () => {
+    // vitest blanks imported CSS, so the stylesheet is read as text (tests run from frontend/)
+    const flat = readFileSync('src/index.css', 'utf8').replace(/\s+/g, ' ')
+    expect(flat).toMatch(/\.pulse-next \{[^}]*animation: next-pulse 1\.6s/)
+    expect(flat).toMatch(/@media \(prefers-reduced-motion: reduce\) \{ \.pulse-next \{ animation: none; \} \}/)
   })
 })

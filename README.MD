@@ -70,8 +70,8 @@ neighbouring sentence that shares most of its words with the one shown can still
   - **Listening** (a small label while the speaker plays; **Listen — the original, then you** while your take is played back).
   - **Get ready** with a 3·2·1 ring (Flow only; in *along* the ring shows inside the Speak-along frame).
   - **Your turn** (or **Speak along**): a red frame, a pulsing red dot, the take's timer and a live waveform of your voice.
-  - When nothing is going on, a small note says what Enter does: "Ready — Enter to start", or "Done — → for the next
-    sentence, Enter to try again".
+  - When nothing is going on, the button for the next step pulses gently: **Record** before a take (or a Flow run),
+    **›** once the sentence has a take. With reduced motion switched on in your system, nothing moves.
 - **Karaoke cues:**
   - The sentence fills with colour in time with the speaker.
   - During your turn, a fainter amber wipe runs at the speaker's pace.

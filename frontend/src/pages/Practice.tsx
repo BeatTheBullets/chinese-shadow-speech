@@ -23,7 +23,7 @@ import TopBar from '../components/TopBar'
 import Transport from '../components/Transport'
 import type { SoundControls } from '../components/SoundPopover'
 import TwoTrack from '../components/TwoTrack'
-import { idleNote, stageOf } from '../lib/cue'
+import { stageOf } from '../lib/cue'
 import { echoReducer, MIN_TAKE_S, type EchoEvent, type EchoState } from '../lib/echo'
 import { weakestResults, type FlowResult } from '../lib/flow'
 import { clipSpans, stageWipe } from '../lib/karaoke'
@@ -651,10 +651,14 @@ export default function Practice() {
   const refPlaying = echo === 'playing' || echo === 'playback'
   const { wipe } = stageWipe({ spans, refPlaying, refHead, turnStart: st.mode === 'echo' ? echoTurn : null, now, rate: st.rate })
   // The stage (spec §3). Echo goes straight to "Your turn" (no countdown); Flow's countdown is FlowView's.
-  const activity = { mode: st.mode, echo, runKind, hasTake: st.lastAttempt != null, flowPhase: fs.phase, flowSub: fs.sub, flowTurn: fs.turn != null }
-  const stage = stageOf(activity), note = idleNote(activity)
+  const stage = stageOf({ mode: st.mode, echo, runKind, flowPhase: fs.phase, flowSub: fs.sub, flowTurn: fs.turn != null })
+  // The next expected action pulses, while nothing is going on (no "Ready / Done" line): Record before an Echo take or
+  // a Flow run; › once this sentence has a take (Enter would still record again), unless it is the last sentence.
+  const pulse = echo !== 'idle' ? undefined
+    : st.mode === 'flow' ? (fs.phase === 'setup' ? 'record' : undefined)
+    : st.lastAttempt == null ? 'record' : st.idx < segments.length - 1 ? 'next' : undefined
   const bar = <Transport onAction={act} idx={st.idx} total={segments.length} recording={echo === 'recording'} busy={echo === 'uploading'} hint={st.hint} error={error} recordLabel={recordLabel} sound={sound}
-    canNext={st.idx < segments.length - 1} />
+    canNext={st.idx < segments.length - 1} pulse={pulse} />
   return (
     <div className="h-full flex flex-col">
       <TopBar title={st.lesson.title} speaker={st.lesson.speaker} mode={st.mode}
@@ -676,14 +680,14 @@ export default function Practice() {
           </>) : (<>
             <div className="flex-1 overflow-y-auto p-6 space-y-6">
               {st.mode === 'flow' ? (<>
-                <StageState stage={stage} note={note} />
+                <StageState stage={stage} />
                 <FlowSummary segments={segments} results={fs.results} skipped={fs.skipped} elapsedS={fs.elapsedS}
                   onPlayPair={(r) => playItems(resultPair(r))} onReplayAll={() => playItems([...fs.results].sort((x, y) => x.idx - y.idx).flatMap(resultPair))}
                   onRunAgain={() => { if (fs.range) startFlow(fs.range.from, fs.range.to) }} onEcho={(i) => void echoOn(i)}
                   onFlagWeakest={flagWeakest} onExportWeakest={exportWeakest}
                   onDone={() => offerExport(flow.clear)} />
               </>) : (<>
-                <StageState stage={stage} note={note} startedAt={echoTurn ?? undefined} autoStop wave={<LiveWave mic={mic} color={TOKENS.you} />}>
+                <StageState stage={stage} startedAt={echoTurn ?? undefined} autoStop wave={<LiveWave mic={mic} color={TOKENS.you} />}>
                   <KaraokeSentence wipe={wipe} text={seg.text} words={seg.words_json} showHanzi={st.textPrefs.hanzi && show} showPinyin={st.textPrefs.pinyin && show} translation={seg.translation} showTranslation={st.textPrefs.translation && show}
                     tools={<SentenceTools flagged={seg.difficulty_flag} onFlag={() => act('flag')} prefs={st.textPrefs} onToggle={(k) => act(TOGGLE[k])} />}>
                     {!(st.textPrefs.hanzi && show) && wipe && <GhostLine count={spans.length} wipe={wipe} />}
