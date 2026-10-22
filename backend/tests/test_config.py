@@ -71,3 +71,14 @@ def test_sounds_defaults_and_config_toml():
     assert (d.fused_threshold, d.b_only_threshold) == (5.3036, 11.6518)
     s = load_settings(Path(__file__).resolve().parents[2] / "config.toml")
     assert s.sounds == d
+
+
+def test_old_config_with_chorus_passes_still_loads(tmp_path: Path):
+    # Chorus is gone (app style spec §4); an old config.toml that still sets its pass count must load unchanged.
+    from shadow.config import PracticeCfg
+    toml = tmp_path / "config.toml"
+    toml.write_text("[practice]\nchorus_passes = 5\nmove_on_after = 6\n")
+    s = load_settings(toml)
+    assert s.practice.move_on_after == 6
+    assert "chorus_passes" not in PracticeCfg.model_fields
+    assert not hasattr(s.practice, "chorus_passes")

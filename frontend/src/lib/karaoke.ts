@@ -82,7 +82,7 @@ export interface StageWipeInput {
   turnStart: number | null // performance-clock second an Echo take began, else null
   now: number; rate: number
 }
-// Echo, Chorus, Guided: the colour wipe while the reference plays; for an Echo take, 1.5 s of count-in dots from
+// Echo and Drill: the colour wipe while the reference plays; for an Echo take, 1.5 s of count-in dots from
 // the moment it starts recording, then the ghost wipe.
 export function stageWipe(i: StageWipeInput): { wipe: Wipe | null; dots: number } {
   if (i.turnStart != null) {

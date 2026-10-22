@@ -108,7 +108,7 @@ export default function Settings() {
       <section className="space-y-2">
         <h2 className="text-fg">Practice</h2>
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={s.practice.hideTextWhileRecording} onChange={(e) => s.set({ practice: { ...s.practice, hideTextWhileRecording: e.target.checked } })} /> Hide text while recording</label>
-        {([['chorusPasses', 'Chorus passes'], ['flowGapFactor', 'Flow gap factor'], ['moveOnAfter', 'Move-on hint after N attempts'], ['defaultRate', 'Default speed']] as const).map(([k, label]) => {
+        {([['flowGapFactor', 'Flow gap factor'], ['moveOnAfter', 'Move-on hint after N attempts'], ['defaultRate', 'Default speed']] as const).map(([k, label]) => {
           const clampFn = k === 'defaultRate' ? (v: number) => Math.max(0.6, Math.min(1.0, v)) : (v: number) => v
           return (
           <label key={k} className="flex items-center gap-2 text-sm">{label}

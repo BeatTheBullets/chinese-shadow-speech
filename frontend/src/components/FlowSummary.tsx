@@ -3,7 +3,7 @@ import { weakestResults, type FlowResult } from '../lib/flow'
 
 interface Props {
   segments: Segment[]; results: FlowResult[]; skipped: number; elapsedS: number
-  onReplayAll: () => void; onRunAgain: () => void; onEcho: (idx: number) => void; onChorus: (idx: number) => void
+  onReplayAll: () => void; onRunAgain: () => void; onEcho: (idx: number) => void // opens that sentence in Echo
   onFlagWeakest: () => void; onExportWeakest: () => void; onDone: () => void; onPlayPair: (r: FlowResult) => void
 }
 // After a Flow run: mean score and the weakest lines to drill (Phase 2+); in Phase 1 every line with replay (§7.3).
@@ -22,7 +22,7 @@ export default function FlowSummary(p: Props) {
           <div className="text-[10px] uppercase tracking-widest text-fgdim mb-1">{scored.length ? 'weakest, drill these' : 'replay each line'}</div>
           {(scored.length ? weakest : p.results).map((r) => (
             <div key={r.segmentId} className="flex items-center gap-2 py-0.5"><span className="font-hanzi truncate flex-1">{byId.get(r.segmentId)?.text}</span>
-              <button className="btn" onClick={() => p.onPlayPair(r)}>▶ ref+you</button><button className="btn" onClick={() => p.onEcho(r.idx)}>Echo</button><button className="btn" onClick={() => p.onChorus(r.idx)}>Chorus</button></div>))}
+              <button className="btn" onClick={() => p.onPlayPair(r)}>▶ ref+you</button><button className="btn" onClick={() => p.onEcho(r.idx)}>Echo</button></div>))}
         </div>
       </div>
       <div className="flex gap-2 justify-center">

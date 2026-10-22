@@ -3,8 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { exportAndRecord, reexportQuestion } from '../anki/export'
 import { api, ApiError } from '../api/client'
 import type { Attempt, FlowRun, LessonDetail, Mode, Score, Segment, Take } from '../api/types'
-import { playClip, sleep } from '../audio/abortable'
-import { findSilenceEnd, sliceSamples } from '../audio/pcm'
+import { findSilenceEnd } from '../audio/pcm'
 import { ClipPlayer, peaks as peaksOf, playSequence, type SequenceItem } from '../audio/player'
 import { toWav16k } from '../audio/recorder'
 import { useMic } from '../audio/useMic'
@@ -25,7 +24,6 @@ import TwoTrack from '../components/TwoTrack'
 import { cueFor, cuePhase } from '../lib/cue'
 import { echoReducer, MIN_TAKE_S, type EchoEvent, type EchoState } from '../lib/echo'
 import { weakestResults, type FlowResult } from '../lib/flow'
-import { guidedText, nextGuidedStep, type GuidedStep } from '../lib/guided'
 import { clipSpans, stageWipe } from '../lib/karaoke'
 import { actionForKey, type Action } from '../lib/keys'
 import { passageIndexOf, passageSpan } from '../lib/passages'
@@ -40,8 +38,6 @@ import { useFlow } from './useFlow'
 
 const MOVE_ON = 'Several tries on this one. Move on and come back later.'
 const HEADPHONES = 'Use headphones — the mic would pick up the reference'
-const CHORUS_GAP_MS = 300  // between chorus passes (§6)
-const CHORUS_TAIL_MS = 300 // the chorus take runs this long past the end of the last pass
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 // The backend's own explanation (FastAPI `detail`) rather than the raw status line.
 const readable = (e: unknown) => (e instanceof ApiError ? e.detail : message(e))
@@ -56,10 +52,10 @@ function loadTakes(lessonId: number, current: () => boolean) {
 }
 const stored = (attemptId: number, duration: number, score?: Score | null): StoredTake => ({ id: attemptId, url: api.attempts.audioUrl(attemptId), duration, score })
 
-// A multi-step run in progress. Aborting its controller (stop, mode switch, navigation, unmount) ends it.
-type RunKind = 'chorus' | 'flow' | 'guided'
+// A multi-step run in progress (a Flow run). Aborting its controller (stop, mode switch, navigation, unmount) ends it.
+type RunKind = 'flow'
 
-// Practice page: Echo, Chorus, Flow and Guided modes, the drawer's edit/split/merge and the Anki export.
+// Practice page: Echo and Flow modes (app style spec §4), the drawer's edit/split/merge and the Anki export.
 // Handlers read the stores with getState() so timers and late promises never act on a stale render's values.
 export default function Practice() {
   const { id } = useParams()
@@ -75,7 +71,6 @@ export default function Practice() {
   const vadTimer = useRef<number | null>(null)
   const seqCtrl = useRef<AbortController | null>(null)    // a playback sequence (reference then take, Flow replays)
   const recSeg = useRef<Segment | null>(null)             // the sentence the current recording belongs to
-  const recMode = useRef<Mode>('echo')                    // the attempt mode of the current VAD recording (echo or guided)
   const runRef = useRef<{ kind: RunKind; ctrl: AbortController } | null>(null)
   const [runKind, setRunKind] = useState<RunKind | null>(null)
   const playId = useRef(0)
@@ -83,9 +78,6 @@ export default function Practice() {
   const echoRef = useRef<EchoState>('idle')
   const [echo, setEcho] = useState<EchoState>('idle')
   const dispatch = (e: EchoEvent) => { echoRef.current = echoReducer(echoRef.current, e); setEcho(echoRef.current) }
-  const guidedRef = useRef<GuidedStep>('listen')
-  const [guided, setGuidedState] = useState<GuidedStep>('listen')
-  const setGuided = (g: GuidedStep) => { guidedRef.current = g; setGuidedState(g) }
   const [refPeaks, setRefPeaks] = useState<Float32Array | null>(null)
   const [refHead, setRefHead] = useState<number | null>(null)
   const [youHead, setYouHead] = useState<number | null>(null)
@@ -195,18 +187,15 @@ export default function Practice() {
 
   useEffect(() => { if (st.mode === 'flow') loadFlowRuns() }, [st.mode, loadFlowRuns])
 
-  // Guided starts over on every new sentence and mode.
-  useEffect(() => { setGuided('listen') }, [segId, st.mode])
-
   // Reference volume, or its guide level while the learner speaks along (addendum §7); follows the sliders live.
-  const speakingAlong = runKind === 'chorus' || (runKind === 'flow' && flow.state.sub === 'along')
+  const speakingAlong = runKind === 'flow' && flow.state.sub === 'along'
   const playVolume = playbackVolume({ speakingAlong, referenceVolume: settings.referenceVolume, guideLevel: settings.guideLevel })
   useEffect(() => { player.setVolume(playVolume) }, [player, playVolume])
 
   function beginRun(kind: RunKind): AbortController {
     const ctrl = new AbortController()
     runRef.current = { kind, ctrl }; setRunKind(kind)
-    applyVolume(kind === 'chorus' || (kind === 'flow' && flow.state.sub === 'along'))
+    applyVolume(kind === 'flow' && flow.state.sub === 'along')
     return ctrl
   }
   function endRun(ctrl: AbortController) { if (runRef.current?.ctrl === ctrl) { runRef.current = null; setRunKind(null); applyVolume(false) } }
@@ -249,16 +238,16 @@ export default function Practice() {
     finally { if (mine === playId.current && echoRef.current === 'playing') dispatch('PLAY_DONE') }
   }
 
-  async function startRecording(mode: Mode = 'echo') {
+  async function startRecording() {
     const s = currentSegment(usePractice.getState())
     if (!s || busy()) return
     stopPlayback()
-    recSeg.current = s; recMode.current = mode
+    recSeg.current = s
     dispatch('RECORD'); usePractice.getState().setRecording(true); setError('')
     try {
       const rec = await mic.open()
       if (!rec) return
-      if (mode === 'echo') setEchoTurn(performance.now() / 1000)
+      setEchoTurn(performance.now() / 1000)
       // Stop after 1.2 s of silence following speech
       const tick = () => {
         vadTimer.current = null
@@ -280,18 +269,17 @@ export default function Practice() {
     dispatch('STOP')
     const s = recSeg.current
     recSeg.current = null
-    await finishRecording(recMode.current, s)
+    await finishRecording(s)
   }
 
-  // Stops capture, keeps the take (or its `range` on the recording clock) as the last attempt, uploads it and plays
-  // reference then take back to back. `s` is the sentence the recording started on: the take always uploads there.
-  async function finishRecording(mode: Mode, s: Segment | null, range?: [number, number]) {
+  // Stops capture, keeps the Echo take as the last attempt, uploads it and plays reference then take back to back.
+  // `s` is the sentence the recording started on: the take always uploads there.
+  async function finishRecording(s: Segment | null) {
     const ps = usePractice.getState()
     const got = mic.finish()
     ps.setRecording(false)
     if (!s || !got) { dispatch('CANCEL'); return }
-    const { rec } = got
-    const samples = range ? sliceSamples(got.samples, rec.startTime, rec.sampleRate, range[0], range[1]) : got.samples
+    const { rec, samples } = got
     const duration = samples.length / rec.sampleRate
     if (duration < MIN_TAKE_S) { dispatch('CANCEL'); setError('Too short to keep, nothing was saved. Try again.'); return }
     const wav = toWav16k(samples, rec.sampleRate)
@@ -313,7 +301,7 @@ export default function Practice() {
     // The store moved to another sentence meanwhile (e.g. the lesson reloaded): save the take, skip the playback.
     if (currentSegment(ps)?.id !== s.id) {
       dispatch('CANCEL')
-      api.segments.postAttempt(s.id, wav, { session_id: ps.sessionId ?? undefined, mode })
+      api.segments.postAttempt(s.id, wav, { session_id: ps.sessionId ?? undefined, mode: 'echo' })
         .then(uploaded).catch((e) => setError(`Upload failed: ${readable(e)}`))
       return
     }
@@ -323,7 +311,7 @@ export default function Practice() {
     ps.setLastAttempt(take); ps.bumpAttempts()
     if (usePractice.getState().attemptsThisSegment >= useSettings.getState().practice.moveOnAfter) ps.setHint(MOVE_ON)
     const ctrl = new AbortController()
-    const upload = api.segments.postAttempt(s.id, wav, { session_id: ps.sessionId ?? undefined, mode })
+    const upload = api.segments.postAttempt(s.id, wav, { session_id: ps.sessionId ?? undefined, mode: 'echo' })
       .then((a) => {
         uploaded(a)
         const cur = usePractice.getState()
@@ -337,83 +325,17 @@ export default function Practice() {
       .catch((e) => setError(`Upload failed: ${readable(e)}`))
     dispatch('UPLOADED')
     seqCtrl.current = ctrl
-    let heard = false
     try {
       // The take plays from its voice to its end (Task 14); the You track still shows all of it.
       const voice = speechBounds(peaks, duration) ?? {}
       await playSequence(player, [{ url: api.segments.audioUrl(s.id), rate: ps.rate, onTime: setRefHead }, { url, rate: 1, onTime: setYouHead, ...voice }], 250, ctrl.signal)
-      heard = !ctrl.signal.aborted
     } catch (e) {
       if (!ctrl.signal.aborted) setError(`Playback failed: ${message(e)}`)
     } finally {
       if (seqCtrl.current === ctrl) seqCtrl.current = null
       if (echoRef.current === 'playback') dispatch('PLAYBACK_DONE')
     }
-    if (heard && mode === 'guided') guidedAdvance(s)
     await upload
-  }
-
-  // Chorus (§6): the clip N times with 300 ms gaps while you speak along; the last pass (to its end + 0.3 s) is the
-  // take. The mic opens before the first pass so a permission prompt or start-up delay never cuts into the take.
-  async function chorus() {
-    const s = currentSegment(usePractice.getState())
-    if (!s || busy()) return
-    stopPlayback(); setError(''); hintHeadphones()
-    const run = beginRun('chorus'), { signal } = run
-    const passes = Math.max(1, Math.round(useSettings.getState().practice.chorusPasses))
-    const url = api.segments.audioUrl(s.id)
-    const rate = () => usePractice.getState().rate
-    dispatch('PLAY')
-    try {
-      try {
-        if (!(await mic.open())) return
-      } catch (e) {
-        if (!signal.aborted) { setError(`Microphone unavailable: ${message(e)}`); cancelActivity() }
-        return
-      }
-      for (let i = 1; i < passes && !signal.aborted; i++) { await playClip(player, url, rate(), signal, setRefHead); await sleep(CHORUS_GAP_MS, signal) }
-      if (signal.aborted) return
-      dispatch('RECORD'); usePractice.getState().setRecording(true)
-      const t0 = mic.now()
-      await playClip(player, url, rate(), signal, setRefHead)
-      await sleep(CHORUS_TAIL_MS, signal)
-      if (signal.aborted) return
-      const t1 = mic.now()
-      endRun(run)
-      dispatch('STOP')
-      await finishRecording('chorus', s, [t0, t1])
-    } catch (e) {
-      if (!signal.aborted) { setError(`Could not play the reference: ${message(e)}`); cancelActivity() }
-    } finally {
-      endRun(run)
-    }
-  }
-
-  // Guided (§6), one Enter per step: listen once → one chorus pass with the text visible (not recorded) →
-  // an Echo take with the text hidden, scored; once its playback ends, on to the next sentence.
-  async function guidedNext() {
-    const step = guidedRef.current
-    if (step === 'record') { void startRecording('guided'); return }
-    const s = currentSegment(usePractice.getState())
-    if (!s || busy()) return
-    stopPlayback(); setError('')
-    const run = beginRun('guided')
-    dispatch('PLAY')
-    try {
-      await playClip(player, api.segments.audioUrl(s.id), usePractice.getState().rate, run.signal, setRefHead)
-      if (!run.signal.aborted) setGuided(nextGuidedStep(step) ?? 'listen')
-    } catch (e) {
-      if (!run.signal.aborted) setError(`Could not play the reference: ${message(e)}`)
-    } finally {
-      if (!run.signal.aborted && echoRef.current === 'playing') dispatch('PLAY_DONE')
-      endRun(run)
-    }
-  }
-  function guidedAdvance(s: Segment) {
-    const ps = usePractice.getState()
-    if (ps.mode !== 'guided' || currentSegment(ps)?.id !== s.id) return
-    setGuided('listen')
-    goTo(ps.idx + 1)
   }
 
   function playSolo(play: () => Promise<void>) {
@@ -499,12 +421,11 @@ export default function Practice() {
     if (flow.state.sub === 'along') hintHeadphones()
     void flow.start(from, to, flow.state.sub)
   }
-  // From the Flow summary to a drill of one sentence.
-  async function drill(mode: Mode, i: number) {
-    await switchMode(mode)
+  // From the Flow summary to one sentence in Echo (it waits for Enter).
+  async function echoOn(i: number) {
+    await switchMode('echo')
     const ps = usePractice.getState()
     if (i !== ps.idx) ps.setIdx(i)
-    if (mode === 'chorus') void chorus()
   }
   function flagWeakest() {
     const scores = new Map((usePractice.getState().lesson?.segments ?? []).map((s) => [s.id, s.last_score]))
@@ -657,14 +578,8 @@ export default function Practice() {
     switch (a) {
       case 'play': void playRef(); return
       case 'record':
-        if (run) { cancelActivity(); return } // Enter stops a Chorus or a Guided playback
         if (ps.mode === 'flow') { const r = flowRange(); startFlow(r.from, r.to); return }
-        if (ps.mode === 'chorus') { void chorus(); return }
-        if (ps.mode === 'guided' && echoRef.current !== 'recording') { void guidedNext(); return }
         void (echoRef.current === 'recording' ? stopRecording() : startRecording()); return
-      case 'chorus':
-        if (run) { if (run.kind === 'chorus') cancelActivity(); return }
-        void chorus(); return
       case 'prev': goTo(ps.idx - 1); return
       case 'next': goTo(ps.idx + 1); return
       case 'toggleHanzi': savePrefs({ ...prefs, hanzi: !prefs.hanzi }); return
@@ -710,30 +625,26 @@ export default function Practice() {
   const segments = st.lesson.segments
   const passages = st.lesson.passages ?? []
   const hide = st.recordingNow && settings.practice.hideTextWhileRecording
-  const show = !hide && (st.mode !== 'guided' || guidedText(guided).showText)
+  const show = !hide
   const fs = flow.state
   const flowRunning = fs.phase === 'running'
-  const recordLabel = runKind === 'chorus' || runKind === 'guided' ? '■ stop'
-    : st.mode === 'chorus' ? `● Chorus ×${settings.practice.chorusPasses}`
-    : st.mode === 'guided' ? `● ${guidedText(guided).label}`
-    : st.mode === 'flow' ? '● Start flow' : undefined
+  const recordLabel = st.mode === 'flow' ? '● Start flow' : undefined
   const range = flowRange()
   const volume: VolumeControls = {
-    // A Chorus started with C from Echo or Guided plays at the guide level too.
-    reference: settings.referenceVolume, guide: guideApplies(st.mode, fs.sub) || runKind === 'chorus' ? settings.guideLevel : null,
+    reference: settings.referenceVolume, guide: guideApplies(st.mode, fs.sub) ? settings.guideLevel : null,
     onReference: (v) => settings.set({ referenceVolume: clamp01(v) }), onGuide: (v) => settings.set({ guideLevel: clamp01(v) }),
   }
   const spans = clipSpans(seg.ref_alignment_json, seg.start_s)
-  const refPlaying = echo === 'playing' || echo === 'playback' || runKind === 'chorus' || runKind === 'guided'
+  const refPlaying = echo === 'playing' || echo === 'playback'
   const { wipe, dots } = stageWipe({ spans, refPlaying, refHead, turnStart: st.mode === 'echo' ? echoTurn : null, now, rate: st.rate })
   const cue = cueFor(st.mode, {
-    phase: cuePhase({ mode: st.mode, echo, runKind, guided, hasTake: st.lastAttempt != null, flowPhase: fs.phase, flowSub: fs.sub, flowTurn: fs.turn != null }),
-    guided, error: !!error,
+    phase: cuePhase({ mode: st.mode, echo, runKind, hasTake: st.lastAttempt != null, flowPhase: fs.phase, flowSub: fs.sub, flowTurn: fs.turn != null }),
+    error: !!error,
   })
   return (
     <div className="h-full flex flex-col">
       <TopBar title={st.lesson.title} speaker={st.lesson.speaker} idx={flowRunning ? fs.current : st.idx} total={segments.length} mode={st.mode}
-        onMode={(m) => void switchMode(m)} elapsedS={elapsed} chorusPasses={settings.practice.chorusPasses} onHelp={() => setHelp(true)}
+        onMode={(m) => void switchMode(m)} elapsedS={elapsed} onHelp={() => setHelp(true)}
         onBack={leave}
         passage={passages.length ? { index: passageIndexOf(passages, segments, flowRunning ? fs.current : st.idx), titles: passages.map((p) => p.title), onPick: pickPassage } : null} />
       <div className="flex-1 flex min-h-0">
@@ -752,7 +663,7 @@ export default function Practice() {
               {st.mode === 'flow' && fs.phase === 'summary' ? (
                 <FlowSummary segments={segments} results={fs.results} skipped={fs.skipped} elapsedS={fs.elapsedS}
                   onPlayPair={(r) => playItems(resultPair(r))} onReplayAll={() => playItems([...fs.results].sort((x, y) => x.idx - y.idx).flatMap(resultPair))}
-                  onRunAgain={() => { if (fs.range) startFlow(fs.range.from, fs.range.to) }} onEcho={(i) => void drill('echo', i)} onChorus={(i) => void drill('chorus', i)}
+                  onRunAgain={() => { if (fs.range) startFlow(fs.range.from, fs.range.to) }} onEcho={(i) => void echoOn(i)}
                   onFlagWeakest={flagWeakest} onExportWeakest={exportWeakest}
                   onDone={() => offerExport(flow.clear)} />
               ) : (<>
@@ -777,7 +688,7 @@ export default function Practice() {
         <EditDialog key={`${dialog.mode}-${segments[dialog.idx].id}`} segment={segments[dialog.idx]} mode={dialog.mode} busy={dialogBusy} error={dialogError}
           onSave={saveEdit} onSplit={splitAt} onClose={() => { if (!dialogBusy) setDialog(null) }} />)}
       {exportPrompt && <SessionExportDialog items={exportPrompt.items} onSent={(s) => usePractice.getState().updateSegment(s)} onClose={closeExport} />}
-      {help && <HelpOverlay chorusPasses={settings.practice.chorusPasses} onClose={() => setHelp(false)} />}
+      {help && <HelpOverlay onClose={() => setHelp(false)} />}
     </div>
   )
 }

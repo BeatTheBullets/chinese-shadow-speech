@@ -35,6 +35,9 @@ describe('keys', () => {
     expect(actionForKey({ ...base, key: ' ' })).toBeNull()
     expect(actionForKey({ ...base, key: 'ArrowRight' })).toBeNull()
   })
+  it('C does nothing', () => {
+    expect(actionForKey({ key: 'c', target: document.createElement('div'), ctrlKey: false, metaKey: false, altKey: false, repeat: false })).toBeNull()
+  })
   it('? opens the help', () => {
     expect(actionForKey({ key: '?', target: document.createElement('div'), ctrlKey: false, metaKey: false, altKey: false, repeat: false })).toBe('help')
   })

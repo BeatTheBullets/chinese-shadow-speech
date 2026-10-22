@@ -8,7 +8,7 @@ describe('<HelpOverlay>', () => {
 
   it('? and Esc close it and reach no window listener added after it (the page shortcuts)', () => {
     const onClose = vi.fn()
-    render(<HelpOverlay chorusPasses={5} onClose={onClose} />)
+    render(<HelpOverlay onClose={onClose} />)
     window.addEventListener('keydown', later)
     fireEvent.keyDown(window, { key: '?' })
     fireEvent.keyDown(window, { key: 'Escape' })
@@ -18,7 +18,7 @@ describe('<HelpOverlay>', () => {
 
   it('ignores an auto-repeated ? or Esc', () => {
     const onClose = vi.fn()
-    render(<HelpOverlay chorusPasses={5} onClose={onClose} />)
+    render(<HelpOverlay onClose={onClose} />)
     fireEvent.keyDown(window, { key: '?', repeat: true })
     fireEvent.keyDown(window, { key: 'Escape', repeat: true })
     expect(onClose).not.toHaveBeenCalled()

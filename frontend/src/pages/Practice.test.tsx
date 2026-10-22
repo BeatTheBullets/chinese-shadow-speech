@@ -175,6 +175,29 @@ describe('<Practice>', () => {
     await screen.findByText('你好', { selector: 'p.sentence' })
     await waitFor(() => expect(h.twoTrack?.score).toEqual(score))
   })
+  it('old chorus/guided takes still render with their labels', async () => {
+    h.api.lessons.takes.mockResolvedValue([{ segment_id: 11, attempt_id: 7, mode: 'chorus', created_at: '', duration_s: 1.5 },
+      { segment_id: 12, attempt_id: 8, mode: 'guided', created_at: '', duration_s: 2.5 }])
+    renderPractice()
+    await screen.findByText('你好', { selector: 'p.sentence' })
+    await waitFor(() => expect(h.twoTrack?.youDuration).toBe(1.5))
+    expect(usePractice.getState().storedTakes[11]).toMatchObject({ id: 7, url: '/att/7.wav' })
+    press('ArrowRight'); await screen.findByText('再见', { selector: 'p.sentence' })
+    await waitFor(() => expect(h.twoTrack?.youDuration).toBe(2.5))
+    expect(screen.getAllByRole('button').map((b) => b.textContent)).not.toContain('Chorus')
+  })
+
+  it('C does nothing: no playback, no microphone, no upload', async () => {
+    renderPractice()
+    await screen.findByText('你好', { selector: 'p.sentence' })
+    await waitFor(() => expect(usePractice.getState().sessionId).toBe(5))
+    press('c'); await flush()
+    expect(h.player.play).not.toHaveBeenCalled()
+    expect(h.rec.start).not.toHaveBeenCalled()
+    expect(h.api.segments.postAttempt).not.toHaveBeenCalled()
+    expect(screen.queryByText('Use headphones — the mic would pick up the reference')).toBeNull()
+  })
+
   const origAudioContext = globalThis.AudioContext
   const origCreate = URL.createObjectURL, origRevoke = URL.revokeObjectURL
   beforeEach(() => {
@@ -562,77 +585,6 @@ describe('<Practice>', () => {
   const uploads = () => (h.api.segments.postAttempt.mock.calls as unknown as [number, Blob, { mode: string }][]).map(([sid, , o]) => [sid, o.mode])
   const wavLengths = () => (h.toWav16k.mock.calls as unknown as [Float32Array, number][]).map(([x, sr]) => [x.length, sr])
 
-  describe('Chorus', () => {
-    let passes = 5
-    beforeEach(() => { passes = useSettings.getState().practice.chorusPasses; useSettings.setState((s) => ({ practice: { ...s.practice, chorusPasses: 2 } })) })
-    afterEach(() => { cleanup(); useSettings.setState((s) => ({ practice: { ...s.practice, chorusPasses: passes } })) })
-
-    it('plays the passes at the guide level of the reference volume and shows the headphones hint once', async () => {
-      useSettings.setState({ referenceVolume: 0.8, guideLevel: 0.5 })
-      const atPlay: number[] = []
-      h.player.play.mockImplementation(() => { atPlay.push(h.player.setVolume.mock.lastCall![0] as number); h.clock.t += 2; return Promise.resolve() })
-      h.rec.stop.mockReturnValue(new Float32Array(44100 * 10))
-      renderPractice()
-      await screen.findByText('你好', { selector: 'p.sentence' })
-      await waitFor(() => expect(h.player.setVolume).toHaveBeenLastCalledWith(0.8))
-      press('c')
-      await waitFor(() => expect(h.playSequence).toHaveBeenCalled())
-      expect(atPlay.length).toBeGreaterThan(0)
-      atPlay.forEach((v) => expect(v).toBeCloseTo(0.4))
-      expect(screen.getByText('Use headphones — the mic would pick up the reference')).toBeInTheDocument()
-      await waitFor(() => expect(h.player.setVolume).toHaveBeenLastCalledWith(0.8)) // the takes play at the reference volume
-    })
-
-    it('C plays N passes, records only the last pass to its end + 0.3 s, uploads it as chorus and plays it back', async () => {
-      const recordingAtPlay: boolean[] = []
-      h.player.play.mockImplementation(() => { recordingAtPlay.push(usePractice.getState().recordingNow); h.clock.t += 2; return Promise.resolve() })
-      h.rec.stop.mockReturnValue(new Float32Array(44100 * 10))
-      renderPractice()
-      await screen.findByText('你好', { selector: 'p.sentence' })
-      await waitFor(() => expect(usePractice.getState().sessionId).toBe(5))
-      press('c')
-      await waitFor(() => expect(h.api.segments.postAttempt).toHaveBeenCalled(), { timeout: 2000 })
-      expect(h.rec.start).toHaveBeenCalledTimes(1)
-      expect(h.player.play.mock.calls.map((c) => (c as unknown[])[0])).toEqual(['/seg/11.opus', '/seg/11.opus'])
-      expect(recordingAtPlay).toEqual([false, true]) // the red indicator only on the last pass
-      // last pass from t = 2 s to its end at 4 s, plus 0.3 s, on the recording clock
-      expect(wavLengths()).toEqual([[Math.floor(4 * 44100) - 2 * 44100, 44100]])
-      expect(h.api.segments.postAttempt).toHaveBeenCalledWith(11, expect.any(Blob), { session_id: 5, mode: 'chorus' })
-      const [, items] = h.playSequence.mock.calls[0] as unknown as [unknown, { url: string }[]]
-      expect(items.map((i) => i.url)).toEqual(['/seg/11.opus', 'blob:take'])
-      expect(usePractice.getState()).toMatchObject({ recordingNow: false, attemptsThisSegment: 1 })
-    })
-
-    it('Enter in Chorus mode starts it; Enter again during the passes cancels it with nothing saved', async () => {
-      clipsTake(2, () => true)
-      renderPractice()
-      await screen.findByText('你好', { selector: 'p.sentence' })
-      fireEvent.click(screen.getByRole('button', { name: 'Chorus' }))
-      press('Enter')
-      await waitFor(() => expect(h.player.play).toHaveBeenCalledTimes(1))
-      expect(screen.getByRole('button', { name: '■ stop' })).toBeInTheDocument()
-      press('Enter')
-      await flush()
-      expect(h.rec.stop).toHaveBeenCalledTimes(1) // the open mic is released
-      await sleepMs(400)
-      expect(h.player.play).toHaveBeenCalledTimes(1)
-      expect(h.api.segments.postAttempt).not.toHaveBeenCalled()
-      expect(usePractice.getState().recordingNow).toBe(false)
-      expect(screen.getByRole('button', { name: '● Chorus ×2' })).toBeInTheDocument()
-    })
-
-    it('a denied microphone shows the error and plays nothing', async () => {
-      h.rec.start.mockRejectedValue(new Error('Microphone permission was denied'))
-      renderPractice()
-      await screen.findByText('你好', { selector: 'p.sentence' })
-      press('c')
-      expect(await screen.findByRole('alert')).toHaveTextContent('Microphone permission was denied')
-      expect(h.player.play).not.toHaveBeenCalled()
-      expect(screen.getByRole('button', { name: '● Enter' })).toBeInTheDocument()
-      expect(usePractice.getState().recordingNow).toBe(false)
-    })
-  })
-
   describe('Flow', () => {
     async function startFlow(sub: 'after' | 'along' = 'along') {
       renderPractice()
@@ -672,6 +624,19 @@ describe('<Practice>', () => {
       fireEvent.click(screen.getAllByRole('button', { name: '▶ ref+you' })[1])
       const [, items] = h.playSequence.mock.calls.at(-1) as unknown as [unknown, { url: string; rate: number }[]]
       expect(items).toEqual([{ url: '/seg/12.opus', rate: 1 }, { url: 'blob:take', rate: 1 }])
+    })
+
+    it("the summary's Echo on a row opens that sentence in Echo", async () => {
+      clipsTake(2)
+      h.rec.stop.mockReturnValue(new Float32Array(44100 * 10))
+      await startFlow('along')
+      expect(await screen.findByText(/Flow finished · 2 sentences/)).toBeInTheDocument()
+      const rows = screen.getAllByRole('button', { name: '▶ ref+you' }).map((b) => b.parentElement!)
+      fireEvent.click(within(rows[1]).getByRole('button', { name: 'Echo' }))
+      await waitFor(() => expect(usePractice.getState().mode).toBe('echo'))
+      expect(usePractice.getState().idx).toBe(1)
+      expect(await screen.findByText('再见', { selector: 'p.sentence' })).toBeInTheDocument()
+      expect(h.rec.start).toHaveBeenCalledTimes(1) // only the Flow run's recording: Echo waits for Enter
     })
 
     it('a flow slice refused while the lesson is rebuilt says so', async () => {
@@ -892,44 +857,6 @@ describe('<Practice>', () => {
     })
   })
 
-  it('Guided: listen → whisper (text shown, no mic) → record (text hidden), uploads as guided, then advances', async () => {
-    renderPractice()
-    await screen.findByText('你好', { selector: 'p.sentence' })
-    fireEvent.click(screen.getByRole('button', { name: 'Guided' }))
-    press('Enter')
-    expect(await screen.findByRole('button', { name: '● Whisper along (text visible)' })).toBeInTheDocument()
-    expect(screen.getByText('你好', { selector: 'p.sentence' })).toBeInTheDocument()
-    press('Enter')
-    expect(await screen.findByRole('button', { name: '● Now record, text hidden' })).toBeInTheDocument()
-    expect(h.player.play).toHaveBeenCalledTimes(2)
-    expect(h.rec.start).not.toHaveBeenCalled() // the whisper pass is not recorded
-    expect(screen.queryByText('你好', { selector: 'p.sentence' })).toBeNull()
-    press('Enter')
-    expect(await screen.findByRole('button', { name: '■ stop' })).toBeInTheDocument()
-    await flush()
-    press('Enter')
-    await flush()
-    expect(uploads()).toEqual([[11, 'guided']])
-    await waitFor(() => expect(usePractice.getState().idx).toBe(1))
-    expect(await screen.findByRole('button', { name: '● Listen once' })).toBeInTheDocument()
-    expect(screen.getByText('再见', { selector: 'p.sentence' })).toBeInTheDocument()
-  })
-
-  it('Guided: the cue line names each step, and the record step says it is your turn', async () => {
-    renderPractice()
-    await screen.findByText('你好', { selector: 'p.sentence' })
-    fireEvent.click(screen.getByRole('button', { name: 'Guided' }))
-    const cue = () => screen.getByTestId('cue-line')
-    expect(cue()).toHaveTextContent('Ready — Enter to listen')
-    press('Enter')
-    await waitFor(() => expect(cue()).toHaveTextContent('Ready — Enter, then whisper along'))
-    press('Enter')
-    await waitFor(() => expect(cue()).toHaveTextContent('Ready — Enter, then say it without the text'))
-    press('Enter')
-    await waitFor(() => expect(cue()).toHaveTextContent('Your turn — say it without the text'))
-    expect(await screen.findByRole('meter', { name: 'Microphone level' })).toBeInTheDocument()
-  })
-
   describe('drawer actions', () => {
     const openMenu = (row: number, item: string) => {
       fireEvent.click(screen.getByRole('button', { name: `Actions for sentence ${row}` }))
@@ -1142,29 +1069,15 @@ describe('<Practice>', () => {
   })
 
   describe('volume', () => {
-    it('shows the guide level only in Chorus and Flow along', async () => {
+    it('shows the guide level only in Flow along', async () => {
       renderPractice()
       await screen.findByText('你好', { selector: 'p.sentence' })
       expect(screen.getByLabelText('Reference volume')).toBeInTheDocument()
       expect(screen.queryByLabelText('Guide level')).toBeNull()
-      fireEvent.click(screen.getByRole('button', { name: 'Chorus' }))
-      expect(await screen.findByLabelText('Guide level')).toBeInTheDocument()
       await enterFlow()
       await waitFor(() => expect(screen.queryByLabelText('Guide level')).toBeNull()) // Flow starts in after
       fireEvent.click(screen.getByRole('button', { name: 'along' }))
       expect(screen.getByLabelText('Guide level')).toBeInTheDocument()
-    })
-
-    it('shows the guide level while a Chorus started with C from Echo runs', async () => {
-      clipsTake(2, () => true)
-      renderPractice()
-      await screen.findByText('你好', { selector: 'p.sentence' })
-      expect(screen.queryByLabelText('Guide level')).toBeNull()
-      press('c')
-      await waitFor(() => expect(h.player.play).toHaveBeenCalledTimes(1))
-      expect(screen.getByLabelText('Guide level')).toBeInTheDocument()
-      press('c') // stops it
-      await waitFor(() => expect(screen.queryByLabelText('Guide level')).toBeNull())
     })
 
     it('the reference volume is saved in settings and applied to the player', async () => {

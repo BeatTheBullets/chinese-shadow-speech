@@ -51,7 +51,7 @@ describe('karaoke timing', () => {
   })
 })
 
-describe('stageWipe (Echo, Chorus, Guided)', () => {
+describe('stageWipe (Echo, Drill)', () => {
   it('colours the sentence while the reference plays', () => {
     const r = stageWipe({ spans, refPlaying: true, refHead: 0.2, turnStart: null, now: 0, rate: 1 })
     expect(r.wipe?.tone).toBe('ref'); expect(r.wipe?.progress).toBeCloseTo(0.5); expect(r.dots).toBe(0)

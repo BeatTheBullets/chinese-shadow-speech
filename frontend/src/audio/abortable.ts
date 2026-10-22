@@ -1,6 +1,6 @@
 import type { ClipPlayer } from './player'
 
-// Building blocks for multi-step runs (Chorus, Flow, Guided): every wait ends early when the run's signal
+// Building blocks for multi-step runs (Flow, Drill): every wait ends early when the run's signal
 // aborts, and no timer or listener outlives the step.
 
 export function sleep(ms: number, signal: AbortSignal): Promise<void> {
