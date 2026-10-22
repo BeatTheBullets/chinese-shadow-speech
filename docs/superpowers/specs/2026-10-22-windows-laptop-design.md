@@ -227,7 +227,12 @@ Known work, not exhaustive:
 - The installer is built reproducibly from the repo (GitHub Actions on `windows-latest`, or a documented local build
   on Windows).
 
-### 5.7 Updates
+### 5.7 Releases and updates
+
+- **Where downloads live:** the repo becomes public and installers are attached to **GitHub Releases** (the user's
+  choice). Before the first release a licence must be chosen (GPL-3.0 is the natural fit: parselmouth is GPL-3) and
+  the repo made public; the bundled `ffmpeg` must be a build whose licence the release can meet (e.g. LGPL). Nothing
+  personal goes into the repo (names, emails, home paths); commits use the GitHub noreply identity.
 
 - **yt-dlp** updates itself (YouTube breaks it often): at most once a day, at startup, upgrade the `yt-dlp` package
   inside the app's environment; a failed upgrade never blocks the app.
