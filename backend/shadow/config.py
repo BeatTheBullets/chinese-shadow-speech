@@ -17,10 +17,15 @@ class ModelsCfg(BaseModel):
     tone_embedder: str = "TencentGameMate/chinese-wav2vec2-base"      # Phase 2 spec §10 (MIT)
     tone_embedder_revision: str = "3991242c806928916fff4a8c0e4f76acf661b743"
     tone_layer: int = 6
+    punctuation: bool = True          # False: no punctuation model; sentences are cut at pauses ([segmentation])
 
 
 class SegmentationCfg(BaseModel):
     pad_ms: int = 120
+    pause_cut_s: float = 0.5          # unpunctuated text: a pause this long always ends a sentence
+    pause_split_s: float = 0.25       # ... a too-long sentence is split preferably at a pause this long
+    min_chars: int = 4                # ... a shorter sentence is merged into a neighbour
+    max_chars: int = 25               # ... a longer one is split
 
 
 class ScoringCfg(BaseModel):

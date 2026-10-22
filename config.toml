@@ -10,9 +10,14 @@ gop_model = "wbbbbb/wav2vec2-large-chinese-zh-cn"
 tone_embedder = "TencentGameMate/chinese-wav2vec2-base"
 tone_embedder_revision = "3991242c806928916fff4a8c0e4f76acf661b743"
 tone_layer = 6
+punctuation = true                  # false: drop the punctuation model, cut sentences at pauses instead
 
 [segmentation]
 pad_ms = 120
+pause_cut_s = 0.5                   # without punctuation: a pause this long ends a sentence
+pause_split_s = 0.25                # ... a too-long sentence is split preferably at a pause this long
+min_chars = 4                       # ... shorter sentences are merged into a neighbour
+max_chars = 25                      # ... longer ones are split
 
 [scoring]
 tone_weight = 0.5

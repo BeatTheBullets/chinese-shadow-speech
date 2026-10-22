@@ -43,7 +43,8 @@ def build_deps(settings: Settings) -> Deps:
     """Real adapters. Models load lazily on first use."""
     device = settings.resolved_device()
     files = FileLayout(settings.data_dir)
-    asr = ParaformerASR(settings.models.asr, device)
+    asr = ParaformerASR(settings.models.asr, device, punctuation=settings.models.punctuation,
+                       segmentation=settings.segmentation)
     aligner = LockedAligner(make_aligner(settings.resolved_aligner(), device))
     sounds, sounds_error = None, None
     if settings.sounds.enabled:

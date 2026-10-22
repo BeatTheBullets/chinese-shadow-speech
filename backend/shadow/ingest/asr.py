@@ -3,6 +3,8 @@ import logging
 import threading
 from pathlib import Path
 from typing import Any, Protocol
+from shadow.config import SegmentationCfg
+from shadow.ingest.pauses import pause_ranges
 from shadow.ingest.rectify import SENTENCE_END
 from shadow.ingest.text import is_punct, to_simplified
 from shadow.memory import trim_heap
@@ -53,8 +55,21 @@ def sentence_ranges(chars: list[TimedChar]) -> list[tuple[int, int]]:
     return out
 
 
-def _from_sentence_info(result: dict[str, Any]) -> Transcript:
+def _has_punctuation(text: str) -> bool:
+    """Any punctuation besides whitespace (an unpunctuated Paraformer result spaces its characters)."""
+    return any(is_punct(ch) and not ch.isspace() for ch in text)
+
+
+def _by_pauses(chars: list[TimedChar], pauses: SegmentationCfg) -> Transcript:
     tr = Transcript()
+    for a, b in pause_ranges(chars, pauses):
+        append_segment(tr, chars[a:b + 1])
+    return tr
+
+
+def _from_sentence_info(result: dict[str, Any], pauses: SegmentationCfg | None = None) -> Transcript:
+    tr = Transcript()
+    unpunctuated = pauses is not None and not _has_punctuation(result.get("text") or "")
     sentences = result.get("sentence_info") or []
     if not sentences:
         text = result.get("text") or ""
@@ -65,23 +80,32 @@ def _from_sentence_info(result: dict[str, Any]) -> Transcript:
         start_ms = ts[0][0] if ts else 0
         sentences = [{"text": text, "start": start_ms, "end": end_ms, "timestamp": ts}]
     for s in sentences:
+        text = s.get("text", "")
+        if unpunctuated:
+            text = "".join(text.split())
         append_segment(
-            tr, _sentence_chars(s.get("text", ""), float(s.get("start", 0)), float(s.get("end", 0)), s.get("timestamp"))
+            tr, _sentence_chars(text, float(s.get("start", 0)), float(s.get("end", 0)), s.get("timestamp"))
         )
-    return tr
+    return _by_pauses(tr.chars, pauses) if unpunctuated and pauses else tr
 
 
-def transcript_from_funasr(result: dict[str, Any]) -> Transcript:
+def transcript_from_funasr(result: dict[str, Any], pauses: SegmentationCfg | None = None) -> Transcript:
     """Chars from FunASR's top-level `text` + `timestamp` (one timestamp per speech char), split into sentences at
     sentence-final punctuation. Not from `sentence_info`: FunASR 1.4.16 joins two Chinese VAD chunks without a space
     (auto_model._join_vad_texts), so their boundary chars become one token and its sentence builder pairs every
     later sentence's text one char ahead of its timestamps (lessons drifted by a char per VAD boundary). Only when
-    the top-level counts disagree (e.g. Latin words, timed per word) is `sentence_info` used, with a warning."""
+    the top-level counts disagree (e.g. Latin words, timed per word) is `sentence_info` used, with a warning.
+    With `pauses` and no punctuation in the text (the punctuation model is off), sentences are cut at pauses instead."""
     text = to_simplified(result.get("text") or "")
+    by_pauses = pauses is not None and not _has_punctuation(text)
+    if by_pauses:
+        text = "".join(text.split())
     ts = result.get("timestamp") or []
     speech_count = sum(1 for ch in text if not is_punct(ch))
     if speech_count and speech_count == len(ts):
         chars = chars_with_speech_times(text, [(a / 1000, b / 1000) for a, b in ts], ts[0][0] / 1000)
+        if by_pauses:
+            return _by_pauses(chars, pauses)
         tr = Transcript()
         for a, b in sentence_ranges(chars):
             append_segment(tr, chars[a:b + 1])
@@ -89,13 +113,15 @@ def transcript_from_funasr(result: dict[str, Any]) -> Transcript:
     if speech_count:
         log.warning("FunASR text has %d speech characters for %d timestamps; using its sentence_info",
                     speech_count, len(ts))
-    return _from_sentence_info(result)
+    return _from_sentence_info(result, pauses)
 
 
 class ParaformerASR:
     """One recogniser shared by ingest jobs and attempt scoring: calls run one at a time."""
-    def __init__(self, model_id: str, device: str):
+    def __init__(self, model_id: str, device: str, punctuation: bool = True,
+                 segmentation: SegmentationCfg | None = None):
         self.model_id, self.device = model_id, device
+        self.punctuation, self.segmentation = punctuation, segmentation
         self._model = None
         self._lock = threading.Lock()
 
@@ -108,8 +134,11 @@ class ParaformerASR:
                 return AutoModel
             AutoModel = guarded_import(_import_funasr)
             with model_load_lock:
-                self._model = AutoModel(model=self.model_id, vad_model="fsmn-vad", punc_model="ct-punc",
-                                        device=self.device, disable_update=True)
+                kwargs: dict[str, Any] = {"model": self.model_id, "vad_model": "fsmn-vad", "device": self.device,
+                                          "disable_update": True}
+                if self.punctuation:
+                    kwargs["punc_model"] = "ct-punc"
+                self._model = AutoModel(**kwargs)
         return self._model
 
     def warm_up(self) -> threading.Thread:
@@ -142,7 +171,8 @@ class ParaformerASR:
 
     def _run(self, wav_path: Path) -> Transcript:
         res = self._load().generate(input=str(wav_path), sentence_timestamp=True, batch_size_s=300)
-        return transcript_from_funasr(res[0] if res else {"text": ""})
+        pauses = None if self.punctuation else self.segmentation
+        return transcript_from_funasr(res[0] if res else {"text": ""}, pauses=pauses)
 
 
 class Hearer(Protocol):
