@@ -16,7 +16,6 @@ import { speechBounds } from '../lib/speech'
 import { clamp01, playbackVolume } from '../lib/volume'
 import { defaultTextPrefs, useSettings, type TextPrefs } from '../store/settings'
 import Button from '../ui/Button'
-import { IconChevronRight } from '../ui/icons'
 import CueLine, { WithMicLevel } from './CueLine'
 import KaraokeSentence from './KaraokeSentence'
 import ScoreHeader from './ScoreHeader'
@@ -342,10 +341,10 @@ export default function DrillRunner({ session, onFinish }: { session: DrillSessi
         youPeaks={take?.peaks ?? null} youDuration={take?.duration ?? 0} youPlayhead={youHead}
         onPlayRef={playRef} onPlayYou={replayYou} onPlaySyllable={playSyllable} onPlayYouSyllable={playYouSyllable} highlight={item.targets}
         score={take?.score ?? null} scoreHeader={<ScoreHeader score={take?.score} best={seg.best_score} attempts={seg.attempts} />} />
-      {/* The Practice bar, minus Anki: position n / N with › skipping (no going back), Listen, Record (Again / Next
-          when reviewing), Me, Sound. */}
+      {/* The Practice bar, minus Anki: position n / N with › skipping (no going back), Listen, Record (Again when
+          reviewing; Next goes on, in accent), Me, Sound. */}
       <Transport onAction={act} idx={st.i} total={st.n} recording={recording} busy={uploading && st.step === 'record'} hint={hint} error={error}
-        recordLabel={enterLabel} recordIcon={st.step === 'review' && st.outcome !== 'retry' ? <IconChevronRight /> : undefined}
+        recordLabel={enterLabel} advance={st.step === 'review' && st.outcome !== 'retry'}
         canPrev={false} showAnki={false} sound={sound} />
     </div>
   )

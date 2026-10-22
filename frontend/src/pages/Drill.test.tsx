@@ -225,6 +225,20 @@ describe('<Drill> runner', () => {
     await flush()
   })
 
+  it('Enter reads Next in accent when it goes on, and stays record-red when it records (Again)', async () => {
+    h.segments.postAttempt.mockResolvedValueOnce({ id: 98, score_json: notGreen }).mockResolvedValueOnce({ id: 99, score_json: green })
+    await startRun()
+    expect(screen.getByRole('button', { name: 'Record (Enter)' })).toHaveClass('bg-record')
+    await take()
+    const again = await screen.findByRole('button', { name: 'Again (Enter)' })
+    expect(again).toHaveClass('bg-record')
+    expect(again).not.toHaveClass('bg-accent')
+    await take()
+    const next = await screen.findByRole('button', { name: 'Next (Enter)' })
+    expect(next).toHaveClass('bg-accent')
+    expect(next).not.toHaveClass('bg-record')
+  })
+
   it('the Sound pop-up and S set the drill speed; the reference plays at it', async () => {
     await startRun()
     press('s')

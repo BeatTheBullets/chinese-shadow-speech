@@ -190,7 +190,7 @@ export default function Practice() {
 
   useEffect(() => { if (st.mode === 'flow') loadFlowRuns() }, [st.mode, loadFlowRuns])
 
-  // Reference volume, or its guide level while the learner speaks along (addendum §7); follows the sliders live.
+  // Speaker (reference) volume, or its guide level while the learner speaks along (addendum §7); follows the sliders live.
   const speakingAlong = runKind === 'flow' && flow.state.sub === 'along'
   const playVolume = playbackVolume({ speakingAlong, referenceVolume: settings.referenceVolume, guideLevel: settings.guideLevel })
   useEffect(() => { player.setVolume(playVolume) }, [player, playVolume])

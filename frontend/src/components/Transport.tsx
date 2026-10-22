@@ -7,7 +7,9 @@ import SoundPopover, { type SoundControls } from './SoundPopover'
 interface Props {
   onAction: (a: Action) => void; idx: number; total: number; recording: boolean; busy: boolean; hint: string; error: string
   recordLabel?: string; sound: SoundControls
-  recordIcon?: ReactNode  // with recordLabel: the Enter button's icon when it does not record (the drill's Next)
+  // Enter goes on to the next sentence instead of recording (the drill's Next): accent with a chevron, since red means
+  // record (spec §1.3: the same action has the same look).
+  advance?: boolean
   canPrev?: boolean       // false where the run only goes forward (a drill, a Flow run); default: not on the first sentence
   showAnki?: boolean      // the drill has no Anki
 }
@@ -15,7 +17,7 @@ interface Props {
 // The control bar (spec §2), three groups left to right: where am I (‹ n / N ›), what do I do (Listen, Record, Me),
 // extras (Anki, Sound). Every button says what it does; its key is the small grey hint under the label.
 // recordLabel: what Enter does when not recording (Flow's start, the drill's Again/Next).
-export default function Transport({ onAction, idx, total, recording, busy, hint, error, recordLabel, recordIcon, sound, canPrev = idx > 0, showAnki = true }: Props) {
+export default function Transport({ onAction, idx, total, recording, busy, hint, error, recordLabel, advance = false, sound, canPrev = idx > 0, showAnki = true }: Props) {
   return (
     <div data-testid="transport" className="border-t border-line bg-panel px-3.5 py-3 space-y-1">
       <div className="flex flex-wrap items-center justify-between gap-2.5">
@@ -27,8 +29,8 @@ export default function Transport({ onAction, idx, total, recording, busy, hint,
         <div className="flex items-center gap-2">
           {/* ▶ is Listen (the speaker), never navigation: the chevrons are */}
           <Button icon={<span className="text-accent"><IconPlay /></span>} label="Listen" keyHint="Space" onClick={() => onAction('play')} disabled={recording} />
-          <Button icon={recording ? <IconStop /> : recordIcon ?? <IconRecord />} label={recording ? 'Stop' : recordLabel ?? 'Record'} keyHint="Enter"
-            variant="record" size="lg" onClick={() => onAction('record')} disabled={busy} />
+          <Button icon={recording ? <IconStop /> : advance ? <IconChevronRight /> : <IconRecord />} label={recording ? 'Stop' : recordLabel ?? 'Record'} keyHint="Enter"
+            variant={advance && !recording ? 'primary' : 'record'} size="lg" onClick={() => onAction('record')} disabled={busy} />
           {/* nothing to hear while recording: every page ignores R then */}
           <Button icon={<IconMe />} label="Me" keyHint="R" onClick={() => onAction('replayYou')} disabled={recording} />
         </div>
