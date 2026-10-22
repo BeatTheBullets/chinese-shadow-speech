@@ -101,6 +101,10 @@
 
 **Docs:** `README.MD`, `docs/phase3a-acceptance.md` (new).
 
+**Task 14 (added 2026-10-22 at the user's request):**
+- Frontend: `src/lib/speech.ts` (+ test); `src/pages/Practice.tsx`; `src/components/DrillRunner.tsx`; `src/audio/player.ts` (`playSequence` items take optional `from`/`to`).
+- Backend: `shadow/api/attempts.py`, `scripts/drop_failed_takes.py`, tests in `tests/test_attempts_api.py`.
+
 ---
 
 ### Task 1: Contrasts, directions, labels, toned pinyin
@@ -342,9 +346,10 @@ Algorithm (spike `method_a.py` / `method_b.py`, abs/delta as in `evaluate.badnes
 - Consumes: `SoundDetector`, `CharCtc`, `MmsAligner`, `trim_silence`, `windows`, `segment_syllables`, `reference_audio`.
 
 The test is `test_check_set_parity`:
-1. Skip unless `data/shadow.db`, `data/reports/phase3-checkset.json` and `data/reports/phase3-checkset.record_after` exist (repo root `data/`).
-2. Open the DB read-only (`file:...?mode=ro`).
-3. For each check-set item without `"excluded"`, take the newest two attempts of its `segment_id` that were created after `record_after` (normalise the timestamp to `YYYY-MM-DD HH:MM:SS`) and have a score with an empty `warnings`. Order them oldest first: normal, then slip.
+1. **The pairs are pinned by attempt id.** the user keeps practising these sentences (e.g. 5 new takes on item 10 on 2026-10-22), so "newest two takes" would drift. Put this constant in the test, as `(item n, normal attempt id, slip attempt id)`:
+   `PAIRS = [(1,151,152),(2,153,154),(3,155,156),(4,157,158),(5,161,162),(6,163,164),(7,166,167),(8,168,169),(9,170,171),(10,172,173),(11,174,175),(13,176,177),(14,178,179),(15,180,181),(16,182,183),(17,184,185),(18,186,187),(19,189,190),(20,191,192),(21,203,204),(22,205,206),(23,209,210),(24,211,212),(25,215,216),(26,217,218),(27,219,220),(28,221,222),(29,223,224),(30,227,228)]`
+2. Skip unless `data/shadow.db` and `data/reports/phase3-checkset.json` exist (repo root `data/`).
+3. Open the DB read-only (`file:...?mode=ro`). The check-set JSON gives each item's `segment_id`, `syl_index` and `slipped_pinyin_toneless`.
 4. For each take:
    - read the WAV and `trim_silence` it
    - `MmsAligner.align` it on the segment text
@@ -357,6 +362,7 @@ The test is `test_check_set_parity`:
    - marked syllables over all normal-take syllables ≤ 0.06
    - every marked slip's `heard` equals `slipped_pinyin_toneless`
 7. Print the counts. The spike got 23/29 and 3.9 %.
+8. Task 14's clean-up never deletes these takes: they are all scored and warning-free.
 
 - [ ] **Step 1: Write the test**
 - [ ] **Step 2: Run it (controller; the user stops the backend first for RAM)**: `cd backend && OMP_NUM_THREADS=4 ~/.local/bin/uv run pytest -q -s -m models tests/test_sounds_real.py`. Expected: PASS, with the printout close to 23/29 and 3.9 %.
@@ -603,3 +609,58 @@ The acceptance checklist must include:
   4. Expected: every scored take is done or explicitly skipped, and the slip count is plausible (a few % of checked syllables).
 - [ ] **Step 3: Run the full suites one last time** (backend, frontend, then the models test from Task 6)
 - [ ] **Step 4: Commit** `docs: Phase 3a sounds in README and acceptance checklist`
+
+---
+
+### Task 14: Trim silence on take playback; drop failed takes
+
+Agreed with the user on 2026-10-22, as an addition to the spec.
+
+**What the user asked for:**
+- **Trim silence on playback.** When his take plays back, skip the silence before and after his voice.
+  - This applies to the automatic ref→you playback after recording (Practice Echo and the Drill runner), to replay-you (R), and to Flow replays of his takes.
+  - The stored audio, the scoring and the full-take waveform are unchanged; the playhead simply starts at the voice.
+  - With no clear voice, play the whole take.
+- **Drop failed takes completely.** A take rejected because of the recording itself is not stored. The rejecting warnings are `too_short`, `too_quiet`, `no_voice`, `clipped`, `wrong_or_unclear`, `different_words` and `align_failed`.
+  - The server deletes its audio, and no Attempt or SyllableScore row remains.
+  - The response still carries the score JSON with the warning, so the UI shows "Too quiet — not scored…".
+  - Nothing plays back, no waveform appears, the attempt count does not rise, and a drill costs no try (as today).
+  - Takes failing for server-side reasons (`score_failed`, `no_reference`, `no_tone_model`) are kept as today.
+- **Clean up the old failed takes.** A one-off script removes the 18 old rejected takes (10 different_words, 6 too_quiet, 2 too_short as of 2026-10-22), after a DB backup.
+
+**Files:** see File Structure (Task 14).
+
+**Interfaces:**
+- **`speechBounds(peaks: Float32Array, duration: number, opts?: { relDb?: number; padS?: number }) -> { from: number; to: number } | null`** in `src/lib/speech.ts`.
+  - Defaults: `relDb = -35`, `padS = 0.15`.
+  - The voice runs from the first to the last bucket whose peak is above `max · 10^(relDb/20)`.
+  - `from` = that start minus `padS`, clamped at 0; `to` = that end plus `padS`, clamped at `duration`.
+  - Returns null when the peaks are empty or all zero.
+  - The peaks are the ones already computed for the You waveform (fresh take: `peaksOf`; stored take: `storedPeaks`).
+- **`playSequence` items** accept optional `from`/`to`. When set, that item plays through `player.playRange(url, rate, from, to, onTime)`.
+- **`DROP_WARNINGS`** in `shadow/api/attempts.py`: the set above.
+  - After `score_attempt`, if the first warning is in it: delete the audio file and the Attempt (and any rows), commit, and return **200** with `{"id": null, "dropped": true, "score_json": <the failed score>}` instead of the 201 attempt.
+  - `AttemptOut` gains `dropped: bool = False` and makes `id` nullable; the TS `Attempt` type follows.
+  - The frontend treats `dropped` like a gated take today (message, no try), but keeps no take, no waveform and no playback, and does not bump `attempts` (`applyAttempt` is not called).
+- **`scripts/drop_failed_takes.py`** deletes stored attempts whose `score_json.warnings[0]` is in `DROP_WARNINGS`, with their audio and rows, and prints counts. Run it with `--dry-run` first.
+
+- [ ] **Step 1: Write the failing tests**
+  - `speech.test.ts`:
+    - `'bounds the loud part with padding'`: 100 buckets over 2.0 s, loud from bucket 20 to 60, gives from ≈ 0.25 and to ≈ 1.37.
+    - `'null for silence'`.
+    - `'clamps to the take'`.
+  - `player.test.ts`: a `playSequence` item with `from`/`to` uses `playRange`.
+  - `Practice.test.tsx`:
+    - replay-you plays from `speechBounds().from`
+    - a dropped take shows the warning, has no take or replay, and the attempt count is unchanged
+  - `test_attempts_api.py`:
+    - `test_too_quiet_take_is_dropped`: 200, `dropped` true, no Attempt row, the audio file is gone.
+    - `test_score_failed_take_is_kept`: 201, row present.
+- [ ] **Step 2: Run them and see them fail**
+- [ ] **Step 3: Implement**
+- [ ] **Step 4: Run the backend and frontend suites and see them pass**
+- [ ] **Step 5: Clean up (controller, with the user's go-ahead)**
+  1. `cp data/shadow.db data/shadow.db.bak-before-drop-$(date +%F)`.
+  2. Run `--dry-run`. It should report 18 (or more, if the user recorded failed takes since).
+  3. Run it for real.
+- [ ] **Step 6: Commit** `feat: trim silence on take playback; drop takes the gates reject`
