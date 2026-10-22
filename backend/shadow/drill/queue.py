@@ -4,7 +4,7 @@ from sqlmodel import Session, select
 from shadow.api.lessons import _attempt_stats
 from shadow.config import DrillCfg
 from shadow.scoring.reference import segment_syllables
-from shadow.scoring.sounds.contrasts import directions_of
+from shadow.scoring.sounds.contrasts import checkable_directions_of
 from shadow.store.models import Attempt, DrillSession, Lesson, Segment, SyllableScore
 
 
@@ -17,7 +17,8 @@ def targets_for(syllables: list[dict], kind: str, key: str) -> list[int]:
         return [i for i in range(1, len(syllables))
                 if str(syllables[i - 1]["tone"]) == p and str(syllables[i]["tone"]) == t]
     if kind == "sound":
-        return [i for i, s in enumerate(syllables) if key in directions_of(s["pinyin_toneless"].lower())]
+        # only checkable ones: a syllable the detector never checks (定 under ng>n) could never go green
+        return [i for i, s in enumerate(syllables) if key in checkable_directions_of(s["pinyin_toneless"].lower())]
     return [i for i, s in enumerate(syllables) if s["ch"] == key]
 
 

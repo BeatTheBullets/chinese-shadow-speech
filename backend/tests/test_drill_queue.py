@@ -197,6 +197,13 @@ def test_sound_targets():
     assert targets_for(s, "sound", "ng>n") == [4]
 
 
+def test_sound_targets_skip_uncheckable():
+    # 定 (ding)'s only partner din has no characters in the char-CTC model, so it is never checked: no ng>n target
+    s = _sound_syls() + [{"ch": "定", "pinyin": "ding", "pinyin_toneless": "ding", "tone": 4}]
+    assert targets_for(s, "sound", "ng>n") == [4]
+    assert targets_for(s[-1:], "sound", "ng>n") == []
+
+
 def _sound_take(db, ds, seg_id, statuses):
     att = Attempt(segment_id=seg_id, mode="drill", audio_path="x.wav", duration_s=1, drill_session_id=ds.id,
                   score_json={"overall": 0.5}); db.add(att); db.commit()

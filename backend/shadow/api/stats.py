@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func
 from sqlmodel import Session, select
-from shadow.scoring.sounds.contrasts import direction, direction_label, directions_of
+from shadow.scoring.sounds.contrasts import checkable_directions_of, direction, direction_label
 from shadow.store.db import get_session
 from shadow.store.models import Attempt, DrillSession, Lesson, PracticeSession, Segment, SyllableScore
 
@@ -123,7 +123,7 @@ _MIN_CHANCES = 8   # fewer checked syllables than this say too little about a di
 
 @router.get("/stats/sounds")
 def sounds(db: Session = Depends(get_session)):
-    """Slip rate per sound direction. Every checked syllable is a chance for each direction its pinyin offers;
+    """Slip rate per sound direction. Every checked syllable is a chance for each checkable direction its pinyin offers;
     a slip counts for the direction actually heard."""
     since = datetime.combine(datetime.now(timezone.utc).date() - timedelta(weeks=12), datetime.min.time(), tzinfo=timezone.utc)
     q = (select(SyllableScore.pinyin_toneless, SyllableScore.sound_status, SyllableScore.heard_syllable, Attempt.created_at)
@@ -135,7 +135,7 @@ def sounds(db: Session = Depends(get_session)):
         slip = direction(py, heard.lower()) if status == "slip" and heard else None
         y, w, _ = created.isocalendar()
         recent = (created if created.tzinfo else created.replace(tzinfo=timezone.utc)) >= since
-        for key in directions_of(py):
+        for key in checkable_directions_of(py):            # a direction never checked on py is no chance
             hit = key == slip
             tot[key][0] += hit; tot[key][1] += 1
             if recent:

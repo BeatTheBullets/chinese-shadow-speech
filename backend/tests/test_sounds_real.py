@@ -29,6 +29,14 @@ def _data_dir() -> Path:
     return Path(env) if env else Path(load_settings().data_dir)
 
 
+def test_b_silent_matches_the_model():
+    """b_silent_v1.json (frozen from the tokenizer) agrees with what the loaded CharCtc gives a column. CPU is enough."""
+    from shadow.scoring.sounds.contrasts import b_silent, inventory
+    cfg = Settings().sounds
+    b = CharCtc(cfg.model, cfg.revision, "cpu")
+    assert {s for s in inventory() if b.sid(s) is None} == b_silent()
+
+
 def test_check_set_parity():
     data = _data_dir()
     db, check = data / "shadow.db", data / "reports" / "phase3-checkset.json"

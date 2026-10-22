@@ -146,11 +146,13 @@ def test_stats_sounds_rates_by_direction(client):
         for i in range(5):
             row(20 + i, "ping", "ok")
         row(30, "chi", None)                                  # not checked: no chance
+        for i in range(5):
+            row(40 + i, "ding", "ok")                         # din has no characters: ng>n is never checked on ding
         db.commit()
     r = client.get("/stats/sounds").json()
     ch = next(s for s in r["sounds"] if s["key"] == "ch>c")
     assert (ch["slips"], ch["chances"], ch["rate"], ch["label"]) == (2, 10, 0.2, "ch said as c")
-    assert all(s["key"] != "ng>n" for s in r["sounds"])
+    assert all(s["key"] != "ng>n" for s in r["sounds"])   # 5 ping chances; the 5 ding rows add none
     assert r["weeks"] and all(w["key"] in {s["key"] for s in r["sounds"]} for w in r["weeks"])
     w = next(w for w in r["weeks"] if w["key"] == "ch>c")
     assert (w["slips"], w["chances"]) == (2, 10)

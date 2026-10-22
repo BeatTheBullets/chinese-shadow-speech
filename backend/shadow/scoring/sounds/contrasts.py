@@ -11,6 +11,10 @@ from pathlib import Path
 from pypinyin.contrib.tone_convert import to_tone
 
 _INVENTORY = Path(__file__).resolve().parent.parent / "models" / "syllables_v1.json"
+# Inventory syllables no character in B's (char-CTC) vocab reads as, frozen offline from the pinned tokenizer with
+# group_matrix: such a syllable has no column of its own, so it is never an alternative and a direction towards it is
+# never checked (spec §2.1). tests/test_sounds_real.py re-derives it from the loaded model.
+_B_SILENT = Path(__file__).resolve().parent.parent / "models" / "b_silent_v1.json"
 
 # Longest first so "zh" wins over "z"; y/w count as initials only so UV pairs like yu/wu split consistently.
 INITIALS = ["zh", "ch", "sh", "b", "p", "m", "f", "d", "t", "n", "l", "g", "k", "h", "j", "q", "x", "r", "z", "c", "s",
@@ -32,6 +36,11 @@ _UV_EXPECTED_U_UMLAUT = {"lv", "nv", "yu"}
 @lru_cache(maxsize=1)
 def inventory() -> frozenset[str]:
     return frozenset(json.loads(_INVENTORY.read_text()))
+
+
+@lru_cache(maxsize=1)
+def b_silent() -> frozenset[str]:
+    return frozenset(json.loads(_B_SILENT.read_text()))
 
 
 def _split(s: str) -> tuple[str, str]:
@@ -88,6 +97,13 @@ def direction(expected: str, heard: str) -> str | None:
 
 def directions_of(s: str) -> set[str]:
     return {d for p, _ in partners(s) if (d := direction(s, p))}
+
+
+def checkable_directions_of(s: str) -> set[str]:
+    """The directions the detector can actually check on `s`: those whose partner has characters in B. A chance or a
+    drill target is a syllable that can be checked (spec §4/§5); ding's only partner din has none, so ding has none."""
+    silent = b_silent()
+    return {d for p, _ in partners(s) if p not in silent and (d := direction(s, p))}
 
 
 def _group(key: str) -> str:

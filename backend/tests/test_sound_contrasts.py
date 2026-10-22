@@ -1,5 +1,5 @@
-from shadow.scoring.sounds.contrasts import (DIRECTIONS, direction, direction_label, directions_of, drill_label,
-                                             heard_pinyin, inventory, partners)
+from shadow.scoring.sounds.contrasts import (DIRECTIONS, b_silent, checkable_directions_of, direction, direction_label,
+                                             directions_of, drill_label, heard_pinyin, inventory, partners)
 
 def test_inventory_is_the_spike_list():
     inv = inventory()
@@ -26,3 +26,9 @@ def test_labels_and_heard_pinyin():
     assert direction_label("ch>c") == "ch said as c" and direction_label("ng>n") == "-ng said as -n"
     assert drill_label("ü>u") == "ü (not u)"
     assert heard_pinyin("ci", 1) == "cī" and heard_pinyin("nv", 3) == "nǚ" and heard_pinyin("de", 0) == "de"
+
+
+def test_checkable_directions_skip_partners_without_characters():
+    assert "din" in b_silent() and b_silent() <= inventory() and "ding" not in b_silent()
+    assert directions_of("ding") == {"ng>n"} and checkable_directions_of("ding") == set()   # din: never checked
+    assert "ng>n" in checkable_directions_of("ping") and checkable_directions_of("chi") == {"ch>c"}
