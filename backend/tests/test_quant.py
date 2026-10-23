@@ -61,8 +61,9 @@ def test_quantize_linear_prints_no_deprecation_warning(recwarn):
     assert not [w for w in recwarn if "torch.ao.quantization" in str(w.message)]
 
 
-def test_int8_skip_keeps_named_models_fp32(tmp_path):
+def test_int8_skip_keeps_named_models_fp32(tmp_path, monkeypatch):
     from shadow.deps import build_deps
+    monkeypatch.setattr("shadow.quant.total_ram_gb", lambda: 8)       # the recogniser's precision depends on the RAM
     cfg = ModelsCfg(device="cpu", int8=True, int8_skip=["asr", "sounds"])
     deps = build_deps(Settings(models=cfg, data_dir=tmp_path))
     assert deps.asr.int8 is False
