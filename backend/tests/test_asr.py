@@ -74,6 +74,67 @@ def test_funasr_real_excerpt_at_a_vad_boundary_is_timed_by_the_top_level_timesta
     assert speech[5].c == "那" and speech[5].start == 58.47
 
 
+def _latin_excerpt():
+    import json
+    from pathlib import Path
+    return json.loads(Path(__file__).parents[1].joinpath("fixtures/funasr_latin_drift_excerpt.json").read_text())
+
+
+def test_funasr_latin_word_keeps_the_top_level_text_not_the_drifted_sentence_info(caplog):
+    # natural-speed video: one Latin word ("update", one timestamp for six letters) used to send the whole result to
+    # sentence_info, whose text runs two chars ahead of its punctuation and timestamps after two VAD joins
+    r = _latin_excerpt()
+    with caplog.at_level("WARNING"):
+        tr = transcript_from_funasr(r)
+    assert caplog.text == ""
+    assert tr.text == r["text"]                      # the punctuation model's own marks, where it put them
+    assert "我给大家update一下，我本来这个视频想干啥，我们下周有一个考试，没错，" in tr.text
+    assert tr.segments == [(0, len(tr.chars) - 1)]   # a comma does not end a sentence
+    speech = [c for c in tr.chars if not is_punct(c.c)]
+    by_index = {k: c for k, c in enumerate(speech)}
+    assert by_index[5].c == "然" and by_index[5].start == 14.65
+    at = tr.text.index("我本来")
+    assert (tr.chars[at].c, tr.chars[at].start) == ("我", 16.35)      # the subtitle cue starts at 16.27 s
+    at = tr.text.index("啥")
+    assert (tr.chars[at].end, tr.chars[at + 1].c) == (18.13, "，")
+    at = tr.text.index("又是")
+    assert tr.chars[at].start == 20.91 and tr.chars[-1].c == "。" and tr.chars[-2].end == 23.05
+
+
+def test_funasr_latin_word_letters_share_its_one_timestamp():
+    r = _latin_excerpt()
+    tr = transcript_from_funasr(r)
+    a = tr.text.index("update")
+    word_ts = r["timestamp"][5 + 6]                  # 这这个是哎 + 然后我给大家 → the seventh item of sentence two
+    letters = tr.chars[a:a + 6]
+    assert letters[0].start == word_ts[0] / 1000 and letters[-1].end == word_ts[1] / 1000
+    assert all(x.end == y.start for x, y in zip(letters, letters[1:]))
+    assert tr.chars[a + 6].c == "一" and tr.chars[a + 6].start == r["timestamp"][12][0] / 1000
+
+
+def test_funasr_consecutive_latin_words_and_apostrophes_are_one_timestamp_each():
+    r = {"text": "我说don't stop，好。", "timestamp": [[0, 100], [100, 200], [200, 600], [600, 900], [1000, 1200]]}
+    tr = transcript_from_funasr(r)
+    assert tr.text == r["text"]
+    times = {i: (c.c, c.start, c.end) for i, c in enumerate(tr.chars)}
+    assert times[2] == ("d", 0.2, 0.3) and times[6] == ("t", 0.5, 0.6)       # d o n t: four letters over 200-600
+    assert times[5][0] == "'" and times[5][1] == times[5][2] == 0.5          # the apostrophe is zero-length
+    assert times[8][0] == "s" and times[8][1] == 0.6 and times[11][2] == 0.9
+    assert times[13] == ("好", 1.0, 1.2)
+
+
+def test_funasr_unpunctuated_latin_words_are_cut_at_pauses_with_their_own_times():
+    from shadow.config import SegmentationCfg
+    # without the punctuation model FunASR's text is Paraformer's tokens joined by spaces
+    text = "我 给 大 家 update 一 下 you know 我 本 来 想 干 啥"
+    ts = [[i * 200, i * 200 + 180] for i in range(9)] + [[3000 + i * 200, 3180 + i * 200] for i in range(6)]
+    tr = transcript_from_funasr({"text": text, "timestamp": ts}, pauses=SegmentationCfg())
+    assert tr.text == "我给大家update一下youknow我本来想干啥"
+    k = tr.text.index("我本来")
+    assert tr.chars[k].start == 3.0 and tr.chars[k - 1].end == 1.78   # "know" ends where its timestamp ends
+    assert [tr.text[a:b + 1] for a, b in tr.segments] == ["我给大家update一下youknow", "我本来想干啥"]
+
+
 def test_funasr_top_level_count_mismatch_falls_back_to_sentence_info_with_a_warning(caplog):
     r = {**_GLUED, "timestamp": _GLUED["timestamp"][:8]}
     with caplog.at_level("WARNING"):
