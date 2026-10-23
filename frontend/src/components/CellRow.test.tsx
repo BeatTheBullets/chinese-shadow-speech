@@ -37,11 +37,37 @@ describe('<CellRow>', () => {
     const { container } = render(<CellRow cells={[
       { ch: '王', pinyin: 'wáng', tone: 2, status: 'wrong', score: 0.2, target: 2, heard: 1 }, { ch: '小', pinyin: 'xiǎo', tone: 3, status: 'ok', score: 0.93 },
     ]} />)
-    expect(container.firstElementChild).toHaveClass('items-start')
+    expect(container.firstElementChild).toHaveClass('items-start', 'flex-wrap', 'justify-center', 'gap-2')
     for (const c of screen.getAllByTestId('cell')) {
-      expect(c).toHaveClass('w-12', 'h-[66px]', 'shrink-0', 'overflow-hidden', 'whitespace-nowrap')
+      expect(c).toHaveClass('w-[72px]', 'h-24', 'shrink-0', 'overflow-hidden', 'whitespace-nowrap')
       for (const line of compare(c).querySelectorAll('span')) expect(line).toHaveClass('truncate')
     }
+  })
+
+  it('is about twice the old size: 28 px hanzi, tone and score on their own 13/12 px lines, 28 x 24 buttons with 14 px icons', () => {
+    render(<CellRow cells={[{ ch: '王', pinyin: 'wáng', tone: 2, status: 'ok', score: 0.9 }]} />)
+    const lines = compare(screen.getByTestId('cell')).querySelectorAll('span')
+    expect(lines[0]).toHaveClass('text-[28px]'); expect(lines[1]).toHaveClass('text-[13px]'); expect(lines[2]).toHaveClass('text-xs')
+    for (const name of ['Speaker says 王', 'You say 王']) {
+      const b = screen.getByRole('button', { name })
+      expect(b).toHaveClass('w-7', 'h-6', '[&_svg]:w-3.5', '[&_svg]:h-3.5')
+    }
+  })
+
+  it('a heard sound sits in a slot directly under its own card (so it stays aligned on wrap); every card reserves the slot once any slipped', () => {
+    const { container } = render(<CellRow cells={[
+      { ch: '吃', pinyin: 'chī', tone: 1, heardSound: 'cī' }, { ch: '苹', pinyin: 'píng', tone: 2 },
+    ]} />)
+    const slots = container.querySelectorAll('[data-slot]')
+    expect(slots).toHaveLength(2)
+    expect(Array.from(slots).map((s) => s.textContent)).toEqual(['cī', ''])
+    expect(slots[0]).toHaveAttribute('title', 'heard cī instead of chī')
+    expect(slots[0]).toHaveClass('w-[72px]', 'border-dashed', 'border-sound')
+    expect(slots[0].previousElementSibling).toBe(screen.getAllByTestId('cell')[0])
+  })
+  it('has no heard slots without slips', () => {
+    const { container } = render(<CellRow cells={[{ ch: '吃', pinyin: 'chī', tone: 1 }]} />)
+    expect(container.querySelectorAll('[data-slot]')).toHaveLength(0)
   })
 
   it('outlines the highlighted cells only', () => {

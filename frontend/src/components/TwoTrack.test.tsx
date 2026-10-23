@@ -42,6 +42,15 @@ describe('<TwoTrack>', () => {
   const props = { segment, refPeaks: null, refDuration: 2, refPlayhead: null, youPeaks: null, youDuration: 0, youPlayhead: null, onPlayRef: () => {}, onPlayYou: () => {} }
   const cellButtons = () => screen.getAllByTestId('cell')
 
+  it('the cards are their own centred section after both tracks, not inside the You track box', () => {
+    render(<TwoTrack {...props} score={score([undefined, undefined, undefined])} />)
+    const section = screen.getByTestId('characters')
+    expect(section).toHaveTextContent('Characters')
+    for (const c of screen.getAllByTestId('cell')) expect(section).toContainElement(c)
+    const youBox = screen.getByText(/^You/).closest('div.border')!
+    expect(youBox).not.toContainElement(section)
+    expect(youBox.compareDocumentPosition(section) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
   it('a heard sound shows in the HEARD row under its cell, the expected pinyin in its tooltip; no purple ring', () => {
     render(<TwoTrack {...props} score={score([slip, undefined, undefined])} />)
     expect(screen.getByText('HEARD')).toBeInTheDocument()
