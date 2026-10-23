@@ -4,7 +4,7 @@ import pytest
 
 from shadow.scoring.sounds.contrasts import DIRECTIONS, HARD_DIRECTIONS
 from shadow.stats.scores import (Score, SylRow, char_right, character_stats, characters_score, rank_sentences,
-                                 score_set, sound_directions, sounds_score, tone_groups, tone_value, tones_score,
+                                 score_set, sound_directions, sound_outcome, sounds_score, tone_groups, tone_value, tones_score,
                                  weakest_sounds, weakest_tones)
 
 NOW = datetime(2026, 10, 23, 12, tzinfo=timezone.utc)
@@ -30,6 +30,15 @@ def test_tones_score_leaves_neutral_out_and_counts_missing_as_zero():
     rows = ([row(score=1.0)] * 20 + [row(status="missing", score=None)] * 10 + [row(tone=0, score=0.0)] * 5
             + [row(status="unvoiced")] * 5)
     assert tones_score(rows) == Score(20 / 30, 30)
+
+
+def test_tones_score_leaves_non_hanzi_syllables_out():
+    rows = [row(score=1.0)] * 30 + [row(ch="A", py="a", tone=-1, status="missing", score=None)] * 10
+    assert tones_score(rows) == Score(1.0, 30)
+
+
+def test_sound_outcome_slip_without_heard_is_left_out():
+    assert sound_outcome(row(py="chi", sound="slip", heard=None)) is None
 
 
 def test_scores_need_enough_units():

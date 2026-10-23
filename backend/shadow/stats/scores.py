@@ -66,7 +66,7 @@ def _mean(xs: list[float]) -> float | None:
 
 
 def tones_score(rows: list[SylRow]) -> Score:
-    vals = [v for r in rows if r.tone != 0 and (v := tone_value(r)) is not None]
+    vals = [v for r in rows if r.tone in (1, 2, 3, 4) and (v := tone_value(r)) is not None]
     return Score(_mean(vals) if len(vals) >= MIN_SYLLABLES else None, len(vals))
 
 

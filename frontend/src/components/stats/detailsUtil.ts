@@ -13,6 +13,7 @@ export function useLoad<T>(load: () => Promise<T>, deps: unknown[]) {
   const [err, setErr] = useState<string | null>(null)
   useEffect(() => {
     let cancelled = false
+    setData(null); setErr(null)
     load().then((v) => { if (!cancelled) setData(v) }).catch((e: unknown) => { if (!cancelled) setErr(e instanceof Error ? e.message : String(e)) })
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps

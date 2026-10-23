@@ -81,7 +81,7 @@ export default function Overview() {
               </button>))}
           </Widget>
           <Widget title="Drills" to="/stats/drills" allLabel="all drills" empty="No drills yet.">
-            {drills.map((d) => <p key={d.id} className="text-sm text-fg">{`${d.label} ${pct(d.first_mean)} → ${pct(d.best_mean)}`}</p>)}
+            {drills.map((d) => <p key={d.id} className="text-sm text-fg">{d.first_mean != null && d.best_mean != null ? `${d.label} ${pct(d.first_mean)} → ${pct(d.best_mean)}` : d.label}</p>)}
           </Widget>
         </div>
       </>

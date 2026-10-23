@@ -45,6 +45,15 @@ describe('details pages', () => {
     expect((await screen.findByTestId('where')).textContent).toBe(url)
   })
 
+  it('toggling the take set clears an earlier load error', async () => {
+    h.stats.characters.mockRejectedValueOnce(new Error('boom'))
+    at('/stats/characters?mode=flow')
+    expect(await screen.findByText(/Could not load stats: boom/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('link', { name: 'All takes' }))
+    expect(await screen.findByText('好')).toBeInTheDocument()
+    expect(screen.queryByText(/Could not load stats/)).toBeNull()
+  })
+
   it('characters page lists rows with trend', async () => {
     at('/stats/characters')
     expect(await screen.findByText('好')).toBeInTheDocument()

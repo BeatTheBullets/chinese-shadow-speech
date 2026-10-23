@@ -3,6 +3,7 @@ from collections import defaultdict
 from typing import Literal
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func
 from sqlmodel import Session, select
 from shadow.scoring.sounds.contrasts import checkable_directions_of, direction
 from shadow.drill.summary import recent_sessions
@@ -150,13 +151,14 @@ def _sentences(db: Session, since: datetime) -> list[dict]:
     best: dict[int, float] = {}
     window: dict[int, list[float]] = defaultdict(list)
     since = _aware(since)
-    for a in db.exec(select(Attempt).where(Attempt.score_json.is_not(None)).order_by(Attempt.created_at, Attempt.id)).all():
-        o = _overall(a)
+    overall = func.json_extract(Attempt.score_json, "$.overall")
+    for seg_id, created, o in db.exec(select(Attempt.segment_id, Attempt.created_at, overall)
+                                      .where(Attempt.score_json.is_not(None)).order_by(Attempt.created_at, Attempt.id)).all():
         if o is None:
             continue
-        best[a.segment_id] = max(best.get(a.segment_id, o), o)
-        if _aware(a.created_at) >= since:
-            window[a.segment_id].append(o)
+        best[seg_id] = max(best.get(seg_id, o), o)
+        if _aware(created) >= since:
+            window[seg_id].append(o)
     if not window:
         return []
     info = {s.id: (s, l.title) for s, l in db.exec(select(Segment, Lesson).join(Lesson, Lesson.id == Segment.lesson_id)
@@ -177,7 +179,7 @@ def overview(db: Session = Depends(get_session)):
     since = now - timedelta(days=WINDOW_DAYS)
     rows = _rows(db, since, None)
     flow_rows = _rows(db, since, "flow")
-    chars = sorted((c for c in character_stats(rows) if c["takes"] >= MIN_WEAK), key=lambda c: (c["score"], -c["takes"], c["ch"]))
+    chars = [c for c in character_stats(rows) if c["takes"] >= MIN_WEAK]
     week = _activity_days(db, 7)
     return {"scores": score_set(rows, now), "flow": score_set(flow_rows, now),
             "weakest": {"characters": chars[:3], "tones": weakest_tones(rows), "sounds": weakest_sounds(rows)},
