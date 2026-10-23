@@ -402,16 +402,59 @@ git add backend/scripts/int8_check.py backend/scripts/tone_model.py backend/test
 git commit -m "feat(scripts): int8 validation (alignment, words check, transcripts, sounds, tone)"
 ```
 
+### Task 6b: Punctuation from the small sherpa-onnx model (added after the gate)
+
+*Why:* the gate (Ledger) rejected pause splitting on natural speech (end recall 0.526 vs 0.783), and the user chose
+to keep punctuation. A spike (`.superpowers/sdd/2026-10-22-laptop-fit/spike-punct/RESULTS.md`) measured the int8
+sherpa-onnx CT-Transformer (`sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12`, `model.int8.onnx`,
+72 MB): peak RSS 181 MB vs > 5 GB for `ct-punc`, end recall 0.797 vs 0.783, F1 0.759 vs 0.760. The user approved it
+for every device.
+
+**Files:**
+- Create: `backend/shadow/ingest/punct.py`
+- Modify: `backend/shadow/config.py` (`ModelsCfg.punctuation: str = "sherpa"` — values `"sherpa"` | `"pauses"`,
+  replacing the bool; `ModelsCfg.punctuation_model: str =
+  "sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8"`, `punctuation_url: str` (the sherpa-onnx
+  GitHub release tarball for it), `punctuation_sha256: str` (pinned)), `backend/shadow/ingest/asr.py`
+  (`ParaformerASR` never passes `punc_model` to FunASR; it punctuates through a `Punctuator`), `backend/shadow/deps.py`,
+  `backend/scripts/split_gate.py` (the "punctuation" candidate now comes from the sherpa punctuator),
+  `backend/pyproject.toml` (`sherpa-onnx` in the `models` extra), `backend/uv.lock`, `config.toml`
+- Test: `backend/tests/test_punct.py`, `backend/tests/test_asr.py`
+
+**Interfaces:**
+- Produces: `class SherpaPunctuator(model: str, url: str, sha256: str, cache_dir: Path)` with `punctuate(text: str)
+  -> str` (lazy `_load` under its own lock then `shadow.hf.model_load_lock`, `sherpa_onnx` imported through
+  `shadow.hf.guarded_import`; first use downloads the tarball into `cache_dir/<model>/`, verifies SHA-256 before
+  unpacking, refuses on mismatch); `models_cache_dir() -> Path` (`SHADOW_MODELS_DIR` env var, else
+  `~/.cache/shadow-speech/models`); `punctuate_timed(text: str, timestamps: list[list[int]], punctuator: Punctuator,
+  cfg: SegmentationCfg) -> str` — punctuates in chunks of ≤ 150 speech characters cut at the largest timestamp gaps
+  (reuse `pause_ranges` with `max_chars=150`), joined in order, so marks never move between timed characters.
+  `ParaformerASR(model_id, device, punctuator: Punctuator | None, segmentation, int8)`: with a punctuator,
+  `_run` punctuates FunASR's unpunctuated text with `punctuate_timed` and passes the result to
+  `transcript_from_funasr`; with `punctuation = "pauses"` it keeps the pause path. The words check (`try_transcribe`
+  for `hear`) skips punctuation.
+
+- [ ] **Step 1: Failing tests** — `test_punctuate_timed_keeps_characters_and_order` (fake punctuator inserting marks;
+  stripping marks gives the input), `test_chunks_are_at_most_150_chars_and_cut_at_largest_gaps`,
+  `test_download_refuses_bad_checksum` (urlopen monkeypatched), `test_paraformer_never_loads_ct_punc` (fake funasr:
+  no `punc_model` kwarg for either setting), `test_asr_run_punctuates_with_sherpa` (fake punctuator → punctuated
+  transcript, timestamps paired per unit), `test_hear_skips_punctuation`.
+- [ ] **Step 2:** Run → FAIL. **Step 3:** Implement. **Step 4:** `uv run pytest -q` → pass; one `@pytest.mark.models`
+  test that downloads the real model and punctuates a short sentence.
+- [ ] **Step 5: Rerun the gate** with the sherpa candidate (`split_gate.py`, fresh transcripts) under the watchdog:
+  sherpa end recall and F1 within 2 points of the spike's (0.797 / 0.759). Record in the Ledger.
+- [ ] **Step 6: Commit** `feat(ingest): punctuation from the small sherpa-onnx model; FunASR's ct-punc dropped`.
+
 ### Task 7: Switch the defaults and prove the budget
 
 **Files:**
-- Modify: `backend/shadow/config.py` (`ModelsCfg.punctuation` default `False` if the gate passed),
-  `config.toml`, `README.MD` (How a lesson is made; CPU requirements), `docs/running.md` (CPU only: `int8 = true`,
-  `threads`), possibly the model classes (conditional Step 3)
+- Modify: `config.toml`, `README.MD` (How a lesson is made; CPU requirements), `docs/running.md` (CPU only:
+  `int8 = true`, `threads`), possibly the model classes (conditional Step 3)
 
-- [ ] **Step 1: Defaults** — with the gate passed and the user's go: `punctuation = false` in `ModelsCfg` and
-  `config.toml`. `int8` stays `false` in the repo's `config.toml` (the GPU machine); the laptop config written by the
-  Windows plan sets `int8 = true`. Update tests that assumed punctuated ASR text, then `uv run pytest -q` → all pass.
+- [ ] **Step 1: Defaults and remaining int8 checks** — `punctuation = "sherpa"` is already the default (Task 6b).
+  `int8` stays `false` in the repo's `config.toml` (the GPU machine); the laptop config written by the Windows plan
+  sets `int8 = true`. Run the two int8 checks that could not run while `ct-punc` was in place: `split_gate.py --int8`
+  and `int8_check.py cer` (pass marks in Global Constraints). Record them in the Ledger.
 - [ ] **Step 2: Budget run**
 
 Run: `cd backend && CUDA_VISIBLE_DEVICES="" uv run python scripts/cpu_budget.py --clip <5-min clip> --device cpu --int8 --threads 4 --budget`
