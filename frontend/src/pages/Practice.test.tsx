@@ -20,7 +20,7 @@ const h = vi.hoisted(() => ({
   takePeaks: new Float32Array(4), // what peaks() returns for a fresh take's You waveform
   player: { play: vi.fn(() => Promise.resolve()), playRange: vi.fn(() => Promise.resolve()), stop: vi.fn(), setVolume: vi.fn(), preload: vi.fn(() => Promise.resolve()), peaksFor: vi.fn<(url: string) => Promise<Float32Array>>(() => new Promise(() => {})) },
   ctxClose: vi.fn(() => Promise.resolve()),
-  twoTrack: null as null | { onPlayYouSyllable?: (i: number) => void; youPeaks: Float32Array | null; youDuration: number; score?: unknown },
+  twoTrack: null as null | { onPlayYouSyllable?: (i: number) => void; onPlaySyllable?: (i: number) => void; onCompareSyllable?: (i: number) => void; youPeaks: Float32Array | null; youDuration: number; score?: unknown },
 }))
 vi.mock('../api/client', async (importOriginal) => ({ ...(await importOriginal<typeof import('../api/client')>()), api: h.api }))
 vi.mock('../anki/export', async (importOriginal) => ({ ...(await importOriginal<typeof import('../anki/export')>()), exportAndRecord: h.exportAndRecord }))
@@ -89,6 +89,19 @@ describe('<Practice>', () => {
     press('Enter'); await flush()
     await waitFor(() => expect(h.twoTrack?.score).toEqual(score))
     expect(usePractice.getState().lesson!.segments[0]).toMatchObject({ last_score: 0.8, attempts: 1 })
+  })
+
+  it('Echo is compact: under the card one slim stage line while idle and listening (no reserved room), tight page spacing', async () => {
+    h.player.play.mockImplementation(() => new Promise(() => {}))
+    renderPractice()
+    await screen.findByText('你好', { selector: 'p.sentence' })
+    const cue = () => screen.getByTestId('stage-cue')
+    expect(cue()).toHaveClass('min-h-8'); expect(cue()).not.toHaveClass('min-h-28')
+    expect(screen.getByTestId('stage').parentElement).toHaveClass('space-y-3')
+    press(' ')
+    await waitFor(() => expect(screen.getByTestId('stage')).toHaveAttribute('data-stage', 'listen'))
+    expect(cue()).toHaveClass('min-h-8'); expect(cue()).not.toHaveClass('min-h-28')
+    expect(screen.queryByTestId('wave-slot')).toBeNull()
   })
 
   it('a gated take explains itself in the hint line', async () => {
@@ -552,6 +565,36 @@ describe('<Practice>', () => {
         clickChar(0); await flush()
         expect(h.player.playRange).toHaveBeenCalledTimes(2)
       } finally { cleanup(); useSettings.setState({ practice }) }
+    })
+
+    it('a verdict cell’s speaker button plays that syllable of the reference; its character plays the speaker, a pause, then you', async () => {
+      const usr_contour = { t0_s: 0, step_ms: 10, f0_st: [], spans: [[0.1, 0.4], [0.4, 0.9]] }
+      const syl = (status: string) => ({ ch: '你', pinyin: 'nǐ', tone: 3, target_tone: 3, heard_tone: 3, status, tone_score: 0.9, p_target: 0.9, contour: 0.9 })
+      const score = { overall: 0.8, tone_overall: 0.8, segmental_overall: null, rate_ratio: 1, ref_contour: null, usr_contour, syllables: [syl('ok'), syl('missing')], warnings: [] }
+      h.api.segments.postAttempt.mockResolvedValue({ id: 99, score_json: score })
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      await waitFor(() => expect(usePractice.getState().sessionId).toBe(5))
+      press('Enter'); await screen.findByRole('button', { name: 'Stop (Enter)' }); await flush()
+      press('Enter'); await flush()
+      await waitFor(() => expect(h.twoTrack?.score).toEqual(score))
+      const url = currentTake(usePractice.getState())!.url
+      h.player.playRange.mockClear(); h.playSequence.mockClear()
+      act(() => h.twoTrack!.onPlaySyllable!(1)); await flush()
+      expect(h.player.playRange).toHaveBeenCalledTimes(1)
+      const [rurl, rate, from, to] = h.player.playRange.mock.calls[0] as unknown as [string, number, number, number]
+      expect([rurl, rate]).toEqual(['/seg/11.wav', 1]); expect(from).toBeCloseTo(0.5, 5); expect(to).toBeCloseTo(1.25, 5)
+      act(() => h.twoTrack!.onCompareSyllable!(0)); await flush()
+      expect(h.playSequence).toHaveBeenCalledTimes(1)
+      const [, items, gap] = h.playSequence.mock.calls[0] as unknown as [unknown, { url: string; rate: number; from: number; to: number }[], number]
+      expect(gap).toBe(250)
+      expect(items.map((i) => [i.url, i.rate])).toEqual([['/seg/11.wav', 1], [url, 1]])
+      expect(items[0].from).toBeCloseTo(0.2, 5); expect(items[0].to).toBeCloseTo(0.5, 5)
+      expect([items[1].from, items[1].to]).toEqual([0.1, 0.4])
+      // A missing syllable has nothing of yours: its character plays the speaker alone.
+      act(() => h.twoTrack!.onCompareSyllable!(1)); await flush()
+      const [, only] = h.playSequence.mock.calls[1] as unknown as [unknown, { url: string }[]]
+      expect(only.map((i) => i.url)).toEqual(['/seg/11.wav'])
     })
   })
 

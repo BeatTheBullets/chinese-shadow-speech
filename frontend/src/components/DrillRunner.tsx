@@ -3,7 +3,7 @@ import { api, ApiError } from '../api/client'
 import type { DrillItem, DrillSession, Score, Segment } from '../api/types'
 import { playClip } from '../audio/abortable'
 import { findSilenceEnd } from '../audio/pcm'
-import { ClipPlayer, peaks as peaksOf, playSequence } from '../audio/player'
+import { ClipPlayer, peaks as peaksOf, playSequence, type SequenceItem } from '../audio/player'
 import { toWav16k } from '../audio/recorder'
 import { useMic } from '../audio/useMic'
 import type { Stage } from '../lib/cue'
@@ -258,18 +258,40 @@ export default function DrillRunner({ session, onFinish }: { session: DrillSessi
     const t = takeRef.current, voice = t && speechBounds(t.peaks, t.duration)
     if (t) playSolo(t.url, setYouHead, voice?.from, voice?.to)
   }
-  // One syllable of the user's take (usr_contour spans are already on the raw take's timeline).
-  function playYouSyllable(cell: number) {
+  // One syllable of the user's take, as a range of it (usr_contour spans are already on the raw take's timeline). Every
+  // syllable has a span, but a missing or unvoiced one has nothing of the user's to play: null.
+  function youSyllable(cell: number) {
     const t = takeRef.current, span = t?.score?.usr_contour?.spans[cell]
-    // Every syllable has a span, but a missing or unvoiced one has nothing of the user's to play.
     const status = t?.score?.syllables[cell]?.status
-    if (t && span && status !== 'missing' && status !== 'unvoiced') playSolo(t.url, setYouHead, span[0], span[1])
+    return t && span && status !== 'missing' && status !== 'unvoiced' ? { url: t.url, rate: 1, from: span[0], to: span[1] } : null
   }
-  // One syllable of the reference, from a click on its character on the sentence card (alignment times are
-  // source-absolute; the clip starts at start_s).
-  function playSyllable(cell: number) {
+  // One syllable of the reference at the drill's speed (alignment times are source-absolute; the clip starts at start_s).
+  function refSyllable(cell: number) {
     const s = segRef.current, span = s?.ref_alignment_json?.[cell]
-    if (s && span) playSolo(api.segments.audioUrl(s.id, 'wav'), setRefHead, Math.max(0, span.start - s.start_s), Math.max(0, span.end - s.start_s), rateRef.current)
+    return s && span ? { url: api.segments.audioUrl(s.id, 'wav'), rate: rateRef.current, from: Math.max(0, span.start - s.start_s), to: Math.max(0, span.end - s.start_s) } : null
+  }
+  function playYouSyllable(cell: number) {
+    const y = youSyllable(cell)
+    if (y) playSolo(y.url, setYouHead, y.from, y.to)
+  }
+  // From a click on its character on the sentence card or its verdict cell's ▶.
+  function playSyllable(cell: number) {
+    const r = refSyllable(cell)
+    if (r) playSolo(r.url, setRefHead, r.from, r.to, r.rate)
+  }
+  // A verdict cell's character: the speaker's syllable, the usual pause, then the user's (the speaker's alone when the
+  // user has none there). Same gate as playSolo; a later play or stop ends it.
+  function compareSyllable(cell: number) {
+    if (recRef.current || stRef.current.step === 'listen') return
+    const r = refSyllable(cell), y = youSyllable(cell)
+    const items: SequenceItem[] = [...(r ? [{ ...r, onTime: setRefHead }] : []), ...(y ? [{ ...y, onTime: setYouHead }] : [])]
+    if (!items.length) return
+    stopPlayback()
+    const ctrl = new AbortController()
+    seqCtrl.current = ctrl
+    playSequence(player, items, 250, ctrl.signal)
+      .catch((e) => { if (!ctrl.signal.aborted) setError(`Could not play: ${message(e)}`) })
+      .finally(() => { if (seqCtrl.current === ctrl) seqCtrl.current = null })
   }
 
   // ⚑ Difficult, patched on the sentence as Practice does; the run's copy follows.
@@ -334,20 +356,21 @@ export default function DrillRunner({ session, onFinish }: { session: DrillSessi
   const enterLabel = st.step === 'listen' ? 'Record now' : st.step === 'review' ? (st.outcome === 'retry' ? 'Again' : 'Next') : undefined
   const tools = <SentenceTools flagged={seg.difficulty_flag} onFlag={() => act('flag')} prefs={prefs} onToggle={(k) => act(TOGGLE[k])} />
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       <div className="flex items-center gap-4 text-sm text-fgdim border-b border-line pb-2">
         <span className="text-fg">{session.label}</span>
         <span>Try {tryNo} / {maxTries}</span>
         <span>{item.lesson_title}</span>
         <span className="ml-auto"><Button label="Finish drill" onClick={finish} /></span>
       </div>
-      <StageState {...stage} startedAt={recAt} autoStop wave={<LiveWave mic={mic} color={TOKENS.you} />}>
+      <StageState slim {...stage} startedAt={recAt} autoStop wave={<LiveWave mic={mic} color={TOKENS.you} />}>
         <KaraokeSentence wipe={wipe} onSyllableClick={playSyllable} text={seg.text} words={seg.words_json} showHanzi={prefs.hanzi && show} showPinyin={prefs.pinyin && show}
           translation={seg.translation} showTranslation={prefs.translation && show} tools={tools} />
       </StageState>
       <TwoTrack segment={seg} refPeaks={refPeaks} refDuration={seg.end_s - seg.start_s} refPlayhead={refHead}
         youPeaks={take?.peaks ?? null} youDuration={take?.duration ?? 0} youPlayhead={youHead}
-        onPlayRef={playRef} onPlayYou={replayYou} onPlayYouSyllable={playYouSyllable} highlight={item.targets}
+        onPlayRef={playRef} onPlayYou={replayYou} highlight={item.targets}
+        onPlaySyllable={playSyllable} onPlayYouSyllable={playYouSyllable} onCompareSyllable={compareSyllable}
         score={take?.score ?? null} scoreHeader={<ScoreHeader score={take?.score} best={seg.best_score} attempts={seg.attempts} />} />
       {/* The Practice bar, minus Anki: position n / N with › skipping (no going back), Listen, Record (Again when
           reviewing; Next goes on, in accent), Me, Sound. Record pulses while the step waits for a take. */}

@@ -25,6 +25,14 @@ describe('Button', () => {
     expect(screen.getByText('K').classList.contains(HINT[v])).toBe(true)
     expect(contrast(HEX(HINT[v]), TOKENS[BG[v]])).toBeGreaterThanOrEqual(4.5)
   })
+  it('sm (a track caption): one slim row, icon, label and the grey key hint side by side; md and lg stack them', () => {
+    const { rerender } = render(<Button label="Listen" keyHint="Space" size="sm" variant="ghost" onClick={() => {}} />)
+    expect(screen.getByRole('button')).toHaveClass('flex-row')
+    expect(screen.getByRole('button')).not.toHaveClass('flex-col')
+    expect(screen.getByText('Space')).toHaveClass('text-fgdim')
+    rerender(<Button label="Listen" keyHint="Space" onClick={() => {}} />)
+    expect(screen.getByRole('button')).toHaveClass('flex-col')
+  })
   it('the default variant sits on card, the button surface (spec §1.1)', () => {
     render(<Button label="L" onClick={() => {}} />)
     expect(screen.getByRole('button')).toHaveClass('bg-card')

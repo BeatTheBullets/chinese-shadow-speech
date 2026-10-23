@@ -16,15 +16,23 @@ const nowS = () => performance.now() / 1000
 //   Along records throughout, so its frame stays while it counts in to the next line: the ring shows inside it.
 // `note` is a page's own small guidance line (the drill's "Scoring…", "Not green yet…"), shown when nothing is going
 // on and alongside listen and review. What to press next is not a line: that button pulses (Transport's pulse).
-// Nothing moves between stages (no page jump): the cue area under the sentence has one min-height that fits the tallest
+// Nothing moves between stages (no page jump; but see `slim`): the cue area under the sentence has one min-height that fits the tallest
 // state, the ring is overlaid on it (absolute), and `wave` has a fixed slot, held empty while not speaking.
 // `compact` (Flow, between its transcript lines): the cue area only as tall as the ring, "Get ready" beside the ring
 // instead of under it, a smaller wave slot and less space between: no big empty box.
+// `slim` (Echo, Drill, which have no countdown): no reserved room. While nothing is spoken (idle, listen, review) the cue
+// is one slim line (min-h-8, 32 px) with the small label and the note side by side, and no wave slot; the review below
+// keeps still through all of those. "Your turn" keeps its look (frame, large text, timer, live wave) but takes only the
+// room it needs, so the tracks below move once when a take starts and once when it stops.
 // No transitions on the frame: nothing may delay the moment to speak (spec §7).
-export default function StageState({ stage, count = null, startedAt, autoStop = false, note, wave, compact = false, children }: {
-  stage: Stage; count?: 3 | 2 | 1 | null; startedAt?: number; autoStop?: boolean; note?: string; wave?: ReactNode; compact?: boolean; children?: ReactNode
+export default function StageState({ stage, count = null, startedAt, autoStop = false, note, wave, compact = false, slim = false, children }: {
+  stage: Stage; count?: 3 | 2 | 1 | null; startedAt?: number; autoStop?: boolean; note?: string; wave?: ReactNode; compact?: boolean; slim?: boolean; children?: ReactNode
 }) {
   const speaking = stage === 'yourTurn' || stage === 'along'
+  // slim: the line while nothing is spoken; speaking, only its content's height; a countdown (unused there) its ring's room.
+  const cue = !slim ? `${compact ? 'min-h-20' : 'min-h-28'} flex-col gap-1`
+    : speaking ? 'flex-col gap-1' : stage === 'getReady' ? 'min-h-28 flex-col gap-1' : 'min-h-8 flex-row flex-wrap gap-x-3 text-sm'
+  const showWave = wave != null && (!slim || speaking)
   const ring = (place: string) => count != null && (
     <div data-testid="countdown" role="timer" aria-label={`starting in ${count}`} className={`absolute ${place} w-20 h-20 text-accent`}>
       <svg viewBox="0 0 80 80" aria-hidden="true" className="absolute inset-0 -rotate-90">
@@ -36,14 +44,14 @@ export default function StageState({ stage, count = null, startedAt, autoStop = 
     </div>)
   return (
     <section data-testid="stage" data-stage={stage}
-      className={`rounded-2xl border-2 p-3 ${compact ? 'space-y-2' : 'space-y-4'} ${speaking ? 'border-record ring-4 ring-inset ring-record/20' : 'border-transparent'}`}>
+      className={`rounded-2xl border-2 ${slim ? 'p-2 space-y-2' : compact ? 'p-3 space-y-2' : 'p-3 space-y-4'} ${speaking ? 'border-record ring-4 ring-inset ring-record/20' : 'border-transparent'}`}>
       {children}
-      {wave != null && <div data-testid="wave-slot" className={compact ? 'h-10' : 'h-12'}>{speaking && wave}</div>}
+      {showWave && <div data-testid="wave-slot" className={compact ? 'h-10' : 'h-12'}>{speaking && wave}</div>}
       {/* min-h-28 (112 px): getReady's ring (80) over "Get ready" (28), the tallest state; compact: the ring (80) alone,
           "Your turn" with its timer (~60) fits under it */}
-      <div data-testid="stage-cue" className={`relative ${compact ? 'min-h-20' : 'min-h-28'} flex flex-col items-center justify-center gap-1`}>
+      <div data-testid="stage-cue" className={`relative ${cue} flex items-center justify-center`}>
         {(stage === 'listen' || stage === 'review') && (
-          <p role="status" className="flex justify-center gap-2 text-ref">
+          <p role="status" className={`flex justify-center gap-2 text-ref${slim ? ' text-sm' : ''}`}>
             <span aria-hidden="true">▶</span> <span>{stage === 'listen' ? 'Listening' : 'Listen — the original, then you'}</span>
           </p>)}
         {stage === 'getReady' && (compact ? (<>

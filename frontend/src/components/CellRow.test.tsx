@@ -1,6 +1,9 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
+import type { Cell } from '../lib/cells'
 import CellRow from './CellRow'
+
+const compare = (cell: HTMLElement) => within(cell).getByTestId('cell-compare')
 
 describe('<CellRow>', () => {
   it('shows score, target→heard on a wrong tone, ∅ unvoiced and – missing', () => {
@@ -10,33 +13,63 @@ describe('<CellRow>', () => {
       { ch: '吗', pinyin: 'ma', tone: 0, status: 'unvoiced', score: null },
       { ch: '呢', pinyin: 'ne', tone: 0, status: 'missing', score: 0 },
     ]} />)
-    const [ok, wrong, unvoiced, missing] = screen.getAllByRole('button')
-    expect(ok).toHaveClass('cell-ok'); expect(ok).toHaveTextContent('92')
-    expect(wrong).toHaveClass('cell-bad'); expect(wrong).toHaveTextContent('3→2')
-    expect(unvoiced).toHaveClass('cell-unvoiced'); expect(unvoiced).toHaveTextContent('∅')
-    expect(missing).toHaveClass('cell-missing'); expect(missing).toHaveTextContent('–')
-    expect(wrong).toHaveAttribute('title', 'hǎo · Speaker: tone 3 (low) · You: tone 2 (rising) · 31')
+    const [ok, wrong, unvoiced, missing] = screen.getAllByTestId('cell')
+    expect(ok).toHaveClass('cell-ok'); expect(compare(ok)).toHaveTextContent('92')
+    expect(wrong).toHaveClass('cell-bad'); expect(compare(wrong)).toHaveTextContent('3→2')
+    expect(unvoiced).toHaveClass('cell-unvoiced'); expect(compare(unvoiced)).toHaveTextContent('∅')
+    expect(missing).toHaveClass('cell-missing'); expect(compare(missing)).toHaveTextContent('–')
+    expect(compare(wrong).title).toContain('hǎo · Speaker: tone 3 (low) · You: tone 2 (rising) · 31')
   })
 
-  it('every cell has the same fixed size, lines that cannot wrap, and the row aligns them at the top', () => {
+  it('every cell has the same fixed size, tall enough for its buttons, lines that cannot wrap, and the row aligns them at the top', () => {
     const { container } = render(<CellRow cells={[
       { ch: '王', pinyin: 'wáng', tone: 2, status: 'wrong', score: 0.2, target: 2, heard: 1 }, { ch: '小', pinyin: 'xiǎo', tone: 3, status: 'ok', score: 0.93 },
     ]} />)
     expect(container.firstElementChild).toHaveClass('items-start')
-    for (const b of screen.getAllByRole('button')) {
-      expect(b).toHaveClass('w-12', 'h-14', 'shrink-0', 'overflow-hidden', 'whitespace-nowrap')
-      for (const line of b.querySelectorAll('span')) expect(line).toHaveClass('truncate')
+    for (const c of screen.getAllByTestId('cell')) {
+      expect(c).toHaveClass('w-12', 'h-16', 'shrink-0', 'overflow-hidden', 'whitespace-nowrap')
+      for (const line of compare(c).querySelectorAll('span')) expect(line).toHaveClass('truncate')
     }
   })
 
-  it('outlines the highlighted cells only, and a click plays that cell', () => {
-    const calls: number[] = []
-    render(<CellRow highlight={[1]} onCellClick={(i) => calls.push(i)} cells={[
+  it('outlines the highlighted cells only', () => {
+    render(<CellRow highlight={[1]} cells={[
       { ch: '你', pinyin: 'nǐ', tone: 3 }, { ch: '好', pinyin: 'hǎo', tone: 3 }, { ch: '吗', pinyin: 'ma', tone: 0 },
     ]} />)
-    const [a, b, c] = screen.getAllByRole('button')
+    const [a, b, c] = screen.getAllByTestId('cell')
     expect(b).toHaveClass('ring-2', 'ring-accent')
     expect(a).not.toHaveClass('ring-2'); expect(c).not.toHaveClass('ring-2')
-    b.click(); expect(calls).toEqual([1])
+  })
+
+  const scored: Cell[] = [
+    { ch: '王', pinyin: 'wáng', tone: 2, status: 'ok', score: 0.91 }, { ch: '小', pinyin: 'xiǎo', tone: 3, status: 'wrong', score: 0.3, target: 3, heard: 2 },
+    { ch: '姐', pinyin: 'jiě', tone: 3, status: 'missing', score: 0 }, { ch: '们', pinyin: 'men', tone: 0, status: 'unvoiced', score: null },
+  ]
+  it('every cell has a speaker and a me button, labelled with its character, in the speaker and you colours', () => {
+    render(<CellRow cells={scored} />)
+    for (const c of scored) {
+      const sp = screen.getByRole('button', { name: `Speaker says ${c.ch}` }), me = screen.getByRole('button', { name: `You say ${c.ch}` })
+      expect(sp).toHaveAttribute('title', `Speaker says ${c.ch}`); expect(me).toHaveAttribute('title', `You say ${c.ch}`)
+      expect(sp).toHaveClass('text-ref'); expect(me).toHaveClass('text-you')
+    }
+  })
+  it('speaker plays the reference syllable i, me the user’s, and the character itself the speaker then you', () => {
+    const calls: string[] = []
+    render(<CellRow cells={scored} onSpeaker={(i) => calls.push(`speaker ${i}`)} onMe={(i) => calls.push(`me ${i}`)} onCellClick={(i) => calls.push(`compare ${i}`)} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Speaker says 小' }))
+    fireEvent.click(screen.getByRole('button', { name: 'You say 小' }))
+    fireEvent.click(compare(screen.getAllByTestId('cell')[0]))
+    expect(calls).toEqual(['speaker 1', 'me 1', 'compare 0'])
+  })
+  it('me does nothing on a missing or unvoiced cell, or before a score (nothing of yours to play); speaker still plays', () => {
+    const calls: string[] = []
+    render(<CellRow cells={[...scored, { ch: '呢', pinyin: 'ne', tone: 0, status: 'neutral' }]} onSpeaker={(i) => calls.push(`speaker ${i}`)} onMe={(i) => calls.push(`me ${i}`)} />)
+    for (const ch of ['姐', '们', '呢']) {
+      const me = screen.getByRole('button', { name: `You say ${ch}` })
+      expect(me).toBeDisabled()
+      fireEvent.click(me)
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Speaker says 姐' }))
+    expect(calls).toEqual(['speaker 2'])
   })
 })

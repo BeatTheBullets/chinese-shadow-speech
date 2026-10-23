@@ -59,6 +59,8 @@ const stored = (attemptId: number, duration: number, score?: Score | null): Stor
 
 // A multi-step run in progress (a Flow run). Aborting its controller (stop, mode switch, navigation, unmount) ends it.
 type RunKind = 'flow'
+// One syllable's stretch of a clip, to play alone or in a sequence.
+type ClipRange = Required<Pick<SequenceItem, 'url' | 'rate' | 'from' | 'to'>>
 
 // Practice page: Echo and Flow modes (app style spec §4), the drawer's edit/split/merge and the Anki export.
 // Handlers read the stores with getState() so timers and late promises never act on a stale render's values.
@@ -375,21 +377,37 @@ export default function Practice() {
     const voice = peaks && speechBounds(peaks, take.duration)
     playSolo(() => (voice ? player.playRange(take.url, 1, voice.from, voice.to, setYouHead) : player.play(take.url, 1, setYouHead)))
   }
-  // One syllable of the user's own take; usr_contour spans are already on the raw take's timeline (backend adds the trim offset).
-  function playYouSyllable(cell: number) {
+  // One syllable of the user's own take, as a range of it; usr_contour spans are already on the raw take's timeline
+  // (backend adds the trim offset). The backend gives every syllable a span, but a missing or unvoiced one has nothing
+  // of the user's to play: null.
+  function youSyllable(cell: number): ClipRange | null {
     const take = currentTake(usePractice.getState()), span = take?.score?.usr_contour?.spans[cell]
-    // The backend gives every syllable a span, but a missing or unvoiced one has nothing of the user's to play.
     const status = take?.score?.syllables[cell]?.status
-    if (take && span && status !== 'missing' && status !== 'unvoiced') playSolo(() => player.playRange(take.url, 1, span[0], span[1], setYouHead))
+    return take && span && status !== 'missing' && status !== 'unvoiced' ? { url: take.url, rate: 1, from: span[0], to: span[1] } : null
   }
-  // Plays one syllable of the reference once (addendum §1.2), from a click on its character on the sentence card;
-  // clicking again plays it again.
-  // Alignment times are source-absolute, the clip starts at seg.start_s.
-  function playSyllable(cell: number) {
+  // One syllable of the reference, as a range of its clip at the practice speed. Alignment times are source-absolute,
+  // the clip starts at seg.start_s.
+  function refSyllable(cell: number): ClipRange | null {
     const ps = usePractice.getState(), s = currentSegment(ps), span = s?.ref_alignment_json?.[cell]
-    if (!s || !span) return
-    const url = api.segments.audioUrl(s.id, 'wav'), from = Math.max(0, span.start - s.start_s), to = Math.max(0, span.end - s.start_s)
-    playSolo(() => player.playRange(url, ps.rate, from, to, setRefHead))
+    if (!s || !span) return null
+    return { url: api.segments.audioUrl(s.id, 'wav'), rate: ps.rate, from: Math.max(0, span.start - s.start_s), to: Math.max(0, span.end - s.start_s) }
+  }
+  function playYouSyllable(cell: number) {
+    const y = youSyllable(cell)
+    if (y) playSolo(() => player.playRange(y.url, y.rate, y.from, y.to, setYouHead))
+  }
+  // Plays one syllable of the reference once (addendum §1.2), from a click on its character on the sentence card or
+  // its verdict cell's ▶; clicking again plays it again.
+  function playSyllable(cell: number) {
+    const r = refSyllable(cell)
+    if (r) playSolo(() => player.playRange(r.url, r.rate, r.from, r.to, setRefHead))
+  }
+  // A verdict cell's character: the speaker's syllable, the usual pause, then the user's (only the speaker's when the
+  // user has none there), to compare one syllable by ear.
+  function compareSyllable(cell: number) {
+    const r = refSyllable(cell), y = youSyllable(cell)
+    const items: SequenceItem[] = [...(r ? [{ ...r, onTime: setRefHead }] : []), ...(y ? [{ ...y, onTime: setYouHead }] : [])]
+    if (items.length) playItems(items)
   }
 
   function goTo(i: number) {
@@ -696,7 +714,8 @@ export default function Practice() {
               controls={<FlowSetup segments={segments} from={range.from} to={range.to} sub={fs.sub} onChange={setFlowForm} runs={flowRuns} onReplay={replayRun} />} />
             {flowRunning ? <FlowTransport onAction={act} idx={fs.current} total={segments.length} sound={sound} error={error} hint={st.hint} /> : bar}
           </>) : (<>
-            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            {/* Echo is compact: the card, the slim stage line, both tracks and the bar fit a ~900 px viewport unscrolled. */}
+            <div className={`flex-1 overflow-y-auto ${st.mode === 'flow' ? 'p-6 space-y-6' : 'px-6 py-4 space-y-3'}`}>
               {st.mode === 'flow' ? (<>
                 {stage !== 'idle' && <StageState stage={stage} />}{/* Space plays the sentence: "Listening" */}
                 <FlowSummary segments={segments} results={fs.results} skipped={fs.skipped} elapsedS={fs.elapsedS}
@@ -705,7 +724,7 @@ export default function Practice() {
                   onFlagWeakest={flagWeakest} onExportWeakest={exportWeakest}
                   onDone={() => offerExport(flow.clear)} />
               </>) : (<>
-                <StageState stage={stage} startedAt={echoTurn ?? undefined} autoStop wave={<LiveWave mic={mic} color={TOKENS.you} />}>
+                <StageState slim stage={stage} startedAt={echoTurn ?? undefined} autoStop wave={<LiveWave mic={mic} color={TOKENS.you} />}>
                   <KaraokeSentence wipe={wipe} onSyllableClick={playSyllable} text={seg.text} words={seg.words_json} showHanzi={st.textPrefs.hanzi && show} showPinyin={st.textPrefs.pinyin && show} translation={seg.translation} showTranslation={st.textPrefs.translation && show}
                     tools={<SentenceTools flagged={seg.difficulty_flag} onFlag={() => act('flag')} prefs={st.textPrefs} onToggle={(k) => act(TOGGLE[k])} />}>
                     {!(st.textPrefs.hanzi && show) && wipe && <GhostLine count={spans.length} wipe={wipe} />}
@@ -713,7 +732,8 @@ export default function Practice() {
                 </StageState>
                 <TwoTrack segment={seg} refPeaks={refPeaks} refDuration={seg.end_s - seg.start_s} refPlayhead={refHead}
                   youPeaks={youPeaks} youDuration={take?.duration ?? 0} youPlayhead={youHead}
-                  onPlayRef={() => act('play')} onPlayYou={() => act('replayYou')} onPlayYouSyllable={playYouSyllable}
+                  onPlayRef={() => act('play')} onPlayYou={() => act('replayYou')}
+                  onPlaySyllable={playSyllable} onPlayYouSyllable={playYouSyllable} onCompareSyllable={compareSyllable}
                   score={take?.score ?? null} scoreHeader={<ScoreHeader score={take?.score} best={seg.best_score} attempts={seg.attempts} />} />
               </>)}
             </div>

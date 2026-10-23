@@ -28,7 +28,7 @@ describe('<TwoTrack>', () => {
     const noop = () => {}
     render(<TwoTrack segment={segment} refPeaks={null} refDuration={2} refPlayhead={null} youPeaks={null} youDuration={0} youPlayhead={null}
       onPlayRef={noop} onPlayYou={noop} highlight={[0, 2]} />)
-    const cells = screen.getAllByRole('button').filter((b) => b.title !== '' && within(b).queryByText(/[你好吗]/))
+    const cells = screen.getAllByTestId('cell')
     expect(cells).toHaveLength(3)
     expect(screen.queryByText(/nǐ 3/)).toBeNull()             // the reference row's "pinyin tone" labels are gone
     expect(cells.map((c) => c.classList.contains('ring-accent'))).toEqual([true, false, true])
@@ -40,7 +40,7 @@ describe('<TwoTrack>', () => {
     syllables: [syl('你', 'nǐ', 3, sounds[0]), syl('好', 'hǎo', 3, sounds[1]), syl('吗', 'ma', 0, sounds[2])] })
   const slip = { status: 'slip' as const, heard: 'n', heard_pinyin: 'lǐ', z: 3, rule: 'fused' as const }
   const props = { segment, refPeaks: null, refDuration: 2, refPlayhead: null, youPeaks: null, youDuration: 0, youPlayhead: null, onPlayRef: () => {}, onPlayYou: () => {} }
-  const cellButtons = () => screen.getAllByRole('button').filter((b) => b.title !== '' && within(b).queryByText(/[你好吗]/))
+  const cellButtons = () => screen.getAllByTestId('cell')
 
   it('a heard sound shows in the HEARD row under its cell, the expected pinyin in its tooltip; no purple ring', () => {
     render(<TwoTrack {...props} score={score([slip, undefined, undefined])} />)
@@ -52,7 +52,7 @@ describe('<TwoTrack>', () => {
     render(<TwoTrack {...props} score={score([undefined, undefined, undefined])} />)
     expect(screen.queryByText('HEARD')).toBeNull()
     expect(cellButtons().some((c) => c.classList.contains('ring-sound'))).toBe(false)
-    expect(cellButtons().map((c) => c.textContent)).toEqual(['你390', '好390', '吗090'])
+    expect(cellButtons().map((c) => within(c).getByTestId('cell-compare').textContent)).toEqual(['你390', '好390', '吗090'])
   })
   it('each track plays from a labelled button with its key as the hint, not "▶ Space" / "▶ R" key faces', () => {
     const calls: string[] = []
@@ -67,11 +67,20 @@ describe('<TwoTrack>', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Me (R)' }))
     expect(calls).toEqual(['ref', 'you'])
   })
-  it('clicking a You cell calls onPlayYouSyllable(i)', () => {
-    const calls: number[] = []
-    render(<TwoTrack {...props} score={score([undefined, undefined, undefined])} onPlayYouSyllable={(i) => calls.push(i)} />)
-    fireEvent.click(cellButtons()[1])
-    expect(calls).toEqual([1])
+  it('each cell’s speaker button calls onPlaySyllable(i), its me button onPlayYouSyllable(i), its character onCompareSyllable(i)', () => {
+    const calls: string[] = []
+    render(<TwoTrack {...props} youDuration={1.5} score={score([undefined, undefined, undefined])} onPlaySyllable={(i) => calls.push(`ref ${i}`)}
+      onPlayYouSyllable={(i) => calls.push(`you ${i}`)} onCompareSyllable={(i) => calls.push(`both ${i}`)} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Speaker says 好' }))
+    fireEvent.click(screen.getByRole('button', { name: 'You say 吗' }))
+    fireEvent.click(within(cellButtons()[0]).getByTestId('cell-compare'))
+    expect(calls).toEqual(['ref 1', 'you 2', 'both 0'])
+  })
+  it('compact: both waveforms and pitch lines 36 px tall, and the track captions one slim line (small row buttons)', () => {
+    h.waves.length = 0
+    render(<TwoTrack {...props} youDuration={1.5} />)
+    expect(h.waves.slice(-2).map((w) => w.height)).toEqual([36, 36])
+    for (const name of ['Listen (Space)', 'Me (R)']) expect(screen.getByRole('button', { name })).toHaveClass('flex-row')
   })
 
   describe('speech-aligned tracks on one time scale', () => {

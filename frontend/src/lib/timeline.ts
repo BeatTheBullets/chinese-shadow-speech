@@ -47,3 +47,12 @@ export function sliceToWindow(peaks: Float32Array | null, duration: number, w: S
   const i0 = Math.max(0, Math.floor(w.from / dt + 1e-9)), i1 = Math.min(peaks.length, Math.ceil(w.to / dt - 1e-9))
   return { peaks: peaks.subarray(i0, Math.max(i0, i1)), from: i0 * dt, to: Math.max(i0, i1) * dt }
 }
+
+// A track's bars scaled to its own loudest one (display only: scoring never sees this), so a quiet mic still draws a
+// clear waveform beside a loud clip. A copy; silence (or nothing) as it is, so there is no division by zero.
+export function normalizePeaks(peaks: Float32Array | null): Float32Array | null {
+  if (!peaks) return null
+  let max = 0
+  for (const p of peaks) if (p > max) max = p
+  return max > 0 ? peaks.map((p) => p / max) : peaks.slice()
+}

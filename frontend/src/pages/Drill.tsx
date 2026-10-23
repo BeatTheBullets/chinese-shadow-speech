@@ -82,7 +82,7 @@ export default function Drill() {
     load()
   }
 
-  if (session) return <Shell><div className="max-w-4xl mx-auto p-6"><DrillRunner key={session.id} session={session} onFinish={() => finished(session.id)} /></div></Shell>
+  if (session) return <Shell><div className="max-w-4xl mx-auto px-6 py-4"><DrillRunner key={session.id} session={session} onFinish={() => finished(session.id)} /></div></Shell>
   if (ending) return <Shell><div className="max-w-4xl mx-auto p-6"><p className="text-sm text-fgdim">Loading the summary…</p></div></Shell>
   if (summary) return (
     <Shell><div className="max-w-4xl mx-auto p-6 space-y-2">
