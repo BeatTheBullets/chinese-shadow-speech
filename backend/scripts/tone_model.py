@@ -20,6 +20,7 @@ import numpy as np
 import soundfile as sf
 from shadow.config import load_settings
 from shadow.ingest.align import make_aligner
+from shadow.memory import release_freed_memory_eagerly
 from shadow.scoring.augment import FRACS, LEVEL, TEMPLATES, alter_choices, contour_units, resynth
 from shadow.scoring.corpus import Utterance, read_split, realise
 from shadow.scoring.embed import Wav2Vec2Embedder, pool
@@ -310,6 +311,7 @@ def main() -> None:
     ap.add_argument("--stage", choices=["all", "features", "train", "evaluate"], default="all")
     ap.add_argument("--int8-aligner", action="store_true", help="evaluate: recompute test features with the int8 aligner")
     a = ap.parse_args()
+    release_freed_memory_eagerly()      # before any model loads
     if a.stage == "evaluate":
         evaluate(a.root, a.name, a.hours, a.labels, a.int8_aligner)
         return

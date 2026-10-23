@@ -145,20 +145,15 @@ class ParaformerASR:
                 self._model = model
         return self._model
 
-    def warm_up(self) -> threading.Thread:
-        """Load (on first run: download) the model in a daemon thread, so the first take's words check does not
-        wait for it; under the lock, like the embedder's warm-up. A failure is logged and the next call tries again."""
-        def run():
-            try:
-                with self._lock:
-                    self._load()
-            except Exception:
-                log.exception("warming up the recogniser %s failed", self.model_id)
-            finally:
-                trim_heap()
-        t = threading.Thread(target=run, name="asr-warm-up", daemon=True)
-        t.start()
-        return t
+    def warm(self) -> None:
+        """Blocking load under the lock, like the embedder's; a failure is logged and the next call tries again."""
+        try:
+            with self._lock:
+                self._load()
+        except Exception:
+            log.exception("warming up the recogniser %s failed", self.model_id)
+        finally:
+            trim_heap()
 
     def transcribe(self, wav_path: Path) -> Transcript:
         with self._lock:

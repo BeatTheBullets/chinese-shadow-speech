@@ -27,6 +27,7 @@ from shadow.ingest.splitcheck import SplitReport, gate_passes, match, piece_ends
 from shadow.ingest.text import is_punct
 from shadow.ingest.transcript import TimedChar, Transcript
 from shadow.ingest.youtube import YtDlpDownloader, choose_subtitle, parse_video_id, watch_url
+from shadow.memory import release_freed_memory_eagerly
 
 URLS = Path(__file__).with_name("split_gate_urls.txt")
 CACHE = ROOT / "data" / "cache" / "split-gate"
@@ -143,6 +144,7 @@ def main() -> None:
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--int8", action="store_true", help="transcribe with the 8-bit recogniser on the CPU")
     a = ap.parse_args()
+    release_freed_memory_eagerly()      # before any model loads
     settings = load_settings()
     data_dir = a.data_dir or Path(settings.data_dir)
 

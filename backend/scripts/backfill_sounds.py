@@ -9,7 +9,7 @@ from pathlib import Path
 from sqlmodel import Session, create_engine
 from shadow.config import load_settings
 from shadow.deps import build_deps
-from shadow.memory import trim_heap
+from shadow.memory import release_freed_memory_eagerly, trim_heap
 from shadow.scoring.sounds.backfill import backfill_all
 from shadow.store.db import init_db, make_engine
 
@@ -31,6 +31,7 @@ def main() -> None:
         engine = create_engine(f"sqlite:///file:{db_path}?mode=ro&uri=true")
     else:
         engine = make_engine(settings.data_dir); init_db(engine)
+    release_freed_memory_eagerly()      # before any model loads
     deps = build_deps(settings)
     if deps.sounds is None:
         raise SystemExit(f"the sound detector is off: {deps.sounds_error or 'disabled in settings'}")

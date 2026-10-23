@@ -159,6 +159,8 @@ def main() -> None:
     if not a.clip.is_file():
         raise SystemExit(f"no such clip: {a.clip}")
 
+    from shadow.memory import release_freed_memory_eagerly
+    release_freed_memory_eagerly()          # the measured child, before any model loads (create_app repeats it)
     import torch
     from fastapi.testclient import TestClient
     from shadow.config import load_settings

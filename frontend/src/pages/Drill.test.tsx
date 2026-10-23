@@ -213,8 +213,10 @@ describe('<Drill> runner', () => {
     h.player.play.mockClear()
     fireEvent.click(within(bar).getByRole('button', { name: 'Listen (Space)' }))
     expect(h.player.play).toHaveBeenLastCalledWith('/seg/11.opus', 1, expect.any(Function))
+    expect(within(bar).getByRole('button', { name: 'Record (Enter)' })).toHaveClass('pulse-next') // the record step: Record pulses
     fireEvent.click(within(bar).getByRole('button', { name: 'Record (Enter)' })); await flush()
     expect(h.rec.start).toHaveBeenCalledTimes(1)
+    expect(within(bar).getByRole('button', { name: 'Stop (Enter)' })).not.toHaveClass('pulse-next')
     fireEvent.click(within(bar).getByRole('button', { name: 'Stop (Enter)' })); await flush()
     expect(h.segments.postAttempt).toHaveBeenCalledTimes(1)
     await screen.findByRole('button', { name: 'Next (Enter)' })

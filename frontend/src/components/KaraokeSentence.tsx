@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { charRects, type Rect } from '../lib/charRects'
 import { charFill, type Wipe } from '../lib/karaoke'
+import { isPunct } from '../lib/text'
 import Sentence, { type SentenceProps } from './Sentence'
 import { WIPE_FILL } from '../theme/tokens'
 import Card from '../ui/Card'
@@ -12,8 +13,11 @@ const FILL: Record<Wipe['tone'], string> = WIPE_FILL
 // into the light glyphs (and invisible on the dark background), so Yomitan still scans the real text underneath.
 // The boxes are measured again when the sentence resizes, the window resizes and the web font has loaded.
 // With `tools` (Practice, Drill) it is the notched sentence card: the sentence, then `children` (the ghost line),
-// then the tools (SentenceTools) that act on it. Without (a Flow run's current line) just the sentence.
-export default function KaraokeSentence({ wipe, tools, children, ...props }: SentenceProps & { wipe: Wipe | null; tools?: ReactNode; children?: ReactNode }) {
+// then the tools (SentenceTools) that act on it, and the sentence large (the one big text on screen). Without (a Flow
+// run's current line) just the sentence, at its normal size.
+// onSyllableClick: clicking a character plays that syllable of the reference (the Echo review has no reference cells).
+// The sentence stays one text run per word, so the click is placed by the measured character boxes, not by elements.
+export default function KaraokeSentence({ wipe, tools, children, onSyllableClick, ...props }: SentenceProps & { wipe: Wipe | null; tools?: ReactNode; children?: ReactNode; onSyllableClick?: (i: number) => void }) {
   const pRef = useRef<HTMLParagraphElement>(null)
   const boxRef = useRef<HTMLDivElement>(null)
   const [rects, setRects] = useState<(Rect | null)[]>([])
@@ -31,9 +35,32 @@ export default function KaraokeSentence({ wipe, tools, children, ...props }: Sen
     return () => { live = false; window.removeEventListener('resize', measure); ro?.disconnect() }
   }, [text, words, showHanzi, showPinyin])
   const fill = wipe ? charFill(text, wipe.progress) : []
+  // The syllable of the character under the pointer (speech characters before it), or null: punctuation and the space
+  // around the text are no target. A click that ends a text selection (looking a word up, copying) plays nothing; the
+  // pointer cursor and the title show only while over a character, never over empty space.
+  const [overChar, setOverChar] = useState(false)
+  const syllableAt = (e: React.MouseEvent, rs: (Rect | null)[]): number | null => {
+    const box = boxRef.current
+    if (!box) return null
+    const base = box.getBoundingClientRect(), x = e.clientX - base.left, y = e.clientY - base.top
+    const hit = rs.findIndex((r) => r != null && x >= r.left && x < r.left + r.width && y >= r.top && y < r.top + r.height)
+    const chars = [...text]
+    return hit < 0 || isPunct(chars[hit]) ? null : chars.slice(0, hit).filter((c) => !isPunct(c)).length
+  }
+  const clickable = onSyllableClick != null && props.showHanzi
+  const onClick = (e: React.MouseEvent) => {
+    const p = pRef.current, box = boxRef.current, sel = window.getSelection()
+    if (!onSyllableClick || !p || !box || (sel && !sel.isCollapsed)) return
+    const i = syllableAt(e, charRects(p, box))                         // measured afresh: the click must land true
+    if (i != null) onSyllableClick(i)
+  }
+  const pointer = clickable && overChar
   const sentence = (
-    <div ref={boxRef} className="relative">
-      <Sentence {...props} pRef={pRef} />
+    <div ref={boxRef} className={`relative${pointer ? ' cursor-pointer' : ''}`} title={pointer ? 'Click a character to hear it' : undefined}
+      onClick={clickable ? onClick : undefined}
+      onMouseMove={clickable ? (e) => setOverChar(syllableAt(e, rects) != null) : undefined}
+      onMouseLeave={clickable ? () => setOverChar(false) : undefined}>
+      <Sentence {...props} pRef={pRef} large={tools != null} />
       {wipe && showHanzi && (
         <div aria-hidden="true" data-testid="wipe" className="absolute inset-0 pointer-events-none" style={{ mixBlendMode: 'multiply' }}>
           {rects.map((r, i) => (r && fill[i] > 0

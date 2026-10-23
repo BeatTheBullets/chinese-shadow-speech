@@ -13,13 +13,15 @@ const HINT: Record<Variant, string> = { default: 'text-fgdim', ghost: 'text-fgdi
 
 // Icon, then label, then the shortcut key small and grey UNDER the label: the key is a hint, never the button face.
 // ariaExpanded: for a button that opens a pop-up (Sound), so screen readers hear whether it is open.
-export default function Button({ icon, label, keyHint, variant = 'default', size = 'md', onClick, disabled, ariaLabel, ariaExpanded }: {
+// pulse: the next expected action (Record before a take, › after one) breathes gently (.pulse-next, index.css),
+// instead of a "Ready — Enter to start" line saying so.
+export default function Button({ icon, label, keyHint, variant = 'default', size = 'md', onClick, disabled, ariaLabel, ariaExpanded, pulse = false }: {
   icon?: ReactNode; label: string; keyHint?: string; variant?: Variant; size?: 'md' | 'lg'
-  onClick?: () => void; disabled?: boolean; ariaLabel?: string; ariaExpanded?: boolean
+  onClick?: () => void; disabled?: boolean; ariaLabel?: string; ariaExpanded?: boolean; pulse?: boolean
 }) {
   return (
     <button type="button" onClick={onClick} disabled={disabled} aria-label={ariaLabel ?? (keyHint ? `${label} (${keyHint})` : label)} aria-expanded={ariaExpanded}
-      className={`flex flex-col items-center gap-[3px] rounded-xl border text-xs disabled:opacity-40 ${VARIANT[variant]} ${size === 'lg' ? 'min-w-[76px] p-2.5' : 'min-w-[58px] px-2 py-[7px]'}`}>
+      className={`flex flex-col items-center gap-[3px] rounded-xl border text-xs disabled:opacity-40 ${VARIANT[variant]} ${size === 'lg' ? 'min-w-[76px] p-2.5' : 'min-w-[58px] px-2 py-[7px]'}${pulse ? ' pulse-next' : ''}`}>
       {icon}
       <span>{label}</span>
       {keyHint && <span className={`text-[9px] ${HINT[variant]} tracking-wider`}>{keyHint}</span>}

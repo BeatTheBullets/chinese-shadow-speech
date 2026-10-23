@@ -1,4 +1,5 @@
 import ctypes
+from types import SimpleNamespace
 from shadow import memory
 from tests.conftest import wait_job
 from tests.test_attempts_api import _post
@@ -38,3 +39,23 @@ def test_attempt_scoring_trims(client, tmp_path, monkeypatch):
     monkeypatch.setattr("shadow.api.attempts.trim_heap", lambda: calls.append(1))
     assert _post(client, tmp_path, sid).status_code == 201
     assert calls == [1]
+
+
+def test_release_freed_memory_eagerly_sets_both_thresholds():
+    calls = []
+    memory._libc = SimpleNamespace(mallopt=lambda opt, val: calls.append((opt, val)) or 1)
+    try:
+        assert memory.release_freed_memory_eagerly() is None
+    finally:
+        memory._libc = None
+    assert calls == [(-3, 131072), (-1, 131072)]
+
+
+def test_release_freed_memory_eagerly_never_raises(monkeypatch):
+    def nope(*a, **k):
+        raise OSError("no glibc")
+    monkeypatch.setattr(ctypes, "CDLL", nope)
+    memory._libc = None
+    assert memory.release_freed_memory_eagerly() is None
+    memory._libc = None
+    assert memory.release_freed_memory_eagerly() is None

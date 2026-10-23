@@ -20,7 +20,7 @@ const h = vi.hoisted(() => ({
   takePeaks: new Float32Array(4), // what peaks() returns for a fresh take's You waveform
   player: { play: vi.fn(() => Promise.resolve()), playRange: vi.fn(() => Promise.resolve()), stop: vi.fn(), setVolume: vi.fn(), preload: vi.fn(() => Promise.resolve()), peaksFor: vi.fn<(url: string) => Promise<Float32Array>>(() => new Promise(() => {})) },
   ctxClose: vi.fn(() => Promise.resolve()),
-  twoTrack: null as null | { onPlaySyllable: (i: number) => void; onPlayYouSyllable?: (i: number) => void; youPeaks: Float32Array | null; youDuration: number; score?: unknown },
+  twoTrack: null as null | { onPlayYouSyllable?: (i: number) => void; youPeaks: Float32Array | null; youDuration: number; score?: unknown },
 }))
 vi.mock('../api/client', async (importOriginal) => ({ ...(await importOriginal<typeof import('../api/client')>()), api: h.api }))
 vi.mock('../anki/export', async (importOriginal) => ({ ...(await importOriginal<typeof import('../anki/export')>()), exportAndRecord: h.exportAndRecord }))
@@ -202,7 +202,7 @@ describe('<Practice>', () => {
   const origCreate = URL.createObjectURL, origRevoke = URL.revokeObjectURL
   beforeEach(() => {
     vi.clearAllMocks()
-    usePractice.setState({ lesson: null, idx: 0, mode: 'echo', sessionId: null, drawerOpen: true, attemptsThisSegment: 0, lastAttempt: null, recordingNow: false, hint: '', storedTakes: {} })
+    usePractice.setState({ lesson: null, idx: 0, mode: 'echo', sessionId: null, drawerOpen: false, attemptsThisSegment: 0, lastAttempt: null, recordingNow: false, hint: '', storedTakes: {} })
     // helpSeen: the help would otherwise open on every render and switch the shortcuts off. The volumes are reset here,
     // not at the end of a test, so no store update reaches a page that is still mounted (act() warnings).
     useSettings.setState({ helpSeen: true, referenceVolume: 1, guideLevel: 0.5, textPrefs: {} })
@@ -340,9 +340,9 @@ describe('<Practice>', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Sound' }))
     fireEvent.keyDown(screen.getByLabelText('Playback speed'), { key: 'l' })
     press('l', { ctrlKey: true })
-    expect(usePractice.getState().drawerOpen).toBe(true)
-    press('l')
     expect(usePractice.getState().drawerOpen).toBe(false)
+    press('l')
+    expect(usePractice.getState().drawerOpen).toBe(true)
   })
 
   it('a take under 0.2 s is discarded: no upload, no attempt counted, back to idle', async () => {
@@ -446,7 +446,7 @@ describe('<Practice>', () => {
     press('Enter'); press('l')
     await flush()
     expect(h.rec.start).not.toHaveBeenCalled()
-    expect(usePractice.getState().drawerOpen).toBe(true)
+    expect(usePractice.getState().drawerOpen).toBe(false)
   })
 
   describe('stored takes', () => {
@@ -516,12 +516,19 @@ describe('<Practice>', () => {
       segments: [{ ...seg(11, 0, '你好'), start_s: 10, end_s: 12, ref_alignment_json: [{ ch: '你', start: 10.2, end: 10.5, conf: 1 }, { ch: '好', start: 10.5, end: 11.25, conf: 1 }] }],
     }
     const sleep = (ms: number) => act(() => new Promise((r) => setTimeout(r, ms)))
-    beforeEach(() => { h.api.lessons.get.mockResolvedValue(aligned) })
+    // jsdom does no layout: each character gets a 40 px box at 40 px × its offset, so a click at x = 40 i + 20 is on character i.
+    const origRects = Range.prototype.getClientRects
+    beforeEach(() => {
+      h.api.lessons.get.mockResolvedValue(aligned)
+      Range.prototype.getClientRects = function (this: Range) { return [{ left: this.startOffset * 40, top: 0, width: 40, height: 40 }] as unknown as DOMRectList }
+    })
+    afterEach(() => { Range.prototype.getClientRects = origRects })
+    const clickChar = (i: number) => act(() => { fireEvent.click(screen.getByText('你好', { selector: 'p.sentence' }), { clientX: 40 * i + 20, clientY: 20 }) })
 
-    it('plays the clip-relative span of the clicked syllable once', async () => {
+    it('clicking a character on the sentence card plays the clip-relative span of its syllable once', async () => {
       renderPractice()
       await screen.findByText('你好', { selector: 'p.sentence' })
-      act(() => h.twoTrack!.onPlaySyllable(1))
+      clickChar(1)
       await flush()
       expect(h.player.playRange).toHaveBeenCalledTimes(1)
       const [url, rate, from, to] = h.player.playRange.mock.calls[0] as unknown as [string, number, number, number]
@@ -534,12 +541,17 @@ describe('<Practice>', () => {
     it('clicking again plays it again; a click while recording does nothing', async () => {
       renderPractice()
       await screen.findByText('你好', { selector: 'p.sentence' })
-      act(() => h.twoTrack!.onPlaySyllable(0)); await flush()
-      act(() => h.twoTrack!.onPlaySyllable(0)); await flush()
+      clickChar(0); await flush()
+      clickChar(0); await flush()
       expect(h.player.playRange).toHaveBeenCalledTimes(2)
-      press('Enter'); await flush()
-      act(() => h.twoTrack!.onPlaySyllable(0)); await flush()
-      expect(h.player.playRange).toHaveBeenCalledTimes(2)
+      // The text stays up while recording here, so there is a character to click.
+      const practice = useSettings.getState().practice
+      useSettings.setState({ practice: { ...practice, hideTextWhileRecording: false } })
+      try {
+        press('Enter'); await flush()
+        clickChar(0); await flush()
+        expect(h.player.playRange).toHaveBeenCalledTimes(2)
+      } finally { cleanup(); useSettings.setState({ practice }) }
     })
   })
 
@@ -596,6 +608,76 @@ describe('<Practice>', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Start flow (Enter)' }))
     }
 
+    it('choosing Flow shows the Flow screen at once: the start sentence on the stage, a windowed transcript, the settings and a pulsing Start; Enter starts the run', async () => {
+      clipsTake(2, () => true)
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      await enterFlow()
+      expect(screen.getByTestId('flow-transcript')).toBeInTheDocument()
+      expect(screen.getByTestId('flow-current')).toContainElement(screen.getByTestId('stage'))
+      expect(screen.getByTestId('stage')).toHaveAttribute('data-stage', 'idle')
+      expect(screen.getByTestId('stage')).toHaveTextContent('你好')
+      expect(screen.getAllByTestId('flow-line').map((l) => l.textContent)).toEqual(['2再见'])
+      expect(screen.queryByTestId('two-track')).toBeNull()                       // not the Echo screen
+      expect(screen.getByRole('button', { name: 'after' })).toHaveAttribute('aria-pressed', 'true')
+      expect(screen.getByRole('combobox', { name: 'Flow from' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Start flow (Enter)' })).toHaveClass('pulse-next')
+      expect(screen.getByTestId('stage')).not.toHaveTextContent(/Ready|Enter/)
+      fireEvent.click(screen.getByRole('button', { name: 'along' }))
+      press('Enter')
+      await waitFor(() => expect(h.player.play).toHaveBeenCalledTimes(1))
+      expect(h.rec.start).toHaveBeenCalledTimes(1)
+      expect(screen.getByTestId('stage')).toHaveTextContent('Speak along')
+      expect(screen.getByRole('button', { name: 'Stop (Enter)' })).not.toHaveClass('pulse-next')
+      press('Enter')
+      expect(await screen.findByText(/Flow finished/)).toBeInTheDocument()
+    })
+
+    it('before a run one sentence drives the stage and the bar: Flow opens on the sentence you are on; ›, Flow from, Space and F all agree', async () => {
+      h.api.lessons.get.mockResolvedValue({ ...lesson, passages: [{ idx: 0, title: 'P1', start_s: 0, end_s: 4, segment_ids: [11, 12], done: false }] })
+      h.api.segments.patch.mockResolvedValue(seg(12, 1, '再见'))
+      h.player.play.mockImplementation(() => new Promise(() => {}))
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      press('ArrowRight')
+      expect(await screen.findByText('再见', { selector: 'p.sentence' })).toBeInTheDocument()
+      await enterFlow()
+      const from = () => (screen.getByRole('combobox', { name: 'Flow from' }) as HTMLSelectElement).value
+      const to = () => (screen.getByRole('combobox', { name: 'Flow to' }) as HTMLSelectElement).value
+      expect(screen.getByTestId('stage')).toHaveTextContent('再见')              // Echo → Flow keeps the sentence (12)…
+      expect(screen.getByTestId('position')).toHaveTextContent('2 / 2')          // …the bar stays on it…
+      expect([from(), to()]).toEqual(['1', '1'])                                  // …the run starts there and ends with the passage
+      fireEvent.change(screen.getByRole('combobox', { name: 'Flow from' }), { target: { value: '0' } })
+      await waitFor(() => expect(screen.getByTestId('stage')).toHaveTextContent('你好'))
+      expect(screen.getByTestId('position')).toHaveTextContent('1 / 2')
+      expect(from()).toBe('0')
+      press('ArrowRight')                                                         // › inside the passage: stage and bar move together
+      await waitFor(() => expect(screen.getByTestId('stage')).toHaveTextContent('再见'))
+      expect(screen.getByTestId('position')).toHaveTextContent('2 / 2')
+      expect(from()).toBe('1')
+      press(' ')
+      await waitFor(() => expect(screen.getByTestId('stage')).toHaveAttribute('data-stage', 'listen'))
+      expect(h.player.play).toHaveBeenLastCalledWith('/seg/12.opus', 1, expect.any(Function))
+      press('f'); await flush()
+      expect(h.api.segments.patch).toHaveBeenCalledWith(12, { difficulty_flag: true })
+      fireEvent.click(screen.getByRole('button', { name: 'Echo' })); await flush()  // back to Echo: still on the same sentence
+      expect(screen.getByTestId('position')).toHaveTextContent('2 / 2')
+      expect(screen.getByText('再见', { selector: 'p.sentence' })).toBeInTheDocument()
+    })
+
+    it('a chosen "to" the current sentence moves past goes back to the default (the end of the passage)', async () => {
+      h.api.lessons.get.mockResolvedValue({ ...lesson, passages: [{ idx: 0, title: 'P1', start_s: 0, end_s: 4, segment_ids: [11, 12], done: false }] })
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      await enterFlow()
+      const to = () => (screen.getByRole('combobox', { name: 'Flow to' }) as HTMLSelectElement).value
+      fireEvent.change(screen.getByRole('combobox', { name: 'Flow to' }), { target: { value: '0' } })
+      expect(to()).toBe('0')
+      press('ArrowRight')
+      await waitFor(() => expect(screen.getByTestId('position')).toHaveTextContent('2 / 2'))
+      expect(to()).toBe('1')
+    })
+
     it('along plays every clip at the guide level and hints at headphones', async () => {
       useSettings.setState({ referenceVolume: 0.8, guideLevel: 0.5 })
       const atPlay: number[] = []
@@ -613,6 +695,7 @@ describe('<Practice>', () => {
       h.rec.stop.mockReturnValue(new Float32Array(44100 * 10))
       await startFlow('along')
       expect(await screen.findByText(/Flow finished · 2 sentences/)).toBeInTheDocument()
+      expect(screen.queryByTestId('stage')).toBeNull()       // no empty idle stage above the summary
       await waitFor(() => expect(h.api.segments.postAttempt).toHaveBeenCalledTimes(2))
       expect(h.rec.start).toHaveBeenCalledTimes(1)
       expect(h.player.play.mock.calls.map((c) => (c as unknown[])[0])).toEqual(['/seg/11.opus', '/seg/12.opus'])
@@ -746,6 +829,21 @@ describe('<Practice>', () => {
       try { await sleepMs(100); expect(raf).not.toHaveBeenCalled() } finally { raf.mockRestore() }
     })
 
+    it('after with hide-text on: the sentence shows while listening and hides only during your turn', async () => {
+      useSettings.setState({ practice: { ...useSettings.getState().practice, hideTextWhileRecording: true } })
+      clipsTake(2, (n) => n === 1) // the first clip plays until released
+      h.rec.stop.mockReturnValue(new Float32Array(44100 * 10))
+      await startFlow('after')
+      await waitFor(() => expect(h.player.play).toHaveBeenCalledTimes(1))
+      expect(screen.getByTestId('stage')).toHaveTextContent('Listening')
+      expect(screen.getByTestId('stage')).toHaveTextContent('你好')
+      act(() => { h.player.stop() }) // the clip ends: the turn opens
+      await waitFor(() => expect(screen.getByTestId('stage')).toHaveTextContent('Your turn'))
+      expect(screen.getByTestId('stage')).not.toHaveTextContent('你好')
+      press('Enter')
+      expect(await screen.findByText(/Flow finished/)).toBeInTheDocument()
+    })
+
     it('along: the next sentence shows dimmed below the current one', async () => {
       clipsTake(2, () => true)
       await startFlow('along')
@@ -861,8 +959,100 @@ describe('<Practice>', () => {
     })
   })
 
+  describe('lesson list drawer', () => {
+    const pos = () => screen.getByRole('button', { name: /^Lesson list/ })
+    const list = () => screen.queryByTestId('lesson-drawer')
+    it('is closed on load, even if the store said open; the position is a button with aria-expanded', async () => {
+      usePractice.setState({ drawerOpen: true })
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      expect(list()).toBeNull()
+      expect(pos()).toHaveAttribute('aria-expanded', 'false')
+      expect(pos()).toHaveAttribute('title', 'Lesson list (L)')
+      expect(pos()).toHaveTextContent('1 / 2')
+    })
+    it('the position opens it and again closes it; L, Esc, the scrim and × close it', async () => {
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      const open = () => { fireEvent.click(pos()); expect(list()).not.toBeNull(); expect(pos()).toHaveAttribute('aria-expanded', 'true') }
+      open(); fireEvent.click(pos()); expect(list()).toBeNull()
+      open(); press('l'); expect(list()).toBeNull()
+      open(); fireEvent.keyDown(document.body, { key: 'Escape' }); expect(list()).toBeNull()
+      open(); fireEvent.click(screen.getByTestId('drawer-scrim')); expect(list()).toBeNull()
+      open(); fireEvent.click(screen.getByRole('button', { name: 'Close lesson list (L)' })); expect(list()).toBeNull()
+      expect(usePractice.getState().drawerOpen).toBe(false)
+      expect(pos()).toHaveAttribute('aria-expanded', 'false')
+    })
+    it('one Esc closes only the help overlay, the next closes the drawer', async () => {
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      fireEvent.click(pos())
+      press('?')
+      const help = await screen.findByRole('dialog', { name: 'How to practise' })
+      fireEvent.keyDown(help, { key: 'Escape' })
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+      expect(list()).not.toBeNull()
+      fireEvent.keyDown(document.body, { key: 'Escape' })
+      expect(list()).toBeNull()
+    })
+    it('one Esc closes only the Sound pop-up, the next closes the drawer', async () => {
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      fireEvent.click(pos())
+      fireEvent.click(screen.getByRole('button', { name: 'Sound' }))
+      expect(screen.getByLabelText('Playback speed')).toBeInTheDocument()
+      fireEvent.keyDown(document.body, { key: 'Escape' })
+      expect(screen.queryByLabelText('Playback speed')).toBeNull()
+      expect(list()).not.toBeNull()
+      fireEvent.keyDown(document.body, { key: 'Escape' })
+      expect(list()).toBeNull()
+    })
+    it('with the drawer opened after the Sound pop-up, the first Esc closes only the pop-up', async () => {
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      fireEvent.click(screen.getByRole('button', { name: 'Sound' }))
+      expect(screen.getByLabelText('Playback speed')).toBeInTheDocument()
+      fireEvent.click(pos())
+      expect(list()).not.toBeNull()
+      fireEvent.keyDown(document.body, { key: 'Escape' })
+      expect(screen.queryByLabelText('Playback speed')).toBeNull()
+      expect(list()).not.toBeNull()
+      fireEvent.keyDown(document.body, { key: 'Escape' })
+      expect(list()).toBeNull()
+    })
+    it('picking a sentence jumps to it and closes the drawer', async () => {
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      fireEvent.click(pos())
+      fireEvent.click(within(screen.getByTestId('lesson-drawer')).getAllByRole('button', { name: /再见/ })[0])
+      expect(usePractice.getState().idx).toBe(1)
+      expect(list()).toBeNull()
+    })
+    it('is not a dialog: Space still plays and arrows still move while it is open', async () => {
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      fireEvent.click(pos())
+      expect(screen.queryByRole('dialog')).toBeNull()
+      press(' ')
+      expect(h.player.play).toHaveBeenCalled()
+      press('ArrowRight')
+      expect(usePractice.getState().idx).toBe(1)
+      expect(list()).not.toBeNull()
+    })
+    it('the edit dialog opens from a row menu (the drawer steps aside)', async () => {
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      fireEvent.click(pos())
+      fireEvent.click(screen.getByRole('button', { name: 'Actions for sentence 1' }))
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Edit text' }))
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
+      expect(list()).toBeNull()
+    })
+  })
+
   describe('drawer actions', () => {
     const openMenu = (row: number, item: string) => {
+      if (!screen.queryByRole('button', { name: `Actions for sentence ${row}` })) fireEvent.click(screen.getByRole('button', { name: /^Lesson list/ }))
       fireEvent.click(screen.getByRole('button', { name: `Actions for sentence ${row}` }))
       fireEvent.click(screen.getByRole('menuitem', { name: item }))
     }
@@ -921,7 +1111,7 @@ describe('<Practice>', () => {
       fireEvent.keyDown(within(dialog).getByRole('button', { name: 'Cancel' }), { key: 'ArrowRight' })
       press('l'); press('ArrowRight'); press(' ')
       expect(h.player.play).not.toHaveBeenCalled()
-      expect(usePractice.getState()).toMatchObject({ idx: 0, drawerOpen: true })
+      expect(usePractice.getState()).toMatchObject({ idx: 0, drawerOpen: false })
       fireEvent.keyDown(dialog, { key: 'Escape' })
       expect(screen.queryByRole('dialog')).toBeNull()
       press('ArrowRight')
@@ -950,6 +1140,7 @@ describe('<Practice>', () => {
       renderPractice()
       await screen.findByText('你好', { selector: 'p.sentence' })
       act(() => usePractice.getState().setIdx(1))
+      fireEvent.click(screen.getByRole('button', { name: /^Lesson list/ }))
       expect(screen.getByRole('button', { name: 'Actions for sentence 2' })).toBeInTheDocument()
       fireEvent.click(screen.getByRole('button', { name: 'Actions for sentence 2' }))
       expect(screen.getByRole('menuitem', { name: 'Merge with next' })).toBeDisabled() // the last row has no next
@@ -1096,7 +1287,7 @@ describe('<Practice>', () => {
   })
 
   describe('control bar', () => {
-    const BAR = ['Previous sentence (←)', 'Next sentence (→)', 'Listen (Space)', 'Record (Enter)', 'Me (R)', 'Anki (A)', 'Sound']
+    const BAR = ['Previous sentence (←)', 'Lesson list (L)', 'Next sentence (→)', 'Listen (Space)', 'Record (Enter)', 'Me (R)', 'Anki (A)', 'Sound']
     const bar = () => screen.getByTestId('transport')
 
     it('the bar has prev · position · next, Listen, Record, Me, Anki and Sound', async () => {
@@ -1217,7 +1408,7 @@ describe('<Practice>', () => {
     fireEvent.keyDown(got, { key: 'Escape' })
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
     press('l')
-    expect(usePractice.getState().drawerOpen).toBe(false)
+    expect(usePractice.getState().drawerOpen).toBe(true)
   })
 
   it('a key another handler has already taken (default prevented) is not a page shortcut', async () => {
@@ -1227,18 +1418,22 @@ describe('<Practice>', () => {
       renderPractice()
       await screen.findByText('你好', { selector: 'p.sentence' })
       press('l')
-      expect(usePractice.getState().drawerOpen).toBe(true)
+      expect(usePractice.getState().drawerOpen).toBe(false)
     } finally { window.removeEventListener('keydown', taken) }
   })
 
   it('recording shows Your turn with a live waveform and no mic meter', async () => {
     renderPractice()
     await screen.findByText('你好', { selector: 'p.sentence' })
-    expect(screen.getByTestId('stage')).toHaveTextContent('Ready — Enter to start')
+    expect(screen.getByTestId('stage')).not.toHaveTextContent(/Ready|Enter/)          // no "Ready — Enter to start" line…
+    expect(screen.getByRole('button', { name: 'Record (Enter)' })).toHaveClass('pulse-next') // …Record pulses instead
+    expect(screen.getByRole('button', { name: 'Next sentence (→)' })).not.toHaveClass('pulse-next')
     expect(screen.getByTestId('stage')).not.toHaveClass('border-record')
     press('Enter')
     await waitFor(() => expect(screen.getByTestId('stage')).toHaveTextContent('Your turn'))
     expect(screen.getByTestId('stage')).toHaveClass('border-record')
+    expect(screen.getByRole('button', { name: 'Stop (Enter)' })).not.toHaveClass('pulse-next')
+    expect(screen.getByRole('button', { name: 'Next sentence (→)' })).not.toHaveClass('pulse-next')
     expect(screen.getByTestId('rec-dot')).toBeInTheDocument()
     expect(screen.getByTestId('rec-timer')).toHaveTextContent(/^0:0\d$/)
     expect(screen.getByTestId('stage')).toContainElement(screen.getByTestId('live-wave'))
@@ -1246,7 +1441,10 @@ describe('<Practice>', () => {
     expect(screen.queryByRole('meter')).toBeNull()
     expect(screen.queryByLabelText(/starting in/)).toBeNull() // Echo: no countdown, straight to your turn
     press('Enter'); await flush()
-    await waitFor(() => expect(screen.getByTestId('stage')).toHaveTextContent('Done — → for the next sentence, Enter to try again'))
+    // done: no "Done — → …" line; › pulses (move on), Record no longer does
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Next sentence (→)' })).toHaveClass('pulse-next'))
+    expect(screen.getByRole('button', { name: 'Record (Enter)' })).not.toHaveClass('pulse-next')
+    expect(screen.getByTestId('stage')).not.toHaveTextContent(/Done|Enter/)
     expect(screen.queryByTestId('live-wave')).toBeNull()
     expect(screen.getByTestId('stage')).not.toHaveClass('border-record')
   })

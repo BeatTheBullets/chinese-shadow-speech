@@ -31,6 +31,7 @@ def _warm_client(data_dir, embedder):
     from shadow.ingest.transcript import Transcript
     from shadow.main import create_app
     s = Settings(data_dir=data_dir)
+    s.models.device = "cuda"                     # the embedder warms at startup only off the CPU; fake deps run anywhere
     deps = fake_deps(s, Transcript()); deps.embedder = embedder
     return TestClient(create_app(s, deps=deps))
 

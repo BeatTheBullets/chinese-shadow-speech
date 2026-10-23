@@ -341,6 +341,8 @@ def main() -> None:
     ap.add_argument("--data-dir", type=Path, default=None)
     a = ap.parse_args()
     from shadow.config import load_settings
+    from shadow.memory import release_freed_memory_eagerly
+    release_freed_memory_eagerly()      # before any model loads
     data_dir = a.data_dir or Path(load_settings().data_dir)
     pairs = [(a.a or variant("fp32", device_for("fp32", a.device)), a.b)] + [parse_pair(p) for p in a.pair]
     verdict = None

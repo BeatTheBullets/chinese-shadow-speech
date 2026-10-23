@@ -77,22 +77,19 @@ class CharCtc:
             model = quantize_linear(model)
         self._model = model
 
-    def warm_up(self) -> threading.Thread:
-        """Load (first run: download) the model in a daemon thread; under the lock, so a take arriving meanwhile waits
-        for this load instead of starting another. A failure is logged and the next take tries again."""
-        def run():
-            try:
-                with self._lock:
-                    self._load()
-                self.load_error = None
-            except Exception as e:
-                self.load_error = str(e) or type(e).__name__
-                log.exception("warming up the char-CTC model %s failed", self.name)
-            finally:
-                trim_heap()
-        t = threading.Thread(target=run, name="charctc-warm-up", daemon=True)
-        t.start()
-        return t
+    def warm(self) -> None:
+        """Blocking load (first run: download) under the lock, so a take arriving meanwhile waits for this load
+        instead of starting another. A failure is logged and kept in `load_error`, so later loads fail fast (no
+        ~1.2 GB retry per take); the watcher in `shadow.main` then switches sounds off."""
+        try:
+            with self._lock:
+                self._load()
+            self.load_error = None
+        except Exception as e:
+            self.load_error = str(e) or type(e).__name__
+            log.exception("warming up the char-CTC model %s failed", self.name)
+        finally:
+            trim_heap()
 
     def sid(self, s: str) -> int | None:
         with self._lock:

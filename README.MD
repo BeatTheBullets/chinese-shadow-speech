@@ -50,10 +50,11 @@ recogniser. Machine-translated auto-captions are refused, and so are subtitles t
 
 Chorus and Guided were removed on 2026-10-22; old Chorus and Guided takes still show.
 
-The stage shows the sentence with pinyin (and a translation, for lessons imported from Anki notes that have one). Below it, a **two-track feedback block** puts the
-reference and your take on the same time scale, with a cell per syllable. Click a cell to hear that syllable once.
+The stage shows the sentence with pinyin (and a translation, for lessons imported from Anki notes that have one). Below it, a **two-track feedback block** shows the
+reference and your take as waveforms trimmed to the voice, on one shared time scale. Click a character on the sentence
+card to hear that syllable of the reference.
 
-After a take, the cells on your track show how each tone went: **green** is ok, **orange** is close, **red** is wrong and
+After a take, one row of verdict cells (yours) shows how each tone went, and clicking a cell plays your syllable: **green** is ok, **orange** is close, **red** is wrong and
 shows the target and the tone heard (for example `3→2`), **grey ∅** is unvoiced, and a **dashed outline** is a syllable
 that was missing. Pitch lines are drawn over both tracks: your curve with the speaker's warped faintly behind it, and
 the reference curve on the reference track. A score appears in the header. Takes that are silent, too quiet, clipped
@@ -62,7 +63,7 @@ take of a different sentence is not scored ("Heard different words — not score
 words sounded different is scored as usual and the hint line says "Some words sounded different — heard: …". A
 neighbouring sentence that shares most of its words with the one shown can still pass and be tone-scored.
 
-![Echo mode: the cue line says what to do, the reference is wiping](docs/screenshots/echo-listen.png)
+![Echo mode: the stage says what to do, the reference is wiping](docs/screenshots/echo-listen.png)
 
 ### It always tells you what to do
 
@@ -70,12 +71,13 @@ neighbouring sentence that shares most of its words with the one shown can still
   - **Listening** (a small label while the speaker plays; **Listen — the original, then you** while your take is played back).
   - **Get ready** with a 3·2·1 ring (Flow only; in *along* the ring shows inside the Speak-along frame).
   - **Your turn** (or **Speak along**): a red frame, a pulsing red dot, the take's timer and a live waveform of your voice.
-  - When nothing is going on, a small note says what Enter does: "Ready — Enter to start", or "Done — → for the next
-    sentence, Enter to try again".
+  - When nothing is going on, the button for the next step pulses gently: **Record** before a take (or a Flow run),
+    **›** once the sentence has a take. With reduced motion switched on in your system, nothing moves.
 - **Karaoke cues:**
   - The sentence fills with colour in time with the speaker.
   - During your turn, a fainter amber wipe runs at the speaker's pace.
-- **Flow extras:** a preview of the next line and a bar that shrinks over your speaking window.
+- **Flow extras:** the Flow screen shows as soon as you choose Flow: a compact stage with a few lines before and after
+  it, centred, moving on with the run; a preview of the next line and a bar that shrinks over your speaking window.
 
 ![Echo, your turn: amber pacing wipe](docs/screenshots/echo-record.png)
 
@@ -89,7 +91,7 @@ Hover over a mode tab for a one-line explanation, or press `?` for the full help
 
 - Every take is kept. When you reopen a lesson, **R** plays your latest take of the current sentence and
   **Space** plays the original.
-- In Flow mode the setup panel offers your **last runs**. **▶ replay** plays each sentence as original → you.
+- In Flow mode the settings above the transcript offer your **last runs**. **Replay run** plays each sentence as original → you.
 - The **reference volume** is adjustable. While you speak along, in Flow *along*, the reference drops to
   a quieter **guide level**, 50 % by default.
 
@@ -97,7 +99,7 @@ Hover over a mode tab for a one-line explanation, or press `?` for the full help
 
 ### Fix the text when the machine got it wrong
 
-From the lesson drawer you can **edit** a sentence's text, **split** it in two, or **merge** it with the next one.
+From the lesson drawer (click the "n / N" position) you can **edit** a sentence's text, **split** it in two, or **merge** it with the next one.
 Each change re-aligns the audio, rebuilds the pinyin, and cuts new clips.
 
 ### Works with Yomitan
@@ -124,7 +126,7 @@ Speaking happens in the app; Anki is used for **listening** review.
 
 After a scored take, a Chinese character-level CTC model checks the **initial and final** of each syllable (goodness of
 pronunciation plus a bad-pronunciation score, fused). If you said a different sound, for example `cī` for 吃, the
-**HEARD** row under your track shows what was heard, the syllable is ringed in purple on the reference row, and the
+**HEARD** row under your track shows the heard pinyin, and the
 header chip reads "1 sound off" (or "sounds ok"). Click a cell on your track to hear that syllable of your take. Tones
 and sounds are judged separately: a syllable can be a green sound with an orange tone.
 
@@ -222,7 +224,7 @@ when you leave via ⌂ Library, and on the Flow summary's Done.
 | `T` `P` `E` | Hide or show hanzi, pinyin, translation |
 | `F` | Mark the sentence Difficult (⚑) |
 | `A` | Send to Anki |
-| `L` | Lesson list (toggles the drawer) |
+| `L` | Lesson list (opens or closes the drawer above the sentence navigator; Esc also closes it) |
 | `?` | Help |
 
 ---

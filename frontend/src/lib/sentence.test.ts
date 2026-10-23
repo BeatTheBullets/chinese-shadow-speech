@@ -24,4 +24,8 @@ describe('fontSizeClass', () => {
     expect(fontSizeClass(8)).toBe('text-[40px]'); expect(fontSizeClass(18)).toBe('text-[32px]')
     expect(fontSizeClass(25)).toBe('text-[28px]'); expect(fontSizeClass(40)).toBe('text-[24px]')
   })
+  it('the sentence card’s large size is 1.5× each step', () => {
+    expect(fontSizeClass(8, true)).toBe('text-[60px]'); expect(fontSizeClass(18, true)).toBe('text-[48px]')
+    expect(fontSizeClass(25, true)).toBe('text-[42px]'); expect(fontSizeClass(40, true)).toBe('text-[36px]')
+  })
 })

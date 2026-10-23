@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from shadow.config import Settings, load_settings
 from shadow.deps import Deps, build_deps
 from shadow.jobs import JobManager
+from shadow.memory import release_freed_memory_eagerly
 from shadow.ingest.rebuild import recover_rebuild
 from shadow.scoring.sounds.charctc import CharCtc
 from sqlalchemy import Engine
@@ -23,7 +24,7 @@ log = logging.getLogger(__name__)
 
 
 def watch_sounds_warm_up(deps: Deps, warm: threading.Thread) -> None:
-    """warm_up logs and swallows its failure: surface it on /health and switch sounds off for this process, so a
+    """`warm` logs and swallows its failure: surface it on /health and switch sounds off for this process, so a
     failing ~1.2 GB load is not retried on every take (memory is tight)."""
     warm.join()
     chars = deps.sounds.chars if deps.sounds is not None else None
@@ -32,35 +33,37 @@ def watch_sounds_warm_up(deps: Deps, warm: threading.Thread) -> None:
         deps.sounds = None
 
 
-def warm_up_steps(deps: Deps, device: str) -> list[Callable[[], threading.Thread]]:
-    """The warm-ups to run at startup, in order. Fakes have no `warm_up`, so tests never download. On the CPU only
-    the recogniser warms (every take's words check and every ingest need it); the tone embedder and the sound model
-    load on the first take, which keeps a small laptop's startup memory low."""
-    steps: list[Callable[[], threading.Thread]] = []
+def warm_up_steps(deps: Deps, device: str) -> list[Callable[[], None]]:
+    """The blocking warm-ups to run at startup, in order. Fakes have no `warm`, so tests never download. On the CPU
+    only the recogniser warms (every take's words check and every ingest need it); the tone embedder and the sound
+    model load on the first take, which keeps a small laptop's startup memory low."""
     objs = [deps.asr]
     if device != "cpu":
         objs += [deps.embedder, getattr(deps.sounds, "chars", None)]
-    for obj in objs:
-        warm = getattr(obj, "warm_up", None)
-        if callable(warm):
-            steps.append(warm)
-    return steps
+    return [w for w in (getattr(o, "warm", None) for o in objs) if callable(w)]
+
+
+def warm_up_in_order(steps: list[Callable[[], None]]) -> None:
+    """Models load one after another, not in parallel: their loads peak at once (Paraformer 3.6 GB, punctuation
+    4.4 GB) and the VM OOM-killed the worker; concurrent first imports of transformers fail intermittently too.
+    A step logs and swallows its own failure, and a surprise here must not skip the rest."""
+    for step in steps:
+        try:
+            step()
+        except Exception:  # noqa: BLE001
+            log.exception("a model warm-up step failed")
 
 
 def start_warm_ups(deps: Deps, device: str) -> threading.Thread:
-    """Run the warm-ups one after another in one daemon thread (each step's thread is joined before the next starts):
-    concurrent first imports of transformers, and concurrent model builds, fail intermittently."""
-    steps = warm_up_steps(deps, device)
-
-    def run():
-        for step in steps:
-            step().join()
-    t = threading.Thread(target=run, name="warm-ups", daemon=True)
+    """`warm_up_in_order(warm_up_steps(...))` in one daemon thread, so startup does not wait for the loads."""
+    t = threading.Thread(target=warm_up_in_order, args=(warm_up_steps(deps, device),), name="model-warm-up",
+                         daemon=True)
     t.start()
     return t
 
 
 def create_app(settings: Settings | None = None, deps: Deps | None = None) -> FastAPI:
+    release_freed_memory_eagerly()          # before any model can load (see its docstring)
     settings = settings or load_settings()
 
     @asynccontextmanager

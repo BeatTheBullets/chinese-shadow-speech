@@ -7,7 +7,7 @@ import type { FlowSub } from './flow'
 export type Stage = 'idle' | 'listen' | 'getReady' | 'yourTurn' | 'review' | 'along'
 
 export interface PageActivity {
-  mode: Mode; echo: EchoState; runKind: 'flow' | null; hasTake: boolean
+  mode: Mode; echo: EchoState; runKind: 'flow' | null
   flowPhase: 'setup' | 'running' | 'summary'; flowSub: FlowSub; flowTurn: boolean // flowTurn: Flow after's speaking window is open
 }
 
@@ -21,12 +21,4 @@ export function stageOf(a: PageActivity): Stage {
   if (a.echo === 'playing') return 'listen'
   if (a.echo === 'playback' || a.echo === 'uploading') return 'review'
   return 'idle'
-}
-
-// The small note on an idle stage, naming the real keys: Echo's "done" (→ moves on, Enter records again), Flow's
-// Enter runs the range again. Any other stage speaks for itself.
-export function idleNote(a: PageActivity): string | undefined {
-  if (stageOf(a) !== 'idle') return undefined
-  if (a.mode === 'flow') return a.flowPhase === 'summary' ? 'Done — Enter to run it again' : 'Ready — Enter to start'
-  return a.hasTake ? 'Done — → for the next sentence, Enter to try again' : 'Ready — Enter to start'
 }
