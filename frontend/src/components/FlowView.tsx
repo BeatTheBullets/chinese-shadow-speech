@@ -1,4 +1,4 @@
-import { memo, useState, type ReactNode } from 'react'
+import { memo, useCallback, useState, type ReactNode } from 'react'
 import type { FlowRun, Segment } from '../api/types'
 import type { Mic } from '../audio/useMic'
 import type { Stage } from '../lib/cue'
@@ -8,6 +8,7 @@ import { clipSpans, flowWipe, lineLead, nextLineStart } from '../lib/karaoke'
 import { weekdayTime } from '../lib/time'
 import { TOKENS } from '../theme/tokens'
 import Button from '../ui/Button'
+import Popover from '../ui/Popover'
 import { IconReplay } from '../ui/icons'
 import { dotClass } from './Drawer'
 import KaraokeSentence, { GhostLine } from './KaraokeSentence'
@@ -23,7 +24,7 @@ export interface FlowViewProps {
   startedAt: number // performance-clock second the take timer counts from: after's turn opened, or along's run began
   clipTime: number | null; turn: { startedAt: number; duration: number } | null
   running: boolean    // false: the Flow screen before a run (Enter starts it), with `controls` shown
-  controls?: ReactNode // the run's settings (FlowSetup): shown before a run, their space kept (hidden) while it runs
+  controls?: ReactNode // the run's settings (FlowSetup): shown before a run; while it runs nothing shows but their space is kept
 }
 
 // The transcript round the stage: this many lines before the current one (above the stage) and after it (below).
@@ -56,7 +57,8 @@ export default function FlowView(p: FlowViewProps) {
   return (
     <div className="flex-1 overflow-y-auto p-6">
       <div data-testid="flow-transcript" className="mx-auto w-full max-w-2xl flex flex-col items-center gap-1">
-        {p.controls != null && <div aria-hidden={p.running || undefined} className={`w-full min-h-16 ${p.running ? 'invisible' : ''}`}>{p.controls}</div>}
+        {/* the line's height is kept while a run hides it: the content is not centred, so collapsing it would move the stage */}
+        {p.controls != null && <div className="w-full min-h-9 mb-1">{!p.running && p.controls}</div>}
         {lines(current - WINDOW.before, current)}
         {cur && (
           <div data-testid="flow-current" className="w-full flex gap-3 items-start px-3 rounded bg-card py-2">
@@ -100,45 +102,55 @@ const FlowRow = memo(function FlowRow({ s, pending, place }: { s: Segment; pendi
     </div>)
 })
 
-// The Flow screen's settings, small, above the transcript (FlowView's `controls`): which sentences, which sub-mode; and
-// the lesson's stored runs (newest first) to replay. No Start button here: the bar's "Start flow" (Enter, pulsing) is
-// the one obvious start.
-export function FlowSetup({ segments, from, to, sub, onChange, runs, onReplay }: {
+// The Flow screen's settings, one centred line above the transcript (FlowView's `controls`): the After | Along switch,
+// "Sentences a – b" opening a small pop-up (From, To, and the lesson's stored runs, newest first, when there are any),
+// and Replay for the last stored run (or the one picked in the pop-up). No Start button here: the bar's "Start flow"
+// (Enter, pulsing) is the one obvious start.
+export function FlowSetup(p: {
   segments: Segment[]; from: number; to: number; sub: FlowSub; onChange: (p: { from?: number; to?: number; sub?: FlowSub }) => void
   runs: FlowRun[]; onReplay: (run: FlowRun) => void
 }) {
+  // A newer run starts the pick over (back to the latest).
+  return <SetupLine key={p.runs.length ? `${p.runs[0].started_at}|${p.runs[0].session_id}` : ''} {...p} />
+}
+
+function SetupLine({ segments, from, to, sub, onChange, runs, onReplay }: Parameters<typeof FlowSetup>[0]) {
+  const [open, setOpen] = useState(false)
+  const close = useCallback(() => setOpen(false), []) // stable: Popover re-attaches its listeners when onClose changes
+  const [k, setK] = useState(0)
+  const run = runs.length ? runs[Math.min(k, runs.length - 1)] : undefined
   const pick = (label: string, value: number, key: 'from' | 'to') => (
-    <select aria-label={label} className="inp" value={value} onChange={(e) => onChange({ [key]: Number(e.target.value) })}>
-      {segments.map((s, i) => <option key={s.id} value={i}>{i + 1}. {s.text.length > 12 ? `${s.text.slice(0, 12)}…` : s.text}</option>)}
-    </select>)
-  const tab = (v: FlowSub) => <button aria-pressed={sub === v} className={`px-2.5 py-1 rounded-xl border ${sub === v ? 'border-accent text-accent' : 'border-line text-fgdim hover:text-fg'}`} onClick={() => onChange({ sub: v })}>{v}</button>
+    <label className="flex items-center justify-between gap-3">{key === 'from' ? 'From' : 'To'}
+      <select aria-label={label} className="inp text-xs" value={value} onChange={(e) => onChange({ [key]: Number(e.target.value) })}>
+        {segments.map((s, i) => <option key={s.id} value={i}>{i + 1}. {s.text.length > 12 ? `${s.text.slice(0, 12)}…` : s.text}</option>)}
+      </select>
+    </label>)
+  const side = (v: FlowSub, label: string) => (
+    <button type="button" aria-pressed={sub === v} onClick={() => onChange({ sub: v })}
+      className={`px-3 py-0.5 text-xs ${sub === v ? 'bg-accent text-bg' : 'text-fgdim hover:text-fg'}`}>{label}</button>)
   return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap items-center justify-center gap-2 text-sm text-fgdim">
-        Flow from {pick('Flow from', from, 'from')} to {pick('Flow to', to, 'to')} {tab('after')}{tab('along')}
-      </div>
-      {runs.length > 0 && <PastRuns key={`${runs[0].started_at}|${runs[0].session_id}`} runs={runs} onReplay={onReplay} />}
+    <div data-testid="flow-settings" className="flex flex-wrap items-center justify-center gap-3">
+      <span className="inline-flex rounded-xl border border-line overflow-hidden">{side('after', 'After')}{side('along', 'Along')}</span>
+      <Popover open={open} onClose={close} side="below"
+        anchor={<Button size="sm" label={`Sentences ${from + 1} – ${to + 1} ▾`} ariaExpanded={open} onClick={() => setOpen((o) => !o)} />}>
+        <div className="space-y-2 text-xs text-fgdim min-w-52">
+          {pick('Flow from', from, 'from')}
+          {pick('Flow to', to, 'to')}
+          {runs.length > 0 && (
+            <label className="flex items-center justify-between gap-3">Past runs
+              <select aria-label="Past runs" className="inp text-xs" value={k} onChange={(e) => setK(Number(e.target.value))}>
+                {runs.map((r, i) => <option key={i} value={i}>{runLabel(r)}</option>)}
+              </select>
+            </label>)}
+        </div>
+      </Popover>
+      {/* not ▶: that is Listen's (spec §2) */}
+      {run && <Button size="sm" variant="ghost" icon={<IconReplay />} label={k === 0 ? 'Replay last run' : 'Replay earlier run'} onClick={() => onReplay(run)} />}
     </div>
   )
 }
 
 const runLabel = (r: FlowRun) => `${weekdayTime(r.started_at)} · ${r.items.length} ${r.items.length === 1 ? 'sentence' : 'sentences'}`
-// The last stored run, or an older one picked from the list, to replay original → you. A newer run starts it over.
-function PastRuns({ runs, onReplay }: { runs: FlowRun[]; onReplay: (run: FlowRun) => void }) {
-  const [k, setK] = useState(0)
-  const run = runs[Math.min(k, runs.length - 1)]
-  return (
-    <div data-testid="last-run" className="flex items-center justify-center gap-2 text-xs text-fgdim">
-      {k === 0 ? 'Last run' : 'Earlier run'} · {runLabel(run)}
-      {/* not ▶: that is Listen's (spec §2) */}
-      <Button icon={<IconReplay />} label="Replay run" onClick={() => onReplay(run)} />
-      {runs.length > 1 && (
-        <select aria-label="Run to replay" className="inp text-xs" value={k} onChange={(e) => setK(Number(e.target.value))}>
-          {runs.map((r, i) => <option key={i} value={i}>{runLabel(r)}</option>)}
-        </select>)}
-    </div>
-  )
-}
 
 // Flow mode while running: the same bar and keys (spec §2). Enter (■ Stop) ends the run keeping the finished
 // sentences, › (→) skips this sentence, Sound holds speed and volume. No going back, no Anki and nothing to replay mid-run.

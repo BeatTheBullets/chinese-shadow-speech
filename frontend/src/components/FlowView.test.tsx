@@ -141,14 +141,16 @@ describe('<FlowView>', () => {
     render(<FlowView {...base} sub="after" showText />)
     expect(screen.getByTestId('stage-cue')).toHaveClass('min-h-20')
   })
-  it('before a run: the start sentence on an idle stage, the settings shown above; once running they keep their space hidden', () => {
+  it('before a run: the start sentence on an idle stage, the settings shown above; once running nothing of them shows but their space stays', () => {
     const controls = <div data-testid="settings">from … to</div>
     const { rerender } = render(<FlowView {...base} running={false} controls={controls} stage="idle" sub="after" showText />)
     expect(screen.getByTestId('stage')).toHaveAttribute('data-stage', 'idle')
     expect(screen.getByTestId('stage')).toHaveTextContent('你好')
-    expect(screen.getByTestId('settings').parentElement).not.toHaveClass('invisible')
+    expect(screen.getByTestId('settings')).toBeInTheDocument()
+    const slot = screen.getByTestId('settings').parentElement!
     rerender(<FlowView {...base} running controls={controls} sub="after" showText />)
-    expect(screen.getByTestId('settings').parentElement).toHaveClass('invisible')
+    expect(screen.queryByTestId('settings')).toBeNull()
+    expect(slot).toHaveClass('min-h-9')
   })
   it('the last sentence of the run previews nothing: no next line, no count-in for it', () => {
     const late = { ...seg(2, 1, '再见', 2), ref_alignment_json: [{ ch: '再', start: 2.6, end: 3.0, conf: 1 }, { ch: '见', start: 3.0, end: 3.5, conf: 1 }] }
@@ -164,42 +166,70 @@ describe('<FlowSetup>', () => {
   const run = (d: number, h: number, m: number, n: number): FlowRun => ({
     started_at: at(d, h, m), ended_at: at(d, h, m + 1), session_id: 1, items: Array.from({ length: n }, (_, k) => ({ segment_id: k + 1, idx: k, attempt_id: 100 + k, duration_s: 2 })),
   })
-  const setup = (runs: FlowRun[], onReplay = vi.fn()) => {
-    render(<FlowSetup segments={base.segments} from={0} to={2} sub="after" onChange={() => {}} runs={runs} onReplay={onReplay} />)
-    return onReplay
+  const setup = (runs: FlowRun[], onReplay = vi.fn(), onChange = vi.fn(), sub: 'after' | 'along' = 'after') => {
+    render(<FlowSetup segments={base.segments} from={0} to={1} sub={sub} onChange={onChange} runs={runs} onReplay={onReplay} />)
+    return { onReplay, onChange }
   }
+  const openPopup = () => fireEvent.click(screen.getByRole('button', { name: /^Sentences/ }))
 
-  it('without a stored run shows no last-run line', () => {
+  it('is one line: the After | Along switch, the Sentences button and, only with runs, Replay last run', () => {
     setup([])
-    expect(screen.queryByText(/Last run/)).toBeNull()
-    expect(screen.queryByRole('button', { name: /replay/ })).toBeNull()
+    expect(screen.getByRole('button', { name: 'After' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Along' })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByRole('button', { name: 'Sentences 1 – 2 ▾' })).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByRole('button', { name: /replay/i })).toBeNull()
+    cleanup(); setup([run(7, 14, 5, 3)])
+    expect(screen.getByRole('button', { name: 'Replay last run' })).toBeInTheDocument()
   })
-  it('shows the last run in local time and replays it', () => {
-    const runs = [run(7, 14, 5, 3), run(6, 9, 30, 2)]
-    const onReplay = setup(runs)
-    expect(screen.getByTestId('last-run')).toHaveTextContent('Last run · Wed 14:05 · 3 sentences')
-    fireEvent.click(screen.getByRole('button', { name: 'Replay run' }))
-    expect(onReplay).toHaveBeenCalledWith(runs[0])
+  it('the switch toggles after / along', () => {
+    const { onChange } = setup([], vi.fn(), vi.fn(), 'after')
+    fireEvent.click(screen.getByRole('button', { name: 'Along' }))
+    expect(onChange).toHaveBeenCalledWith({ sub: 'along' })
   })
   it('has no Start of its own (the bar\'s Start flow is the one start) and no ▶ (that is Listen\'s)', () => {
     setup([run(7, 14, 5, 3)])
     expect(screen.queryByRole('button', { name: /^Start/ })).toBeNull()
-    expect(screen.getByTestId('last-run').textContent).not.toContain('▶')
+    expect(screen.getByTestId('flow-settings').textContent).not.toContain('▶')
   })
-  it('an older run picked in the list is the one replayed', () => {
+  it('the pop-up holds From, To and Past runs; it is closed at first, and Esc closes it while Space still reaches the page', () => {
+    setup([run(7, 14, 5, 3), run(6, 9, 30, 2)])
+    expect(screen.queryByRole('combobox', { name: 'Flow from' })).toBeNull()
+    openPopup()
+    expect(screen.getByRole('button', { name: /^Sentences/ })).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByRole('combobox', { name: 'Flow from' })).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Flow to' })).toBeInTheDocument()
+    const past = screen.getByRole('combobox', { name: 'Past runs' })
+    expect([...past.querySelectorAll('option')].map((o) => o.textContent)).toEqual(['Wed 14:05 · 3 sentences', 'Tue 09:30 · 2 sentences'])
+    const onKey = vi.fn(); document.addEventListener('keydown', onKey)
+    fireEvent.keyDown(document.body, { key: ' ' })
+    expect(onKey).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('combobox', { name: 'Flow from' })).toBeInTheDocument()
+    fireEvent.keyDown(document.body, { key: 'Escape' })
+    document.removeEventListener('keydown', onKey)
+    expect(screen.queryByRole('combobox', { name: 'Flow from' })).toBeNull()
+  })
+  it('without runs the pop-up has no Past runs; From and To report their change', () => {
+    const { onChange } = setup([])
+    openPopup()
+    expect(screen.queryByRole('combobox', { name: 'Past runs' })).toBeNull()
+    fireEvent.change(screen.getByRole('combobox', { name: 'Flow to' }), { target: { value: '0' } })
+    expect(onChange).toHaveBeenCalledWith({ to: 0 })
+    fireEvent.change(screen.getByRole('combobox', { name: 'Flow from' }), { target: { value: '1' } })
+    expect(onChange).toHaveBeenCalledWith({ from: 1 })
+  })
+  it('Replay last run plays the most recent run', () => {
     const runs = [run(7, 14, 5, 3), run(6, 9, 30, 2)]
-    const onReplay = setup(runs)
-    const pick = screen.getByRole('combobox', { name: 'Run to replay' })
-    expect([...pick.querySelectorAll('option')].map((o) => o.textContent)).toEqual(['Wed 14:05 · 3 sentences', 'Tue 09:30 · 2 sentences'])
-    fireEvent.change(pick, { target: { value: '1' } })
-    expect(screen.getByTestId('last-run')).toHaveTextContent('Earlier run · Tue 09:30 · 2 sentences')
-    fireEvent.click(screen.getByRole('button', { name: 'Replay run' }))
-    expect(onReplay).toHaveBeenCalledWith(runs[1])
+    const { onReplay } = setup(runs)
+    fireEvent.click(screen.getByRole('button', { name: 'Replay last run' }))
+    expect(onReplay).toHaveBeenCalledWith(runs[0])
   })
-  it('a single run needs no list', () => {
-    setup([run(7, 14, 5, 1)])
-    expect(screen.getByTestId('last-run')).toHaveTextContent('Last run · Wed 14:05 · 1 sentence')
-    expect(screen.queryByRole('combobox', { name: 'Run to replay' })).toBeNull()
+  it('an older run picked in Past runs is the one replayed', () => {
+    const runs = [run(7, 14, 5, 3), run(6, 9, 30, 2)]
+    const { onReplay } = setup(runs)
+    openPopup()
+    fireEvent.change(screen.getByRole('combobox', { name: 'Past runs' }), { target: { value: '1' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Replay earlier run' }))
+    expect(onReplay).toHaveBeenCalledWith(runs[1])
   })
 })
 
