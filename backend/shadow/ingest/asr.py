@@ -1,7 +1,9 @@
 from __future__ import annotations
+import contextlib
 import logging
 import math
 import threading
+import types
 from fractions import Fraction
 from pathlib import Path
 from typing import Any, Protocol
@@ -184,6 +186,26 @@ def transcript_from_funasr(result: dict[str, Any], pauses: SegmentationCfg | Non
     return tr
 
 
+@contextlib.contextmanager
+def _no_checkpoint_copy():
+    """FunASR deep-copies the whole checkpoint (0.9 GB) before it reads it, which put the Paraformer load at 3.5 GB
+    peak. The copy is only read, so for the duration of the load it is the checkpoint itself. A no-op if FunASR's
+    loader looks different."""
+    try:
+        import importlib
+        from shadow.hf import guarded_import
+        lpm = guarded_import(lambda: importlib.import_module("funasr.train_utils.load_pretrained_model"))
+        real = lpm.copy
+    except Exception:
+        yield
+        return
+    lpm.copy = types.SimpleNamespace(deepcopy=lambda x, *a, **k: x)
+    try:
+        yield
+    finally:
+        lpm.copy = real
+
+
 class ParaformerASR:
     """One recogniser shared by ingest jobs and attempt scoring: calls run one at a time."""
     def __init__(self, model_id: str, device: str, punctuator: Punctuator | None = None,
@@ -204,7 +226,8 @@ class ParaformerASR:
             with model_load_lock:
                 kwargs: dict[str, Any] = {"model": self.model_id, "vad_model": "fsmn-vad", "device": self.device,
                                           "disable_update": True}
-                model = AutoModel(**kwargs)
+                with _no_checkpoint_copy():
+                    model = AutoModel(**kwargs)
                 if self.int8:
                     from shadow.quant import quantize_linear
                     model.model = quantize_linear(model.model)

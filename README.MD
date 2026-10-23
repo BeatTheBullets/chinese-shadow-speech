@@ -191,7 +191,7 @@ YouTube link / file
 Speech recognition          FunASR Paraformer-zh, per-character timestamps
    │  + Chinese subtitles   text from the subtitles, timing from the recogniser
    ▼
-Sentences                   split at punctuation (the recogniser adds it) and at its segment ends
+Sentences                   split at punctuation: the subtitles' own, or what the small sherpa-onnx model adds (not at pauses)
    ▼
 Forced alignment            MMS_FA per sentence, repaired against the recogniser's character times
    ▼
@@ -233,7 +233,7 @@ when you leave via ⌂ Library, and on the Flow summary's Done.
 
 ### Requirements
 
-- WSL2 or Linux, with an NVIDIA GPU whose driver supports **CUDA 12.6** (Windows driver ≥ 560). A CPU works too, but slower.
+- WSL2 or Linux, with an NVIDIA GPU whose driver supports **CUDA 12.6** (Windows driver ≥ 560). A CPU works too, but slower: 8 GB of RAM is enough with `int8 = true` in `[models]` (see [docs/running.md](docs/running.md)).
 - [uv](https://docs.astral.sh/uv/) (Python 3.12 is installed by uv), Node 20, ffmpeg.
 - Optional:
   - [Deno](https://deno.com), which recent yt-dlp versions need for YouTube.
