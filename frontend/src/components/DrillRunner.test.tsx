@@ -98,16 +98,17 @@ describe('<DrillRunner> your syllable', () => {
     fireEvent.keyDown(window, { key: 'Enter' }); await flush()
     fireEvent.keyDown(window, { key: 'Enter' }); await flush()
     await waitFor(() => expect(h.twoTrack?.score).toEqual(score))
+    fireEvent.keyDown(window, { key: 's' }); await flush()        // the drill's reference at 0.75: the take must stay at 1
     h.player.playRange.mockClear(); h.playSequence.mockClear()
     act(() => h.twoTrack!.onPlaySyllable!(1)); await flush()
     expect(h.player.playRange).toHaveBeenCalledTimes(1)
-    const [url, , from, to] = h.player.playRange.mock.calls[0] as unknown as [string, number, number, number]
-    expect(url).toBe('/seg/11.wav'); expect(from).toBeCloseTo(0.5, 5); expect(to).toBeCloseTo(1.25, 5)
+    const [url, rate, from, to] = h.player.playRange.mock.calls[0] as unknown as [string, number, number, number]
+    expect([url, rate]).toEqual(['/seg/11.wav', 0.75]); expect(from).toBeCloseTo(0.5, 5); expect(to).toBeCloseTo(1.25, 5)
     act(() => h.twoTrack!.onCompareSyllable!(0)); await flush()
     expect(h.playSequence).toHaveBeenCalledTimes(1)
     const [, items, gap] = h.playSequence.mock.calls[0] as unknown as [unknown, { url: string; rate: number; from: number; to: number }[], number]
     expect(gap).toBe(250)
-    expect(items.map((i) => i.url)).toEqual(['/seg/11.wav', 'blob:take'])
+    expect(items.map((i) => [i.url, i.rate])).toEqual([['/seg/11.wav', 0.75], ['blob:take', 1]])
     expect(items[0].from).toBeCloseTo(0.2, 5); expect(items[0].to).toBeCloseTo(0.5, 5)
     expect([items[1].rate, items[1].from, items[1].to]).toEqual([1, 0.1, 0.4])
     act(() => h.twoTrack!.onCompareSyllable!(2)); await flush()     // missing: the speaker alone

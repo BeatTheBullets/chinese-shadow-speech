@@ -580,16 +580,18 @@ describe('<Practice>', () => {
       press('Enter'); await flush()
       await waitFor(() => expect(h.twoTrack?.score).toEqual(score))
       const url = currentTake(usePractice.getState())!.url
+      press('s'); await flush()                                   // the reference at 0.75: the take must stay at 1
+      expect(usePractice.getState().rate).toBe(0.75)
       h.player.playRange.mockClear(); h.playSequence.mockClear()
       act(() => h.twoTrack!.onPlaySyllable!(1)); await flush()
       expect(h.player.playRange).toHaveBeenCalledTimes(1)
       const [rurl, rate, from, to] = h.player.playRange.mock.calls[0] as unknown as [string, number, number, number]
-      expect([rurl, rate]).toEqual(['/seg/11.wav', 1]); expect(from).toBeCloseTo(0.5, 5); expect(to).toBeCloseTo(1.25, 5)
+      expect([rurl, rate]).toEqual(['/seg/11.wav', 0.75]); expect(from).toBeCloseTo(0.5, 5); expect(to).toBeCloseTo(1.25, 5)
       act(() => h.twoTrack!.onCompareSyllable!(0)); await flush()
       expect(h.playSequence).toHaveBeenCalledTimes(1)
       const [, items, gap] = h.playSequence.mock.calls[0] as unknown as [unknown, { url: string; rate: number; from: number; to: number }[], number]
       expect(gap).toBe(250)
-      expect(items.map((i) => [i.url, i.rate])).toEqual([['/seg/11.wav', 1], [url, 1]])
+      expect(items.map((i) => [i.url, i.rate])).toEqual([['/seg/11.wav', 0.75], [url, 1]])
       expect(items[0].from).toBeCloseTo(0.2, 5); expect(items[0].to).toBeCloseTo(0.5, 5)
       expect([items[1].from, items[1].to]).toEqual([0.1, 0.4])
       // A missing syllable has nothing of yours: its character plays the speaker alone.

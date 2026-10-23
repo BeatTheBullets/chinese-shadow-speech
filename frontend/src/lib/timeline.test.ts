@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AlignSpan } from '../api/types'
-import { SPEECH_MARGIN_S, SPAN_TAIL_S, normalizePeaks, refWindow, sliceToWindow, speechWindow } from './timeline'
+import { PEAK_FLOOR, SPEECH_MARGIN_S, SPAN_TAIL_S, normalizePeaks, refWindow, sliceToWindow, speechWindow } from './timeline'
 
 // `n` buckets of a quiet floor with buckets lo..hi (inclusive) loud.
 const peaksWith = (n: number, lo: number, hi: number) => Float32Array.from({ length: n }, (_, b) => (b >= lo && b <= hi ? 0.5 : 0.001))
@@ -73,6 +73,12 @@ describe('normalizePeaks', () => {
     const a = normalizePeaks(loud)!, b = normalizePeaks(quiet)!
     expect(Math.max(...a)).toBeCloseTo(1, 6); expect(Math.max(...b)).toBeCloseTo(1, 6)
     for (let i = 0; i < 4; i++) expect(b[i]).toBeCloseTo(a[i], 6)
+  })
+  it('a near-silent take (hiss, a too-quiet take) stays flat; quiet speech still fills the track', () => {
+    const hiss = Float32Array.from([0.001, 0.003, 0.002, 0.0015]), speech = Float32Array.from([0.02, 0.1, 0.05, 0.01])
+    expect(PEAK_FLOOR).toBeGreaterThan(0.003); expect(PEAK_FLOOR).toBeLessThan(0.1)
+    expect(Math.max(...normalizePeaks(hiss)!)).toBeLessThanOrEqual(0.15)
+    expect(Math.max(...normalizePeaks(speech)!)).toBeCloseTo(1, 6)
   })
   it('leaves the input untouched (a copy), and silence or nothing as it is: no division by zero', () => {
     const p = Float32Array.from([0.1, 0.2])
