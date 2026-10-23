@@ -77,17 +77,27 @@ class FakeAligner:
 def _mms_model(bundle):
     """bundle.get_model(with_star=False) without the random fp32 copy: the architecture is built on the meta device
     and takes the downloaded weights as they are (peak: one copy of the weights, not two). Falls back to get_model
-    if torchaudio's helpers look different."""
+    if torchaudio's helpers look different or leave a meta tensor behind. A failed download raises as it always did."""
+    import torch
     try:
-        import torch
         from torchaudio.pipelines._wav2vec2 import utils
+        helpers = (utils._get_model, utils._get_state_dict, utils._extend_model,
+                   bundle._model_type, bundle._params, bundle._path, bundle._remove_aux_axis, bundle._normalize_waveform)
+    except (ImportError, AttributeError):
+        log.warning("torchaudio's loader helpers are not as expected; loading the MMS aligner with get_model")
+        return bundle.get_model(with_star=False)
+    get_model, get_state_dict, extend_model, mtype, params, path, remove_axis, normalize = helpers
+    state_dict = get_state_dict(path, None, remove_axis)             # the download: errors are the caller's
+    try:
         with torch.device("meta"):
-            model = utils._get_model(bundle._model_type, bundle._params)
-        model.load_state_dict(utils._get_state_dict(bundle._path, None, bundle._remove_aux_axis), assign=True)
-        return utils._extend_model(model, normalize_waveform=bundle._normalize_waveform,
-                                   apply_log_softmax=True, append_star=False).eval()
+            model = get_model(mtype, params)
+        model.load_state_dict(state_dict, assign=True)
+        model = extend_model(model, normalize_waveform=normalize, apply_log_softmax=True, append_star=False).eval()
+        if any(t.is_meta for t in [*model.parameters(), *model.buffers()]):
+            raise RuntimeError("a meta tensor is left")
+        return model
     except Exception:
-        log.exception("loading the MMS aligner without the second copy failed; using torchaudio's own loader")
+        log.warning("building the MMS aligner on the meta device failed; using get_model", exc_info=True)
         return bundle.get_model(with_star=False)
 
 
@@ -121,7 +131,7 @@ class MmsAligner:
                 self._bundle = torchaudio.pipelines.MMS_FA
                 if self.int8:
                     from shadow.quant import cached_int8, quantize_linear
-                    model = cached_int8("mms_fa", lambda: quantize_linear(_mms_model(self._bundle).eval()))
+                    model = cached_int8(f"mms_fa-torchaudio{torchaudio.__version__}", lambda: quantize_linear(_mms_model(self._bundle).eval()))
                 else:
                     model = _mms_model(self._bundle)
                 model = model.to(self.device).eval()

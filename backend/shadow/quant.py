@@ -12,13 +12,24 @@ from shadow.memory import trim_heap
 log = logging.getLogger(__name__)
 
 
+QUANT_FORMAT = 1          # bump on any change to the quantisation recipe or to what is stored: stored models are rebuilt
+
+
+def int8_cache_path(key: str) -> Path:
+    """Where the quantised model for `key` is kept: <models dir>/int8/, named by the key, QUANT_FORMAT and torch's version.
+    The caller puts the versions of the library whose classes are pickled (transformers, torchaudio) in the key."""
+    import torch
+    from shadow.ingest.punct import models_cache_dir
+    return models_cache_dir() / "int8" / (re.sub(r"[^A-Za-z0-9._-]", "_", f"{key}-q{QUANT_FORMAT}-torch{torch.__version__}") + ".pt")
+
+
 def cached_int8(key: str, build):
     """The quantised module build() returns, kept on disk after the first build: a later load reads the int8 weights
     only (about a quarter of the fp32 size) instead of loading fp32 and quantising, whose peak is 3x higher.
-    Stored beside the Hugging Face cache, keyed by model and torch version; an unreadable file is rebuilt."""
+    The whole module is pickled, so the key must name the library versions; an unreadable file is rebuilt."""
     import torch
-    root = Path(os.environ.get("HF_HOME") or Path.home() / ".cache" / "huggingface") / "shadow-int8"
-    path = root / (re.sub(r"[^A-Za-z0-9._-]", "_", f"{key}-torch{torch.__version__}") + ".pt")
+    path = int8_cache_path(key)
+    root = path.parent
     if path.exists():
         try:
             return torch.load(path, map_location="cpu", weights_only=False).eval()
@@ -52,18 +63,24 @@ def quantize_linear(module):
     with warnings.catch_warnings(), torch.no_grad():     # torch 2.11 (pinned) still has it; its torchao pointer is noise
         warnings.filterwarnings("ignore", message=r"torch\.ao\.quantization is deprecated", category=DeprecationWarning)
         for m in module.modules():
-            if not isinstance(m, torch.nn.Linear):
+            if type(m) is not torch.nn.Linear:
                 for t in [*m.parameters(recurse=False), *m.buffers(recurse=False)]:
                     t.data = t.data.clone()
+        uses: dict[int, int] = {}
+        for m in module.modules():
+            if type(m) is torch.nn.Linear:
+                uses[id(m.weight)] = uses.get(id(m.weight), 0) + 1
+        shared = {i for i, n in uses.items() if n > 1}
         for parent in list(module.modules()):
             for name, child in list(parent.named_children()):
-                if isinstance(child, torch.nn.Linear):
+                if type(child) is torch.nn.Linear:     # exactly Linear: MultiheadAttention's out_proj must stay as it is
                     for t in (child.weight, child.bias):
                         if t is not None:
                             t.data = t.data.clone()
                     child.qconfig = cfg
                     parent._modules[name] = torch.ao.nn.quantized.dynamic.Linear.from_float(child)
-                    child.weight.data = torch.empty(0)          # the quantised layer keeps the bias tensor, not the weight
+                    if id(child.weight) not in shared:           # a weight another layer still uses stays until the end
+                        child.weight.data = torch.empty(0)       # the quantised layer keeps the bias tensor, not the weight
         q = module
     gc.collect()
     trim_heap()

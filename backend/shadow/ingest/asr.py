@@ -199,7 +199,7 @@ def _no_checkpoint_copy():
     except Exception:
         yield
         return
-    lpm.copy = types.SimpleNamespace(deepcopy=lambda x, *a, **k: x)
+    lpm.copy = types.SimpleNamespace(**{**vars(real), "deepcopy": lambda x, *a, **k: x})
     try:
         yield
     finally:

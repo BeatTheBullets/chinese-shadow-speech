@@ -191,7 +191,7 @@ YouTube link / file
 Speech recognition          FunASR Paraformer-zh, per-character timestamps
    │  + Chinese subtitles   text from the subtitles, timing from the recogniser
    ▼
-Sentences                   split at punctuation: the subtitles' own, or what the small sherpa-onnx model adds (not at pauses)
+Sentences                   split at punctuation: the subtitles' own, or what the small sherpa-onnx model adds (by default)
    ▼
 Forced alignment            MMS_FA per sentence, repaired against the recogniser's character times
    ▼

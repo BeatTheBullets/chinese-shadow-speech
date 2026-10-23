@@ -13,7 +13,8 @@ Verify the GPU is seen: `curl -s localhost:8000/health` -> `"device": "cuda"`.
 Set `[models] device = "cpu"` in config.toml; the aligner is MMS_FA on every device (`aligner = "qwen3_fa"` selects Qwen3 explicitly).
 On a laptop with 8 GB of RAM also set these in `[models]`:
 - `int8 = true`: the recogniser, aligner and sounds model run as 8-bit models (about half the RAM, slower per take). The
-  quantised models are stored once in `shadow-int8/` beside the Hugging Face cache, so later loads read int8 weights only.
+  aligner and the sounds model are quantised once and stored in `int8/` under the app's models folder (`SHADOW_MODELS_DIR`),
+  so later loads read int8 weights only; the recogniser is quantised at each load.
 - `int8_skip = []`: models kept fp32 even with `int8 = true`, from `"asr"`, `"aligner"`, `"sounds"` (more RAM, closest to the GPU results).
 - `threads = 0`: CPU threads for the models; 0 is the physical cores minus one. 4 was used for the memory measurements.
 - `punctuation = "sherpa"`: sentence ends come from the small sherpa-onnx model (about 0.18 GB, downloaded on first use);

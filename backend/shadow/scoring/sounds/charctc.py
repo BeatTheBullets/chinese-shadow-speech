@@ -68,8 +68,9 @@ class CharCtc:
             return Wav2Vec2ForCTC.from_pretrained(self.name, revision=self.revision, low_cpu_mem_usage=True)
         with model_load_lock:
             if self.int8:
+                import transformers
                 from shadow.quant import cached_int8, quantize_linear
-                model = cached_int8(f"{self.name}-{self.revision}", lambda: quantize_linear(load().eval()))
+                model = cached_int8(f"{self.name}-{self.revision}-transformers{transformers.__version__}", lambda: quantize_linear(load().eval()))
             else:
                 model = load()
             vocab = Wav2Vec2CTCTokenizer.from_pretrained(self.name, revision=self.revision).get_vocab()
