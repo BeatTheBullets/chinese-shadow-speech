@@ -48,7 +48,7 @@ def urls() -> list[str]:
     return out
 
 
-def video_source(url: str, asr: ParaformerASR, int8: bool = False) -> Source | None:
+def video_source(url: str, asr: ParaformerASR | None, int8: bool = False, download_only: bool = False) -> Source | None:
     vid = parse_video_id(url)
     if vid is None:
         print(f"skip {url}: not a YouTube link")
@@ -68,6 +68,9 @@ def video_source(url: str, asr: ParaformerASR, int8: bool = False) -> Source | N
     if not wav.exists():
         media = next((p for p in d.glob("audio.*")), None) or dl.download_audio(url, d)
         audio.normalise(media, wav)
+    if download_only:
+        print(f"cached {vid} ({choice.lang}, {audio.duration_s(wav) / 60:.1f} min)")
+        return None
     tr_path = d / ("asr-int8.json" if int8 else "asr.json")        # int8 transcripts never replace the fp32 ones
     if tr_path.exists():
         tr = Transcript.from_json(json.loads(tr_path.read_text()))
@@ -141,9 +144,16 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
     ap.add_argument("--lessons", type=int, nargs="*", default=[])
     ap.add_argument("--data-dir", type=Path, default=None)
-    ap.add_argument("--out", type=Path, required=True)
+    ap.add_argument("--out", type=Path, default=None)
+    ap.add_argument("--download-only", action="store_true", help="only fetch audio and subtitles into the cache (no models)")
     ap.add_argument("--int8", action="store_true", help="transcribe with the 8-bit recogniser on the CPU")
     a = ap.parse_args()
+    if a.download_only:
+        for u in urls():
+            video_source(u, None, download_only=True)
+        return
+    if a.out is None:
+        ap.error("--out is required")
     release_freed_memory_eagerly()      # before any model loads
     settings = load_settings()
     data_dir = a.data_dir or Path(settings.data_dir)

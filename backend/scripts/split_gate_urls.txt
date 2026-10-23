@@ -1,6 +1,9 @@
 # Natural-speed Mandarin videos with uploaded Chinese subtitles (the human reference for scripts/split_gate.py).
 https://www.youtube.com/watch?v=zbbXDcuILDs   # channel 阿家家家家家Lily, zh, 8.5 min
 https://www.youtube.com/watch?v=Zp1yfsb2SDQ   # channel 阿家家家家家Lily, zh, 7.9 min
-https://www.youtube.com/watch?v=idp4-PtVymY   # channel Rhia's channel, zh-Hant, 9.4 min
-https://www.youtube.com/watch?v=kjPqqvaaFgk   # channel Aillyzi, zh-Hans, 9.8 min
-https://www.youtube.com/watch?v=GygMxLFJYwc   # channel MakeLens-official, zh, 19.8 min
+https://www.youtube.com/watch?v=K2vBHUUqWoI   # channel 一刻Talks, zh-Hant, 12.6 min
+https://www.youtube.com/watch?v=Za6c0NcAmOk   # channel 识君SHIJUN, zh-Hans, 29 min
+https://www.youtube.com/watch?v=t7ZI9c6Ze7E   # channel TEDx Talks, zh-TW, 20.8 min
+https://www.youtube.com/watch?v=snZ811wvjjw   # channel TEDx Talks, zh-TW, 14.5 min
+# Dropped: subtitles matched only 0-7 % of the audio in the first run.
+# idp4-PtVymY (Rhia's channel), kjPqqvaaFgk (Aillyzi), GygMxLFJYwc (MakeLens-official)
