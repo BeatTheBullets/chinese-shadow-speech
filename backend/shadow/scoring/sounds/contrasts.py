@@ -30,6 +30,13 @@ DIRECTIONS: tuple[str, ...] = (
     "ü>u", "u>ü",
     "ai>ei", "ei>ai", "ao>ou", "ou>ao", "ou>uo", "uo>ou", "an>en", "en>an", "ang>eng", "eng>ang",
 )
+# The directions the Sounds score counts: the confusions the Chinese-teaching literature and a learner study report as
+# hard for learners (retroflex vs dental, r/l, ü/u, -n/-ng, ou/uo, an/en, ang/eng). Left out on purpose: f/h (a
+# dialect habit, not a general learner difficulty), ai/ei and ao/ou (rarely confused by learners).
+HARD_DIRECTIONS: frozenset[str] = frozenset({
+    "zh>z", "z>zh", "ch>c", "c>ch", "sh>s", "s>sh", "r>l", "l>r", "ü>u", "u>ü", "ng>n", "n>ng",
+    "ou>uo", "uo>ou", "an>en", "en>an", "ang>eng", "eng>ang",
+})
 _UV_EXPECTED_U_UMLAUT = {"lv", "nv", "yu"}
 
 
