@@ -60,8 +60,8 @@ speed, is the blocker.** Speed is acceptable: on this machine ~2 min to build a 
 a laptop CPU is probably 1.5–2× slower (estimate, not measured).
 
 **Memory budget (my call):** an 8 GB Windows laptop with a browser open leaves roughly 3.5 GB. The backend's peak
-RSS must stay **≤ 3.0 GB while practising** and **≤ 3.5 GB while building a lesson**, including transient peaks
-during model loading.
+RSS must stay **≤ 3.1 GB while practising** and **≤ 3.5 GB while building a lesson**, including transient peaks
+during model loading. (Practising budget raised from 3.0 to 3.1 GB: measured 3.04-3.10 GB, user decision 2026-10-23.)
 
 The measurement scripts used for this live in the session scratchpad; the builder turns them into a committed script
 (`backend/scripts/cpu_budget.py` or similar) that runs the real app on a scratch data dir: build a lesson from a
@@ -102,7 +102,7 @@ has to come from 8-bit (§5.3).
 Practising while another lesson builds stays possible, as today: `ensure_idle` only blocks takes and edits on the
 lesson being built, and a take that finds the recogniser busy skips the words check after `HEAR_WAIT_S` (2 s)
 (my call: keep this behaviour; no UX change). The budget therefore has a **worst case: building a lesson while
-scoring takes, ≤ 3.5 GB peak**; practice alone ≤ 3.0 GB; both include the moment of loading. Long videos (up to
+scoring takes, ≤ 3.5 GB peak**; practice alone ≤ 3.1 GB; both include the moment of loading. Long videos (up to
 `max_minutes` = 90) must not push the building peak over budget through activation memory — transcribe in bounded
 chunks if needed.
 
@@ -117,6 +117,8 @@ smaller recogniser, provided the words-check validation in §5.3 still passes. L
 acceptable (7 s load).
 
 ### 5.2 Sentence splitting on pauses
+
+> **Outcome (user decision 2026-10-23):** the splitting gate rejected pause splitting. Punctuation now comes from the small int8 sherpa-onnx model; the text below is the design as first written.
 
 **What changes.** The `ct-punc` punctuation model is dropped. ASR text is no longer punctuated. Sentences are cut
 from the recogniser's per-character timestamps by pause length, with length limits and word boundaries. Lessons
@@ -153,6 +155,8 @@ The gate runs on the user's GPU machine; it only needs the recogniser, `ct-punc`
 already exists.
 
 ### 5.3 Memory: 8-bit models on the CPU
+
+> **Outcome (user decision 2026-10-23):** the recogniser runs int8 only when the machine has less than 12 GB RAM (`asr_int8_below_ram_gb`), fp32 above, because int8 missed the words check (93.9 %) and CER (3.35 %) marks. The sounds model stays int8 on the CPU everywhere: accepted at 5.3 % false alarms with 86 % of slips caught.
 
 - Quantise to int8 **on the CPU path only**: the recogniser (Paraformer), the MMS aligner and the char-CTC sounds
   model. The tone embedder (wav2vec2-base, 0.35 GB) stays fp32 (my call: it is small, and the tone classifier was

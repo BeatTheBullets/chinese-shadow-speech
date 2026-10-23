@@ -6,7 +6,7 @@ from shadow.ingest.align import Aligner, FakeAligner, LockedAligner, MmsAligner,
 from shadow.ingest.asr import ASR, AsrHearer, FakeASR, Hearer, ParaformerASR
 from shadow.ingest.punct import make_punctuator
 from shadow.ingest.transcript import Transcript
-from shadow.quant import cpu_threads, int8_wanted
+from shadow.quant import asr_int8, cpu_threads, int8_wanted, total_ram_gb
 from shadow.ingest.youtube import Downloader, YtDlpDownloader
 from shadow.scoring.embed import Embedder, FakeEmbedder, Wav2Vec2Embedder
 from shadow.scoring.sounds.charctc import CharCtc
@@ -55,7 +55,15 @@ def build_deps(settings: Settings) -> Deps:
             log.debug("torch is not installed; thread cap skipped")
     int8 = int8_wanted(settings)
     skip = set(settings.models.int8_skip)          # a model that failed its int8 check stays fp32
-    int8_asr, int8_aligner, int8_sounds = (int8 and n not in skip for n in ("asr", "aligner", "sounds"))
+    int8_aligner, int8_sounds = (int8 and n not in skip for n in ("aligner", "sounds"))
+    int8_asr = asr_int8(settings)
+    if device == "cpu":
+        ram = total_ram_gb()
+        why = ("int8 is off" if not int8 else "in int8_skip" if "asr" in skip else
+               f"RAM {ram:.1f} GB < {settings.models.asr_int8_below_ram_gb:g} GB" if int8_asr else
+               f"RAM {ram:.1f} GB >= {settings.models.asr_int8_below_ram_gb:g} GB")
+        log.info("model precision: recogniser %s (%s), aligner %s, sounds %s", "int8" if int8_asr else "fp32", why,
+                 "int8" if int8_aligner else "fp32", "int8" if int8_sounds else "fp32")
     files = FileLayout(settings.data_dir)
     asr = ParaformerASR(settings.models.asr, device, punctuator=make_punctuator(settings.models),
                        segmentation=settings.segmentation, int8=int8_asr)

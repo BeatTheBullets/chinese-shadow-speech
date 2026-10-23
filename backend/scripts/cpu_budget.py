@@ -8,7 +8,7 @@ Always run with CUDA_VISIBLE_DEVICES="" so nothing lands on a GPU. Phases (defau
 /health answers), build (upload the clip as a lesson), practice (8 scored takes, the lesson's own clips as audio),
 build+practice (a second lesson builds while 8 more takes are scored). Prints one JSON line
 {"phases": [{"name", "seconds", "peak_mb"}], "take_seconds": [...]}. --budget exits 1 when a phase peak is over its
-budget (startup/practice 3000 MB, build/build+practice 3500 MB). RSS over --hard-cap-mb (default: the smaller of 5000 and the free memory minus 500) aborts the run
+budget (startup 3000 MB, practice 3100 MB, build/build+practice 3500 MB). RSS over --hard-cap-mb (default: the smaller of 5000 and the free memory minus 500) aborts the run
 with exit 3: the script re-runs itself as a child and a parent watchdog polls the child tree's RSS every 0.05 s and
 kills it over the cap, so a runaway run cannot make the kernel OOM-killer pick other processes."""
 from __future__ import annotations
@@ -24,7 +24,7 @@ from pathlib import Path
 
 import psutil
 
-BUDGET_MB = {"startup": 3000, "build": 3500, "practice": 3000, "build+practice": 3500}
+BUDGET_MB = {"startup": 3000, "build": 3500, "practice": 3100, "build+practice": 3500}
 PHASES = list(BUDGET_MB)
 N_TAKES = 8
 

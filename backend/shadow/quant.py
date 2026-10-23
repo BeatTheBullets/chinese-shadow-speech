@@ -91,6 +91,18 @@ def int8_wanted(settings: Settings) -> bool:
     return bool(settings.models.int8) and settings.resolved_device() == "cpu"
 
 
+def total_ram_gb() -> float:
+    import psutil
+    return psutil.virtual_memory().total / 1e9
+
+
+def asr_int8(settings: Settings) -> bool:
+    """The recogniser is 8-bit when int8 is on, it is not in int8_skip, and the machine has less RAM than
+    asr_int8_below_ram_gb (8-bit loses a little accuracy, so a roomy machine keeps fp32)."""
+    m = settings.models
+    return int8_wanted(settings) and "asr" not in m.int8_skip and total_ram_gb() < m.asr_int8_below_ram_gb
+
+
 def cpu_threads(settings: Settings) -> int:
     if settings.models.threads > 0:
         return settings.models.threads

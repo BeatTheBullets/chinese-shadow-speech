@@ -23,6 +23,7 @@ class ModelsCfg(BaseModel):
                             "sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8.tar.bz2")
     punctuation_sha256: str = "c0d5aa5f8eeb686032345e180bedf39319dc2e0556781c6264bcadba8328a6e1"
     int8: bool = False                # CPU only: 8-bit recogniser, aligner and sounds model (about half the RAM)
+    asr_int8_below_ram_gb: float = 12.0   # with int8 on, the recogniser is 8-bit only on a machine with less RAM than this
     int8_skip: list[str] = []         # models kept fp32 even with int8 on: "asr", "aligner", "sounds"
     threads: int = 0                  # CPU threads for the models; 0 = physical cores minus one
 

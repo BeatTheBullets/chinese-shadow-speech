@@ -70,3 +70,12 @@ def test_int8_skip_keeps_named_models_fp32(tmp_path):
     assert deps.sounds.chars.int8 is False
     on = build_deps(Settings(models=ModelsCfg(device="cpu", int8=True), data_dir=tmp_path))
     assert (on.asr.int8, on.aligner.inner.int8, on.sounds.chars.int8) == (True, True, True)
+
+
+@pytest.mark.parametrize("ram,device,int8,skip,expected", [
+    (8, "cpu", True, [], True), (16, "cpu", True, [], False), (11.9, "cpu", True, [], True), (12, "cpu", True, [], False),
+    (8, "cpu", False, [], False), (8, "cuda", True, [], False), (8, "cpu", True, ["asr"], False)])
+def test_recogniser_int8_depends_on_ram(monkeypatch, ram, device, int8, skip, expected):
+    import shadow.quant as q
+    monkeypatch.setattr(q, "total_ram_gb", lambda: ram)
+    assert q.asr_int8(Settings(models=ModelsCfg(device=device, int8=int8, int8_skip=skip))) is expected
