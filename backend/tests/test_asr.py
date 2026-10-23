@@ -397,3 +397,55 @@ def test_hear_skips_punctuation(tmp_path):
     assert AsrHearer(asr).hear(tmp_path / "x.wav") == "我是学生我爱中文"
     assert marks.calls == []
 
+
+def _gapped_gen(order):
+    ts = [[i * 100 + (900 if i >= 8 else 0), i * 100 + 100 + (900 if i >= 8 else 0)] for i in range(16)]
+
+    class Gen:
+        def generate(self, **kw):
+            order.append("generate")
+            return [{"text": " ".join("我是学生我爱中文你好吗再见谢谢你"), "timestamp": ts}]
+    return Gen()
+
+
+def test_a_punctuator_that_cannot_load_is_tried_before_generate_and_falls_back_to_pauses(tmp_path, caplog):
+    from shadow.config import SegmentationCfg
+    from shadow.ingest.asr import ParaformerASR
+    order = []
+
+    class NoLoad:
+        def _load(self):
+            order.append("load")
+            raise OSError("no network")
+        def punctuate(self, text): raise AssertionError("must not be called")
+    asr = ParaformerASR("none", "cpu", punctuator=NoLoad(), segmentation=SegmentationCfg()); asr._model = _gapped_gen(order)
+    with caplog.at_level("WARNING"):
+        tr = asr.transcribe(tmp_path / "x.wav")
+    assert order == ["load", "generate"]
+    assert len(tr.segments) == 2
+    assert any("punctuation model could not be loaded" in r.message for r in caplog.records)
+
+
+def test_a_punctuator_that_raises_falls_back_to_pauses(tmp_path, caplog):
+    from shadow.config import SegmentationCfg
+    from shadow.ingest.asr import ParaformerASR
+
+    class Boom:
+        def punctuate(self, text): raise RuntimeError("boom")
+    asr = ParaformerASR("none", "cpu", punctuator=Boom(), segmentation=SegmentationCfg()); asr._model = _gapped_gen([])
+    with caplog.at_level("WARNING"):
+        tr = asr.transcribe(tmp_path / "x.wav")
+    assert len(tr.segments) == 2
+    assert any("punctuation failed" in r.message for r in caplog.records)
+
+
+def test_warm_also_warms_the_punctuator():
+    from shadow.ingest.asr import ParaformerASR
+    seen = []
+
+    class P:
+        def _load(self): seen.append("p")
+    asr = ParaformerASR("none", "cpu", punctuator=P()); asr._model = object()
+    asr.warm()
+    assert seen == ["p"]
+

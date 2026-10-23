@@ -204,3 +204,15 @@ def test_sherpa_real_model_punctuates(tmp_path):
     p = SherpaPunctuator(m.punctuation_model, m.punctuation_url, m.punctuation_sha256, tmp_path)
     out = p.punctuate("我是学生我喜欢学习中文你呢")
     assert any(is_punct(ch) for ch in out) and _speech(out) == "我是学生我喜欢学习中文你呢"
+
+
+def test_a_rejected_chunk_is_split_at_pauses_not_left_as_one_sentence():
+    class Rewrites:
+        def punctuate(self, text: str) -> str:
+            return text + "额"                     # changes the speech: rejected
+
+    text = "我是学生我爱中文你好吗再见谢谢你"
+    out = punctuate_timed(text, _ts(len(text), {7: 900}), Rewrites(), CFG)   # a long pause after the 8th char
+    assert _speech(out) == text
+    assert out.count("。") == 2 and out.endswith("。")
+    assert out.index("。") == 8

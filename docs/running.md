@@ -6,6 +6,7 @@
 
 The GPU driver must support CUDA 12.6 (Windows NVIDIA driver >= 560).
 First ingest downloads Paraformer-zh (~1 GB, ModelScope) and the MMS_FA aligner (~1.2 GB, torchaudio).
+On the CPU the small sherpa-onnx punctuation model (72 MB, from github.com, checked by SHA-256) is downloaded on first use too, into `~/.cache/shadow-speech/models` (override with `SHADOW_MODELS_DIR`); the stored int8 copies of the models go in its `int8/` folder.
 Before the first real ingest, smoke-test Paraformer and the aligners: `cd backend && uv run pytest -m models`.
 Verify the GPU is seen: `curl -s localhost:8000/health` -> `"device": "cuda"`.
 
@@ -20,7 +21,7 @@ On a laptop with 8 GB of RAM also set these in `[models]`:
   and the sounds model are 8-bit on the CPU everywhere.
 - `int8_skip = []`: models kept fp32 even with `int8 = true`, from `"asr"`, `"aligner"`, `"sounds"` (more RAM, closest to the GPU results); `"asr"` here forces an fp32 recogniser whatever the RAM.
 - `threads = 0`: CPU threads for the models; 0 is the physical cores minus one. 4 was used for the memory measurements.
-- `punctuation = "sherpa"`: sentence ends come from the small sherpa-onnx model (about 0.18 GB, downloaded on first use);
+- `punctuation = "sherpa"`: sentence ends come from the small sherpa-onnx model (a 72 MB download from github.com on first use, about 0.18 GB of RAM);
   `"pauses"` cuts sentences at pauses instead.
 
 ## Docker

@@ -239,6 +239,8 @@ class ParaformerASR:
         try:
             with self._lock:
                 self._load()
+                if self.punctuator is not None:
+                    self._warm_punctuator()
         except Exception:
             log.exception("warming up the recogniser %s failed", self.model_id)
         finally:
@@ -258,14 +260,32 @@ class ParaformerASR:
         finally:
             self._lock.release()
 
+    def _warm_punctuator(self) -> bool:
+        """Load the punctuation model now (download, checksum, import), so a failure shows up in seconds and not after
+        the transcription. False when it cannot load: the caller cuts sentences at pauses instead."""
+        load = getattr(self.punctuator, "_load", None)
+        if load is None:
+            return True
+        try:
+            load()
+            return True
+        except Exception:
+            log.warning("the punctuation model could not be loaded; cutting sentences at pauses instead", exc_info=True)
+            return False
+
     def _run(self, wav_path: Path, punctuate: bool = True) -> Transcript:
+        use_punct = self.punctuator is not None and punctuate and self._warm_punctuator()
         res = self._load().generate(input=str(wav_path), sentence_timestamp=True, batch_size_s=300)
         r = res[0] if res else {"text": ""}
-        if self.punctuator is None or not punctuate:       # FunASR's text is unpunctuated: cut at pauses (if configured)
-            return transcript_from_funasr(r, pauses=self.segmentation)
         cfg = self.segmentation or SegmentationCfg()
-        text = to_simplified(r.get("text") or "")
-        punctuated = punctuate_timed(text, r.get("timestamp") or [], self.punctuator, cfg)
+        if not use_punct:       # FunASR's text is unpunctuated: cut at pauses (if configured)
+            return transcript_from_funasr(r, pauses=self.segmentation)
+        try:
+            text = to_simplified(r.get("text") or "")
+            punctuated = punctuate_timed(text, r.get("timestamp") or [], self.punctuator, cfg)
+        except Exception:
+            log.warning("punctuation failed; cutting sentences at pauses instead", exc_info=True)
+            return transcript_from_funasr(r, pauses=cfg)
         # pauses as a safety net: text the model left unpunctuated (every chunk failed) still splits
         return transcript_from_funasr({**r, "text": punctuated}, pauses=self.segmentation)
 

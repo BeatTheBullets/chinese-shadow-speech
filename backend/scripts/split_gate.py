@@ -7,7 +7,7 @@ times them) and, with --lessons, stored lessons (their stored segment boundaries
 transcribed once with the sherpa-onnx punctuation model (settings.models.punctuation must be "sherpa"); candidate "punctuation" is today's rectify_transcript, candidate
 "pauses" is pause_ranges over the same characters with punctuation removed. --data-dir (default: the settings' data dir)
 is only read, and the lessons database is opened read-only; downloads and transcripts are cached under this checkout's
-data/cache/split-gate/. --int8 transcribes with the 8-bit recogniser on the CPU (transcripts cached as asr-int8.json). Prints and writes a markdown report ending in PASS or FAIL."""
+.cache/scripts/split-gate/. --int8 transcribes with the 8-bit recogniser on the CPU (transcripts cached as asr-int8.json). Prints and writes a markdown report ending in PASS or FAIL."""
 from __future__ import annotations
 import argparse
 import json
@@ -31,7 +31,7 @@ from shadow.ingest.youtube import YtDlpDownloader, choose_subtitle, parse_video_
 from shadow.memory import release_freed_memory_eagerly
 
 URLS = Path(__file__).with_name("split_gate_urls.txt")
-CACHE = ROOT / "data" / "cache" / "split-gate"
+CACHE = ROOT / ".cache" / "scripts" / "split-gate"
 SAMPLE = 15
 
 

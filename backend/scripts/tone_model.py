@@ -5,7 +5,7 @@ Stages, each resumable: download and unpack (~19 GB, curl -C) → per-speaker fe
 copies) cached under <root>/features_v<FEATURE_VERSION>_<labels>/ → train → evaluate on held-out speakers (native,
 altered and flat copies) → write shadow/scoring/models/<name>.{joblib,json}. Features need the models extra
 and the GPU. `--stage evaluate [--int8-aligner]` re-evaluates the committed model without retraining (the int8
-features go under this checkout's data/cache/int8-check/tone/)."""
+features go under this checkout's .cache/scripts/int8-check/tone/)."""
 from __future__ import annotations
 import argparse
 import json
@@ -29,7 +29,7 @@ from shadow.scoring.pitch import baseline_of, normalise, track_pitch
 from shadow.scoring.tone import MODELS_DIR, TONES
 from shadow.scoring.windows import windows
 
-ROOT_CACHE = Path(__file__).resolve().parents[2] / "data" / "cache"
+ROOT_CACHE = Path(__file__).resolve().parents[2] / ".cache" / "scripts"
 URL = "https://www.openslr.org/resources/93/data_aishell3.tgz"
 TEST_SHARE = 0.15
 MAX_PAIRS = 20000
@@ -183,7 +183,7 @@ def test_metrics(clf, T: dict, cfg):
 def evaluate(root: Path, name: str, hours: float, labels: str, int8_aligner: bool) -> None:
     """Re-evaluate the committed model on the held-out speakers without retraining. With --int8-aligner the test
     speakers' features are recomputed with the 8-bit aligner on the CPU (fp32 tone embedder) into this checkout's
-    data/cache/int8-check/tone/, never into the corpus; the stored fp32 numbers are printed next to them."""
+    .cache/scripts/int8-check/tone/, never into the corpus; the stored fp32 numbers are printed next to them."""
     import joblib
     settings = load_settings()
     cfg, m = settings.scoring, settings.models

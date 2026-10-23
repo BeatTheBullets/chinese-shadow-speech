@@ -6,4 +6,4 @@ https://www.youtube.com/watch?v=Za6c0NcAmOk   # channel 识君SHIJUN, zh-Hans, 2
 https://www.youtube.com/watch?v=t7ZI9c6Ze7E   # channel TEDx Talks, zh-TW, 20.8 min
 https://www.youtube.com/watch?v=snZ811wvjjw   # channel TEDx Talks, zh-TW, 14.5 min
 # Dropped: subtitles matched only 0-7 % of the audio in the first run.
-# idp4-PtVymY (Rhia's channel), kjPqqvaaFgk (Aillyzi), GygMxLFJYwc (MakeLens-official)
+# idp4-PtVymY, kjPqqvaaFgk (Aillyzi), GygMxLFJYwc (MakeLens-official)

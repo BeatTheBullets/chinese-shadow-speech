@@ -74,3 +74,20 @@ def test_no_checkpoint_copy_is_restored_and_a_noop_without_funasr(monkeypatch):
     monkeypatch.setitem(sys.modules, "funasr.train_utils.load_pretrained_model", None)     # import fails
     with _no_checkpoint_copy():
         pass
+
+
+def test_a_new_copy_removes_the_stale_copies_of_the_same_model_only(monkeypatch, tmp_path):
+    import shadow.quant as q
+    monkeypatch.setenv("SHADOW_MODELS_DIR", str(tmp_path))
+    d = tmp_path / "int8"
+    d.mkdir()
+    stale = [d / "m-transformers4.56.0-q1-torch2.10.0.pt", d / "m-transformers4.57.0-q0-torch2.11.0+cpu.pt"]
+    other = [d / "other-transformers4.57.0-q1-torch2.11.0.pt", d / "m-x-transformers4.57.0-q1-torch2.11.0.pt",
+             d / "notes.txt"]
+    for f in stale + other:
+        f.write_bytes(b"x")
+    cached_int8("m-transformers4.57.0", lambda: quantize_linear(tiny()))
+    assert q.int8_cache_path("m-transformers4.57.0").exists()
+    assert not any(f.exists() for f in stale)
+    assert all(f.exists() for f in other)
+    cached_int8("m-transformers4.57.0", lambda: pytest.fail("rebuilt"))        # the new copy stays

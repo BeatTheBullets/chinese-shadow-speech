@@ -1,6 +1,6 @@
 """CPU memory benchmark: runs the real app on a fresh temporary data dir and reports peak RSS per phase.
 
-    CUDA_VISIBLE_DEVICES="" uv run python scripts/cpu_budget.py --clip CLIP.wav --device cpu --threads 4 [--int8] [--budget]
+    CUDA_VISIBLE_DEVICES="" uv run python scripts/cpu_budget.py --clip CLIP.wav --device cpu --threads 4 [--int8] [--cold-int8] [--budget]
 
 CLIP is a 5-minute 16 kHz mono clip; make one from any lesson's source.wav with
     ffmpeg -i source.wav -t 300 -ar 16000 -ac 1 clip.wav
@@ -142,6 +142,7 @@ def main() -> None:
     ap.add_argument("--int8", action="store_true")
     ap.add_argument("--threads", type=int, default=4)
     ap.add_argument("--budget", action="store_true")
+    ap.add_argument("--cold-int8", action="store_true", help="child uses a fresh SHADOW_MODELS_DIR: the int8 copies (and the punctuation model) are built during the run")
     ap.add_argument("--phases", default=",".join(PHASES))
     ap.add_argument("--hard-cap-mb", type=float, default=None)
     ap.add_argument("--_child", action="store_true", help=argparse.SUPPRESS)
@@ -167,8 +168,10 @@ def main() -> None:
     from shadow.deps import build_deps
     from shadow.main import create_app
 
-    torch.set_num_threads(a.threads)
     settings = load_settings()
+    settings.models.threads = a.threads          # build_deps sets torch's threads from this (cores - 1 otherwise)
+    if a.cold_int8:
+        os.environ["SHADOW_MODELS_DIR"] = tempfile.mkdtemp(prefix="cpu_budget_models_")
     settings.data_dir = Path(tempfile.mkdtemp(prefix="cpu_budget_"))          # never the user's data
     settings.models.device = a.device
     if a.int8 and hasattr(settings.models, "int8"):

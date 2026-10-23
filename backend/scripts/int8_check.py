@@ -14,8 +14,8 @@ half's device vs int8-cpu) and any extra --pair A:B, e.g.
     int8_check.py words --half report --a fp32-cuda --b fp32-cpu --pair fp32-cpu:int8-cpu
 Only pairs ending in an int8 variant get PASS or FAIL; fp32 pairs are controls.
 --data-dir (default: the settings' data dir) is only read; the database is opened read-only. Every cached result goes
-under this checkout's data/cache/int8-check/. CER also reads the audio cached by split_gate.py under
-data/cache/split-gate/ (run split_gate.py first so the gate's videos are there).
+under this checkout's .cache/scripts/int8-check/. CER also reads the audio cached by split_gate.py under
+.cache/scripts/split-gate/ (run split_gate.py first so the gate's videos are there).
 
 Pass marks: mean onset error within 10 ms of fp32; words-check verdict agreement >= 95 %; transcript CER <= 2 %."""
 from __future__ import annotations
@@ -29,8 +29,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "backend"))
 
-CACHE = ROOT / "data" / "cache" / "int8-check"
-GATE_CACHE = ROOT / "data" / "cache" / "split-gate"
+CACHE = ROOT / ".cache" / "scripts" / "int8-check"
+GATE_CACHE = ROOT / ".cache" / "scripts" / "split-gate"
 ONSET_MARGIN_MS = 10.0
 AGREEMENT_MIN = 0.95
 CER_MAX = 0.02

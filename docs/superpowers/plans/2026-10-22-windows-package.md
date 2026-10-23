@@ -69,6 +69,9 @@ Depends on `2026-10-22-laptop-fit.md` being done (the laptop config sets `int8 =
   `MODELSCOPE_CACHE`, `TORCH_HOME` under `<home>/models`); `python -m shadow.laptop prepare` loads every model once
   through `build_deps` (recogniser, aligner, tone embedder, char-CTC; int8 as configured), printing one JSON line per
   step `{"step": str, "done": int, "total": int}` and exiting non-zero with `{"error": str}` on failure.
+  `prepare` must also build the stored int8 copies of the aligner and sounds models (`shadow.quant.cached_int8`, under
+  `<SHADOW_MODELS_DIR>/int8/`) and download the sherpa punctuation model, so the app never quantises or downloads
+  during a take or a lesson build (the cold-cache peaks of building them were never measured).
 
 - [ ] **Step 1: Failing tests** — `test_shadow_config_env_wins(monkeypatch, tmp_path)`;
   `test_laptop_config_is_cpu_int8_unpunctuated(tmp_path)` (parse with `load_settings`: device cpu, int8 True,
@@ -278,4 +281,6 @@ Depends on `2026-10-22-laptop-fit.md` being done (the laptop config sets `int8 =
   there, uninstall keeps data by default; on the GPU machine `make dev` and `make test` still work.
 - [ ] **Step 2:** Run the benchmark on Windows (the user's Windows side or the CI runner); record numbers in the
   checklist. Hand the checklist to the user for the laptop run.
+  Acceptance also includes one `scripts/cpu_budget.py --cold-int8 --device cpu --int8 --threads 4 --budget` run: the
+  int8 copies are built from scratch there, the peak the laptop would see if `prepare` were skipped.
 - [ ] **Step 3:** Commit `docs: Windows install and acceptance checklist`.

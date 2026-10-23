@@ -23,6 +23,22 @@ def int8_cache_path(key: str) -> Path:
     return models_cache_dir() / "int8" / (re.sub(r"[^A-Za-z0-9._-]", "_", f"{key}-q{QUANT_FORMAT}-torch{torch.__version__}") + ".pt")
 
 
+def remove_stale_int8(key: str, keep: Path) -> None:
+    """Delete the stored int8 copies of the same model (the key without its trailing library-version part) that were
+    made for other versions of torch, the library or the recipe: each is hundreds of MB on a laptop disk. Never `keep`."""
+    model = re.sub(r"[^A-Za-z0-9._-]", "_", key).rpartition("-")[0]
+    if not model:
+        return
+    pattern = re.compile(re.escape(model) + r"-[A-Za-z_]+\d[^-]*-q\d+-torch[^-]*\.pt")
+    for f in keep.parent.glob("*.pt"):
+        if f != keep and pattern.fullmatch(f.name):
+            try:
+                f.unlink()
+                log.info("removed the stale int8 model %s", f.name)
+            except OSError:
+                log.warning("could not remove the stale int8 model %s", f.name, exc_info=True)
+
+
 def cached_int8(key: str, build):
     """The quantised module build() returns, kept on disk after the first build: a later load reads the int8 weights
     only (about a quarter of the fp32 size) instead of loading fp32 and quantising, whose peak is 3x higher.
@@ -46,6 +62,7 @@ def cached_int8(key: str, build):
         root.mkdir(parents=True, exist_ok=True)
         torch.save(model, tmp)
         os.replace(tmp, path)
+        remove_stale_int8(key, path)
     except Exception:
         log.exception("could not store the int8 model %s", path.name)
         tmp.unlink(missing_ok=True)

@@ -130,6 +130,25 @@ def _compact(s: str) -> str:
     return "".join(out)
 
 
+def _split_unpunctuated(chunk: str, chars: list[TimedChar], cfg: SegmentationCfg) -> str:
+    """A chunk the model changed, kept as it was but cut at its pauses (each piece ends in 。) and always ended with
+    a mark, so it never runs into the next chunk as one giant sentence."""
+    text = _compact(chunk)
+    pos = [k for k, ch in enumerate(text) if not is_punct(ch)]
+    out = ""
+    if len(pos) == len(chars):
+        last = 0
+        for _, b in pause_ranges(chars, cfg):
+            out += text[last:pos[b] + 1]
+            last = pos[b] + 1
+            if not is_punct(out[-1:]):
+                out += "。"
+        out += text[last:]
+    else:
+        out = text
+    return out if out[-1:] and is_punct(out[-1]) else out + "。"
+
+
 def punctuate_timed(text: str, timestamps: list[list[int]], punctuator: Punctuator, cfg: SegmentationCfg) -> str:
     """`text` (a recogniser's unpunctuated output) with marks added. It is cut at its largest timestamp gaps into
     chunks of at most 150 speech characters, each punctuated alone and joined in order, so a mark never moves
@@ -147,7 +166,7 @@ def punctuate_timed(text: str, timestamps: list[list[int]], punctuator: Punctuat
         done = punctuator.punctuate(chunk)
         if _speech(done) != _speech(chunk):
             log.warning("the punctuation model changed its text; keeping a chunk of %d chars unpunctuated", b - a + 1)
-            done = chunk
+            done = _split_unpunctuated(chunk, chars[a:b + 1], cfg)
         if out and out[-1].isascii() and out[-1].isalnum() and done[:1].isascii() and done[:1].isalnum():
             out += " "
         out += done

@@ -9,3 +9,4 @@ frontend/dist/
 .env
 
 .claude/worktrees/
+.cache/
