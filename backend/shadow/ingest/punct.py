@@ -5,7 +5,9 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import shutil
 import tarfile
+import tempfile
 import threading
 import urllib.request
 from pathlib import Path
@@ -18,6 +20,7 @@ from shadow.ingest.transcript import TimedChar
 log = logging.getLogger(__name__)
 CHUNK_CHARS = 150               # speech characters per call: the model is trained on sentences, not paragraphs
 MODEL_FILE = "model.int8.onnx"
+COMPLETE = ".complete"          # written last: a directory without it is a partial unpack
 
 
 class Punctuator(Protocol):
@@ -36,26 +39,46 @@ class SherpaPunctuator:
         self._lock = threading.Lock()
 
     def _model_path(self) -> Path:
-        """The unpacked model file; the first call downloads the tarball and checks its SHA-256 before unpacking."""
-        root = self.cache_dir / self.model
-        found = next(root.rglob(MODEL_FILE), None) if root.is_dir() else None
-        if found:
-            return found
-        root.mkdir(parents=True, exist_ok=True)
-        tgz = root / "download.tar.bz2"
+        """The unpacked model file. The first call downloads the tarball (to a file of its own), checks its SHA-256,
+        unpacks it into a temporary directory next to the final one, writes `.complete` last and renames the directory
+        into place: a killed run leaves only temporary leftovers, and two processes cannot trample each other."""
+        final = self.cache_dir / self.model
+        if (final / COMPLETE).exists():
+            return next(final.rglob(MODEL_FILE))
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
         digest = hashlib.sha256()
         log.info("downloading the punctuation model %s", self.url)
-        with urllib.request.urlopen(self.url) as resp, open(tgz, "wb") as f:
-            while chunk := resp.read(1 << 20):
-                digest.update(chunk)
-                f.write(chunk)
-        if digest.hexdigest() != self.sha256:
+        with tempfile.NamedTemporaryFile(dir=self.cache_dir, suffix=".tar.bz2", delete=False) as f:
+            tgz = Path(f.name)
+            try:
+                with urllib.request.urlopen(self.url, timeout=60) as resp:
+                    while chunk := resp.read(1 << 20):
+                        digest.update(chunk)
+                        f.write(chunk)
+            except BaseException:
+                f.close()
+                tgz.unlink(missing_ok=True)
+                raise
+        tmp = Path(tempfile.mkdtemp(dir=self.cache_dir, prefix=self.model + ".tmp-"))
+        try:
+            if digest.hexdigest() != self.sha256:
+                raise RuntimeError(f"punctuation model checksum mismatch: got {digest.hexdigest()}, want {self.sha256}")
+            with tarfile.open(tgz) as t:
+                t.extractall(tmp, filter="data")
+            if next(tmp.rglob(MODEL_FILE), None) is None:
+                raise RuntimeError(f"the punctuation model tarball has no {MODEL_FILE}")
+            (tmp / COMPLETE).write_text("")
+            if final.exists() and not (final / COMPLETE).exists():
+                shutil.rmtree(final, ignore_errors=True)         # a partial directory from an older version
+            try:
+                os.replace(tmp, final)
+            except OSError:
+                if not (final / COMPLETE).exists():            # not another process winning: a real failure
+                    raise
+        finally:
             tgz.unlink(missing_ok=True)
-            raise RuntimeError(f"punctuation model checksum mismatch: got {digest.hexdigest()}, want {self.sha256}")
-        with tarfile.open(tgz) as t:
-            t.extractall(root, filter="data")
-        tgz.unlink(missing_ok=True)
-        return next(root.rglob(MODEL_FILE))
+            shutil.rmtree(tmp, ignore_errors=True)               # gone after a rename; ours to discard otherwise
+        return next(final.rglob(MODEL_FILE))
 
     def _load(self):
         if self._punct is None:

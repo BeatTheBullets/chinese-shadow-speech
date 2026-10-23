@@ -157,11 +157,15 @@ def main() -> None:
         ap.error("--out is required")
     release_freed_memory_eagerly()      # before any model loads
     settings = load_settings()
+    punctuator = make_punctuator(settings.models)
+    if punctuator is None:
+        raise SystemExit('split_gate.py needs models.punctuation = "sherpa": with "pauses" its "punctuation" candidate '
+                         "would itself be cut at pauses")
     data_dir = a.data_dir or Path(settings.data_dir)
 
     sources = lesson_sources(data_dir, a.lessons) if a.lessons else []
     device = "cpu" if a.int8 else settings.resolved_device()
-    asr = ParaformerASR(settings.models.asr, device, punctuator=make_punctuator(settings.models),
+    asr = ParaformerASR(settings.models.asr, device, punctuator=punctuator,
                        segmentation=settings.segmentation, int8=a.int8)
     videos = [s for u in urls() if (s := video_source(u, asr, a.int8)) is not None]
     sources = videos + sources

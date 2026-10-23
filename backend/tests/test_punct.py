@@ -127,6 +127,76 @@ def test_load_builds_the_sherpa_model_once(monkeypatch, tmp_path):
     assert len(seen) == 1 and seen[0]["model"]["ct_transformer"].endswith("model.int8.onnx")
 
 
+def _tarball(tmp_path):
+    import hashlib
+    import tarfile
+    src = tmp_path / "src"
+    (src / "m").mkdir(parents=True)
+    (src / "m" / "model.int8.onnx").write_bytes(b"onnx")
+    tgz = tmp_path / "m.tar.bz2"
+    with tarfile.open(tgz, "w:bz2") as t:
+        t.add(src / "m", arcname="m")
+    data = tgz.read_bytes()
+    return data, hashlib.sha256(data).hexdigest()
+
+
+def test_a_partial_leftover_without_the_marker_is_downloaded_afresh(monkeypatch, tmp_path):
+    import urllib.request
+    data, sha = _tarball(tmp_path)
+    cache = tmp_path / "cache"
+    (cache / "m" / "m").mkdir(parents=True)
+    (cache / "m" / "m" / "model.int8.onnx").write_bytes(b"trunc")        # an old partial unpack: no .complete
+    (cache / "m.tmp-dead").mkdir()
+    calls = []
+
+    def fake(url, *a, **k):
+        calls.append(url)
+        return io.BytesIO(data)
+    monkeypatch.setattr(urllib.request, "urlopen", fake)
+    path = _punctuator(cache, sha)._model_path()
+    assert calls and path.read_bytes() == b"onnx"
+    assert (cache / "m" / ".complete").exists()
+    assert sorted(p.name for p in cache.iterdir()) == ["m", "m.tmp-dead"]      # our temp files are gone
+
+
+def test_a_failed_download_leaves_no_marker_and_no_temp_files(monkeypatch, tmp_path):
+    import urllib.request
+
+    class Dies(io.BytesIO):
+        def read(self, n=-1):
+            raise OSError("connection reset")
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: Dies())
+    cache = tmp_path / "cache"
+    with pytest.raises(OSError):
+        _punctuator(cache)._model_path()
+    assert list(cache.iterdir()) == []
+
+
+def test_two_concurrent_first_uses_both_get_a_whole_model(monkeypatch, tmp_path):
+    import threading
+    import urllib.request
+    data, sha = _tarball(tmp_path)
+    barrier = threading.Barrier(2)
+
+    def fake(url, *a, **k):
+        barrier.wait(timeout=10)              # both are downloading at once
+        return io.BytesIO(data)
+    monkeypatch.setattr(urllib.request, "urlopen", fake)
+    cache = tmp_path / "cache"
+    got, errs = [], []
+
+    def run():
+        try:
+            got.append(_punctuator(cache, sha)._model_path().read_bytes())
+        except Exception as e:                # noqa: BLE001
+            errs.append(e)
+    ts = [threading.Thread(target=run) for _ in range(2)]
+    [t.start() for t in ts]
+    [t.join(30) for t in ts]
+    assert not errs and got == [b"onnx", b"onnx"]
+    assert sorted(p.name for p in cache.iterdir()) == ["m"]
+
+
 @pytest.mark.models
 def test_sherpa_real_model_punctuates(tmp_path):
     from shadow.config import ModelsCfg

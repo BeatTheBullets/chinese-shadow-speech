@@ -242,7 +242,9 @@ class ParaformerASR:
             return transcript_from_funasr(r, pauses=self.segmentation)
         cfg = self.segmentation or SegmentationCfg()
         text = to_simplified(r.get("text") or "")
-        return transcript_from_funasr({**r, "text": punctuate_timed(text, r.get("timestamp") or [], self.punctuator, cfg)})
+        punctuated = punctuate_timed(text, r.get("timestamp") or [], self.punctuator, cfg)
+        # pauses as a safety net: text the model left unpunctuated (every chunk failed) still splits
+        return transcript_from_funasr({**r, "text": punctuated}, pauses=self.segmentation)
 
 
 class Hearer(Protocol):

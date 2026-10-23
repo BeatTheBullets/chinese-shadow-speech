@@ -375,6 +375,20 @@ def test_asr_run_punctuates_with_sherpa(tmp_path):
     assert marks.calls == ["我是学生我爱中文"]
 
 
+def test_a_punctuator_that_adds_nothing_still_splits_at_pauses(tmp_path):
+    from shadow.config import SegmentationCfg
+    from shadow.ingest.asr import ParaformerASR
+
+    class Nothing:
+        def punctuate(self, text): return text
+    ts = [[i * 100 + (900 if i >= 8 else 0), i * 100 + 100 + (900 if i >= 8 else 0)] for i in range(16)]
+
+    class Gen:
+        def generate(self, **kw): return [{"text": " ".join("我是学生我爱中文你好吗再见谢谢你"), "timestamp": ts}]
+    asr = ParaformerASR("none", "cpu", punctuator=Nothing(), segmentation=SegmentationCfg()); asr._model = Gen()
+    assert len(asr.transcribe(tmp_path / "x.wav").segments) == 2
+
+
 def test_hear_skips_punctuation(tmp_path):
     from shadow.config import SegmentationCfg
     from shadow.ingest.asr import AsrHearer, ParaformerASR

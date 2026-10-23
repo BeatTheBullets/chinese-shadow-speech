@@ -44,8 +44,8 @@ def warm_up_steps(deps: Deps, device: str) -> list[Callable[[], None]]:
 
 
 def warm_up_in_order(steps: list[Callable[[], None]]) -> None:
-    """Models load one after another, not in parallel: their loads peak at once (Paraformer 3.6 GB, punctuation
-    4.4 GB) and the VM OOM-killed the worker; concurrent first imports of transformers fail intermittently too.
+    """Models load one after another, not in parallel: their loads peak at once (Paraformer 3.6 GB; FunASR's old
+    ct-punc model, now dropped for the small sherpa-onnx one, 4.4 GB) and the VM OOM-killed the worker; concurrent first imports of transformers fail intermittently too.
     A step logs and swallows its own failure, and a surprise here must not skip the rest."""
     for step in steps:
         try:
