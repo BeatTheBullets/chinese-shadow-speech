@@ -217,6 +217,16 @@ describe('<FlowSetup>', () => {
     fireEvent.change(screen.getByRole('combobox', { name: 'Flow from' }), { target: { value: '1' } })
     expect(onChange).toHaveBeenCalledWith({ from: 1 })
   })
+  it('changing From or To blurs the select so Enter and Space go back to the page', () => {
+    setup([])
+    openPopup()
+    for (const name of ['Flow from', 'Flow to']) {
+      const sel = screen.getByRole('combobox', { name })
+      sel.focus(); expect(document.activeElement).toBe(sel)
+      fireEvent.change(sel, { target: { value: '0' } })
+      expect(document.activeElement).not.toBe(sel)
+    }
+  })
   it('Replay last run plays the most recent run', () => {
     const runs = [run(7, 14, 5, 3), run(6, 9, 30, 2)]
     const { onReplay } = setup(runs)

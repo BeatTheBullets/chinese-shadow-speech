@@ -21,13 +21,25 @@ describe('<CellRow>', () => {
     expect(compare(wrong).title).toContain('hǎo · Speaker: tone 3 (low) · You: tone 2 (rising) · 31')
   })
 
+  it('the hover hint says "then you" only when the cell has a take of yours', () => {
+    render(<CellRow cells={[
+      { ch: '你', pinyin: 'ní', tone: 3, status: 'ok', score: 0.92, target: 2, heard: 2 },
+      { ch: '吗', pinyin: 'ma', tone: 0, status: 'unvoiced', score: null },
+      { ch: '呢', pinyin: 'ne', tone: 0, status: 'missing', score: 0 },
+    ]} />)
+    const [ok, unvoiced, missing] = screen.getAllByTestId('cell')
+    expect(compare(ok).title).toMatch(/click: the speaker, then you$/)
+    expect(compare(unvoiced).title).toMatch(/click: the speaker$/)
+    expect(compare(missing).title).toMatch(/click: the speaker$/)
+  })
+
   it('every cell has the same fixed size, tall enough for its buttons, lines that cannot wrap, and the row aligns them at the top', () => {
     const { container } = render(<CellRow cells={[
       { ch: '王', pinyin: 'wáng', tone: 2, status: 'wrong', score: 0.2, target: 2, heard: 1 }, { ch: '小', pinyin: 'xiǎo', tone: 3, status: 'ok', score: 0.93 },
     ]} />)
     expect(container.firstElementChild).toHaveClass('items-start')
     for (const c of screen.getAllByTestId('cell')) {
-      expect(c).toHaveClass('w-12', 'h-16', 'shrink-0', 'overflow-hidden', 'whitespace-nowrap')
+      expect(c).toHaveClass('w-12', 'h-[66px]', 'shrink-0', 'overflow-hidden', 'whitespace-nowrap')
       for (const line of compare(c).querySelectorAll('span')) expect(line).toHaveClass('truncate')
     }
   })

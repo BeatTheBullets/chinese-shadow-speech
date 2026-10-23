@@ -121,7 +121,7 @@ function SetupLine({ segments, from, to, sub, onChange, runs, onReplay }: Parame
   const run = runs.length ? runs[Math.min(k, runs.length - 1)] : undefined
   const pick = (label: string, value: number, key: 'from' | 'to') => (
     <label className="flex items-center justify-between gap-3">{key === 'from' ? 'From' : 'To'}
-      <select aria-label={label} className="inp text-xs" value={value} onChange={(e) => onChange({ [key]: Number(e.target.value) })}>
+      <select aria-label={label} className="inp text-xs" value={value} onChange={(e) => { onChange({ [key]: Number(e.target.value) }); e.currentTarget.blur() }}>
         {segments.map((s, i) => <option key={s.id} value={i}>{i + 1}. {s.text.length > 12 ? `${s.text.slice(0, 12)}…` : s.text}</option>)}
       </select>
     </label>)
