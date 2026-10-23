@@ -80,7 +80,7 @@ def create_app(settings: Settings | None = None, deps: Deps | None = None) -> Fa
     app.state.jobs = JobManager()
     app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
                        allow_methods=["*"], allow_headers=["*"])
-    for r in (health.router, jobs.router, lessons.router, review.router, segments.router, anki.router, attempts.router, sessions.router, stats.router, voice.router, drill.router):
+    for r in (health.router, jobs.router, lessons.router, review.router, segments.router, anki.router, attempts.router, sessions.router, stats.router, stats.lesson_router, voice.router, drill.router):
         app.include_router(r)
     _mount_spa(app)
     return app

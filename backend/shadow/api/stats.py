@@ -1,14 +1,16 @@
 from __future__ import annotations
-from collections import Counter, defaultdict
+from collections import defaultdict
+from typing import Literal
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func
 from sqlmodel import Session, select
-from shadow.scoring.sounds.contrasts import checkable_directions_of, direction, direction_label
+from shadow.scoring.sounds.contrasts import checkable_directions_of, direction
+from shadow.stats.scores import SylRow, character_stats, rank_sentences, sound_directions, tone_groups, tone_value
 from shadow.store.db import get_session
 from shadow.store.models import Attempt, DrillSession, Lesson, PracticeSession, Segment, SyllableScore
 
-router = APIRouter()
+router = APIRouter(prefix="/api/stats")
+lesson_router = APIRouter()
 
 
 def _overall(a: Attempt) -> float | None:
@@ -22,7 +24,7 @@ def _utc_day(dt: datetime) -> str:
     return str(dt.date())
 
 
-@router.get("/lessons/{lesson_id}/stats")
+@lesson_router.get("/lessons/{lesson_id}/stats")
 def lesson_stats(lesson_id: int, db: Session = Depends(get_session)):
     if db.get(Lesson, lesson_id) is None:
         raise HTTPException(404, "lesson not found")
@@ -40,8 +42,7 @@ def lesson_stats(lesson_id: int, db: Session = Depends(get_session)):
     return {"segments": out_segments, "sessions": sessions}
 
 
-@router.get("/stats/activity")
-def activity(days: int = Query(30, ge=1, le=366), db: Session = Depends(get_session)):
+def _activity_days(db: Session, days: int) -> list[dict]:
     today = datetime.now(timezone.utc).date()
     start = today - timedelta(days=days - 1)
     per_day: dict[str, dict] = {str(start + timedelta(d)): {"date": str(start + timedelta(d)), "minutes": 0.0, "attempts": 0} for d in range(days)}
@@ -64,85 +65,105 @@ def activity(days: int = Query(30, ge=1, le=366), db: Session = Depends(get_sess
         key = _utc_day(ps.started_at)
         if key in per_day:
             per_day[key]["minutes"] += (ps.ended_at - ps.started_at).total_seconds() / 60
-    return {"days": [per_day[k] for k in sorted(per_day)]}
+    return [per_day[k] for k in sorted(per_day)]
 
 
-@router.get("/stats/sentences")
-def sentences(db: Session = Depends(get_session)):
-    by_seg: dict[int, list[float]] = defaultdict(list)
-    for a in db.exec(select(Attempt).order_by(Attempt.created_at)).all():
-        o = _overall(a)
-        if o is not None:
-            by_seg[a.segment_id].append(o)
-    rows = [{"segment_id": sid, "last": v[-1], "best": max(v), "attempts": len(v)} for sid, v in by_seg.items()]
-    return {"regressed": sorted([r for r in rows if r["best"] - r["last"] >= 0.15], key=lambda r: r["best"] - r["last"], reverse=True),
-            "by_last": sorted(rows, key=lambda r: r["last"])}
 
 
-_TONE = func.coalesce(SyllableScore.target_tone, SyllableScore.tone)   # the tone the speaker produced, when known
-_SCORED = SyllableScore.tone_score.is_not(None)
+@router.get("/activity")
+def activity(days: int = Query(30, ge=1, le=366), db: Session = Depends(get_session)):
+    return {"days": _activity_days(db, days)}
 
 
-@router.get("/stats/syllables")
-def syllables(db: Session = Depends(get_session)):
-    """Per character, oldest first: mean, count, most frequent target tone, and the last 10 against the rest."""
-    q = (select(SyllableScore.ch, SyllableScore.pinyin_toneless, _TONE, SyllableScore.tone_score)
-         .where(_SCORED, _TONE >= 0).order_by(SyllableScore.attempt_id, SyllableScore.idx))
-    by_ch: dict[str, dict] = {}
-    for ch, pinyin, tone, score in db.exec(q).all():
-        d = by_ch.setdefault(ch, {"pinyin": pinyin, "tones": Counter(), "scores": []})
-        d["tones"][tone] += 1; d["scores"].append(score)
-    out = []
-    for ch, d in by_ch.items():
-        s = d["scores"]
-        trend = sum(s[-10:]) / 10 - sum(s[:-10]) / len(s[:-10]) if len(s) >= 15 else None
-        out.append({"ch": ch, "pinyin": d["pinyin"], "tone": d["tones"].most_common(1)[0][0], "mean": sum(s) / len(s),
-                    "n": len(s), "trend": trend})
-    return {"syllables": sorted(out, key=lambda r: r["mean"])[:50]}
+WINDOW_DAYS = 30
+WEEKS = 12
+Mode = Literal["flow"] | None
 
 
-@router.get("/stats/tones")
-def tones(db: Session = Depends(get_session)):
-    q1 = select(_TONE, func.avg(SyllableScore.tone_score), func.count()).where(_SCORED, _TONE >= 0).group_by(_TONE)
-    q2 = (select(SyllableScore.prev_tone, _TONE, func.avg(SyllableScore.tone_score), func.count())
-          .where(_SCORED, _TONE >= 0, SyllableScore.prev_tone >= 0).group_by(SyllableScore.prev_tone, _TONE))
-    since = datetime.combine(datetime.now(timezone.utc).date() - timedelta(weeks=12), datetime.min.time(), tzinfo=timezone.utc)
-    q3 = (select(Attempt.created_at, _TONE, SyllableScore.tone_score).join(Attempt, Attempt.id == SyllableScore.attempt_id)
-          .where(_SCORED, _TONE >= 0, Attempt.created_at >= since))
+def _aware(dt: datetime) -> datetime:
+    # SQLite returns naive datetimes; they were written as UTC.
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def _since(days: int) -> datetime:
+    return datetime.now(timezone.utc) - timedelta(days=days)
+
+
+def _rows(db: Session, since: datetime, mode: str | None) -> list[SylRow]:
+    q = (select(SyllableScore, Attempt.created_at).join(Attempt, Attempt.id == SyllableScore.attempt_id)
+         .where(Attempt.created_at >= since))
+    if mode is not None:
+        q = q.where(Attempt.mode == mode)
+    return [SylRow(ch=s.ch, pinyin=s.pinyin_toneless.lower(), tone=s.target_tone if s.target_tone is not None else s.tone,
+                   prev_tone=s.prev_tone, tone_score=s.tone_score, status=s.status, sound_status=s.sound_status,
+                   heard=s.heard_syllable.lower() if s.heard_syllable else None, created_at=_aware(created),
+                   attempt_id=s.attempt_id, idx=s.idx)
+            for s, created in db.exec(q).all()]
+
+
+def _week(r: SylRow) -> str:
+    y, w, _ = r.created_at.isocalendar()
+    return f"{y}-W{w:02d}"
+
+
+@router.get("/characters")
+def characters(mode: Mode = None, db: Session = Depends(get_session)):
+    return {"characters": character_stats(_rows(db, _since(WINDOW_DAYS), mode))}
+
+
+@router.get("/tones")
+def tones(mode: Mode = None, db: Session = Depends(get_session)):
+    rows = _rows(db, _since(WEEKS * 7), mode)
+    cut = _since(WINDOW_DAYS)
+    groups, pairs = tone_groups([r for r in rows if r.created_at >= cut])
     weeks: dict[tuple[str, int], list[float]] = defaultdict(list)
-    for created, tone, score in db.exec(q3).all():
-        y, w, _ = created.isocalendar()
-        weeks[(f"{y}-W{w:02d}", tone)].append(score)
-    return {"tones": [{"tone": t, "mean": m, "n": n} for t, m, n in db.exec(q1).all()],
-            "pairs": [{"prev_tone": p, "tone": t, "mean": m, "n": n} for p, t, m, n in db.exec(q2).all()],
+    for r in rows:
+        if 0 <= r.tone <= 4 and (v := tone_value(r)) is not None:
+            weeks[(_week(r), r.tone)].append(v)
+    return {"tones": groups, "pairs": pairs,
             "weeks": [{"week": wk, "tone": t, "mean": sum(v) / len(v), "n": len(v)} for (wk, t), v in sorted(weeks.items())]}
 
 
-_MIN_CHANCES = 8   # fewer checked syllables than this say too little about a direction
+@router.get("/sounds")
+def sounds(mode: Mode = None, db: Session = Depends(get_session)):
+    rows = _rows(db, _since(WEEKS * 7), mode)
+    cut = _since(WINDOW_DAYS)
+    out = sound_directions([r for r in rows if r.created_at >= cut])
+    kept = {d["key"] for d in out}
+    wk: dict[tuple[str, str], list[int]] = defaultdict(lambda: [0, 0])          # (week, key) -> [slips, chances]
+    for r in rows:
+        if r.sound_status is None:
+            continue
+        slip = direction(r.pinyin, r.heard) if r.sound_status == "slip" and r.heard else None
+        for key in checkable_directions_of(r.pinyin):
+            if key in kept:
+                wk[(_week(r), key)][0] += key == slip
+                wk[(_week(r), key)][1] += 1
+    return {"sounds": out,
+            "weeks": [{"week": w, "key": k, "rate": s / c, "slips": s, "chances": c} for (w, k), (s, c) in sorted(wk.items())]}
 
 
-@router.get("/stats/sounds")
-def sounds(db: Session = Depends(get_session)):
-    """Slip rate per sound direction. Every checked syllable is a chance for each checkable direction its pinyin offers;
-    a slip counts for the direction actually heard."""
-    since = datetime.combine(datetime.now(timezone.utc).date() - timedelta(weeks=12), datetime.min.time(), tzinfo=timezone.utc)
-    q = (select(SyllableScore.pinyin_toneless, SyllableScore.sound_status, SyllableScore.heard_syllable, Attempt.created_at)
-         .join(Attempt, Attempt.id == SyllableScore.attempt_id).where(SyllableScore.sound_status.is_not(None)))
-    tot: dict[str, list[int]] = defaultdict(lambda: [0, 0])                       # key -> [slips, chances]
-    wk: dict[tuple[str, str], list[int]] = defaultdict(lambda: [0, 0])
-    for py, status, heard, created in db.exec(q).all():
-        py = py.lower()
-        slip = direction(py, heard.lower()) if status == "slip" and heard else None
-        y, w, _ = created.isocalendar()
-        recent = (created if created.tzinfo else created.replace(tzinfo=timezone.utc)) >= since
-        for key in checkable_directions_of(py):            # a direction never checked on py is no chance
-            hit = key == slip
-            tot[key][0] += hit; tot[key][1] += 1
-            if recent:
-                wk[(f"{y}-W{w:02d}", key)][0] += hit; wk[(f"{y}-W{w:02d}", key)][1] += 1
-    kept = {k: v for k, v in tot.items() if v[1] >= _MIN_CHANCES}
-    rows = [{"key": k, "label": direction_label(k), "slips": s, "chances": c, "rate": s / c} for k, (s, c) in kept.items()]
-    rows.sort(key=lambda r: (-r["rate"], -r["chances"], r["key"]))
-    return {"sounds": rows,
-            "weeks": [{"week": w, "key": k, "rate": s / c, "slips": s, "chances": c}
-                      for (w, k), (s, c) in sorted(wk.items()) if k in kept]}
+def _sentences(db: Session, since: datetime) -> list[dict]:
+    """Every sentence with a scored take since `since`, ranked: last and attempts from the window, best from all time."""
+    best: dict[int, float] = {}
+    window: dict[int, list[float]] = defaultdict(list)
+    since = _aware(since)
+    for a in db.exec(select(Attempt).where(Attempt.score_json.is_not(None)).order_by(Attempt.created_at, Attempt.id)).all():
+        o = _overall(a)
+        if o is None:
+            continue
+        best[a.segment_id] = max(best.get(a.segment_id, o), o)
+        if _aware(a.created_at) >= since:
+            window[a.segment_id].append(o)
+    if not window:
+        return []
+    info = {s.id: (s, l.title) for s, l in db.exec(select(Segment, Lesson).join(Lesson, Lesson.id == Segment.lesson_id)
+                                                   .where(Segment.id.in_(list(window)))).all()}
+    return rank_sentences([{"segment_id": sid, "lesson_id": info[sid][0].lesson_id, "lesson_title": info[sid][1],
+                            "idx": info[sid][0].idx, "text": info[sid][0].text, "last": v[-1], "best": best[sid],
+                            "attempts": len(v)} for sid, v in window.items() if sid in info])
+
+
+@router.get("/sentences")
+def sentences(db: Session = Depends(get_session)):
+    return {"sentences": _sentences(db, _since(WINDOW_DAYS))}

@@ -30,6 +30,14 @@ def test_spa_fallback_when_dist_exists(data_dir, tmp_path, monkeypatch):
     assert c.get("/health").status_code == 200
 
 
+def test_spa_serves_stats_pages(data_dir, tmp_path, monkeypatch):
+    dist = tmp_path / "dist"; dist.mkdir(); (dist / "index.html").write_text("<html>spa</html>")
+    c = _spa_client(data_dir, dist, monkeypatch)
+    for p in ("/stats", "/stats/characters", "/stats/tones", "/stats/sounds", "/stats/sentences", "/stats/activity", "/stats/drills"):
+        assert c.get(p).text == "<html>spa</html>", p
+    assert c.get("/api/stats/tones").json()["tones"] == []
+
+
 def test_spa_serves_real_files_and_assets(data_dir, tmp_path, monkeypatch):
     dist = tmp_path / "dist"; (dist / "assets").mkdir(parents=True)
     (dist / "index.html").write_text("<html>spa</html>")
