@@ -7,7 +7,8 @@ export default function Popover({ open, onClose, anchor, children, side = 'above
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!open) return
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    // The Esc that closes it is taken (preventDefault): the page does not also act on it (e.g. stop a replay).
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); onClose() } }
     const onDown = (e: PointerEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) onClose() }
     document.addEventListener('keydown', onKey)
     document.addEventListener('pointerdown', onDown)

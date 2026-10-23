@@ -21,8 +21,9 @@ export default function Drawer({ segments, idx, open, pendingIds, onJump, onClos
   useEffect(() => {
     if (!open) return
     // One Esc closes only the topmost thing: a dialog/help overlay or the Sound pop-up is still in the DOM while its own
-    // handler runs (state updates are async), so the drawer leaves the key to it.
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !document.querySelector('[role="dialog"], [data-popover-open]')) onClose() }
+    // handler runs (state updates are async), so the drawer leaves the key to it. The Esc it takes is marked taken
+    // (preventDefault), so the page does not also act on it (e.g. stop a replay).
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !document.querySelector('[role="dialog"], [data-popover-open]')) { e.preventDefault(); onClose() } }
     // Capture phase: this runs before the pop-up's own (bubbling) Esc handler removes itself, so it still sees it open.
     document.addEventListener('keydown', onKey, true)
     return () => document.removeEventListener('keydown', onKey, true)

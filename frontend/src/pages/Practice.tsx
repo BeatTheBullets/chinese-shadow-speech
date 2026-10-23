@@ -241,19 +241,19 @@ export default function Practice() {
   function clearVad() { if (vadTimer.current != null) { clearTimeout(vadTimer.current); vadTimer.current = null } }
   // Stops whatever plays. A replay ends with it, the Flow screen staying on the sentence it had reached.
   function stopPlayback() {
-    endReplay(true)
+    endReplay()
     seqCtrl.current?.abort(); seqCtrl.current = null
     player.stop()
   }
-  // Leaves replay mode (if on) and stops its playback; `stay`: on the sentence it had reached (stopped), else where the
-  // page was before it (played to its end).
-  function endReplay(stay: boolean) {
+  // Leaves replay mode (if on) and stops its playback, on the sentence it had reached, whether stopped or played to its
+  // end: the moving transcript showed that sentence last, so the page never jumps back to where it was before.
+  function endReplay() {
     const r = replayRef.current
     if (!r) return
     setReplay(null); setReplayClip(null); setYouHead(null)
     r.ctrl.abort()
     const ps = usePractice.getState()
-    if (stay && alive.current && r.idx !== ps.idx) ps.setIdx(r.idx)
+    if (alive.current && r.idx !== ps.idx) ps.setIdx(r.idx)
   }
   const busy = () => echoRef.current === 'recording' || echoRef.current === 'uploading' || runRef.current != null
 
@@ -539,7 +539,7 @@ export default function Practice() {
       if (!ctrl.signal.aborted) setError(`Playback failed: ${message(e)}`)
     } finally {
       if (seqCtrl.current === ctrl) seqCtrl.current = null
-      if (replayRef.current?.ctrl === ctrl) endReplay(false) // played to its end: the Flow screen as it was before
+      if (replayRef.current?.ctrl === ctrl) endReplay() // played to its end: on its last sentence
     }
   }
 
@@ -664,11 +664,12 @@ export default function Practice() {
     const ps = usePractice.getState()
     if (ps.lesson?.id !== lessonId) return // the store still holds another lesson (this one is loading)
     if (a === 'help') { setHelp(true); return }
-    // During a replay Enter is ■ Stop replay. Anything else that plays or acts on a sentence ends the replay first, so
-    // it acts on the sentence the replay had reached; the text toggles, the list and the speed leave it playing.
+    // During a replay Enter is ■ Stop replay. Anything else that plays or acts on a sentence ends the replay first and
+    // then acts afresh, on the sentence the replay had reached (stopping moved the store there: `ps` is stale); the
+    // text toggles, the list and the speed leave it playing.
     if (replayRef.current) {
       if (a === 'record') { stopPlayback(); return }
-      if (!['toggleHanzi', 'togglePinyin', 'toggleTranslation', 'toggleDrawer', 'speed075'].includes(a)) stopPlayback()
+      if (!['toggleHanzi', 'togglePinyin', 'toggleTranslation', 'toggleDrawer', 'speed075'].includes(a)) { stopPlayback(); act(a); return }
     }
     const run = runRef.current
     if (run?.kind === 'flow') { // while Flow runs: Enter stops (finished sentences are kept), → skips, speed works
@@ -707,10 +708,10 @@ export default function Practice() {
   }
   const actRef = useRef(act)
   actRef.current = act
-  // Esc stops a replay, unless it is closing the list or a pop-up first. True when it did.
+  // Esc stops a replay (an Esc that closed the list or a pop-up is already taken: see onKey). True when it did.
   const escRef = useRef<() => boolean>(() => false)
   escRef.current = () => {
-    if (!replayRef.current || usePractice.getState().drawerOpen || document.querySelector('[data-popover-open]')) return false
+    if (!replayRef.current) return false
     stopPlayback()
     return true
   }
@@ -766,14 +767,16 @@ export default function Practice() {
     onEdit={(i) => { closeList(); openDialog('edit', i) }} onSplit={(i) => { closeList(); openDialog('split', i) }} onMerge={mergeNext} passages={passages} practised={st.practised} />
   const bar = <Transport onAction={act} idx={at} total={segments.length} recording={echo === 'recording'} busy={echo === 'uploading'} hint={st.hint} error={error} recordLabel={recordLabel} sound={sound}
     canNext={at < segments.length - 1} pulse={pulse} list={{ open: st.drawerOpen, onToggle: st.toggleDrawer, panel: lessonList }} replaying={rp != null} />
-  // In the settings line's place while a replay plays: playback (the speaker's moon-white and ▶), not recording.
+  // In the settings line's place while a replay plays: playback (the speaker's moon-white and ▶), not recording. Not a
+  // live region: the stage's "Replaying" status announces the mode once, not again on every sentence.
   const replayBanner = rp && (
-    <p data-testid="replay-banner" role="status" className="min-h-9 flex items-center justify-center gap-2 text-sm text-ref">
+    <p data-testid="replay-banner" className="min-h-9 flex items-center justify-center gap-2 text-sm text-ref">
       <IconPlay /><span>Replaying run from {weekdayTime(rp.startedAt)} · sentence {rp.n} / {rp.total}</span>
     </p>)
-  // The replayed take's waveform in the stage, its playhead moving as it plays; at most 480 px wide.
+  // The replayed take's waveform in the stage, its playhead moving as it plays; at most 480 px wide, and never wider
+  // than the stage (narrow screens: the canvas shrinks to fit).
   const replayWave = rp && (
-    <div className="h-full flex items-center justify-center">
+    <div className="h-full min-w-0 flex items-center justify-center [&_canvas]:max-w-full">
       <Waveform peaks={rp.take.peaks} duration={rp.take.duration} pxPerSec={Math.min(80, 480 / Math.max(0.5, rp.take.duration))} playhead={youHead} color={TOKENS.you} height={40} />
     </div>)
   return (

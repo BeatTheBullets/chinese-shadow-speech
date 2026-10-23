@@ -1023,7 +1023,11 @@ describe('<Practice>', () => {
     const current = () => screen.getByTestId('flow-current')
     const banner = () => screen.queryByTestId('replay-banner')
     // From sentence 2 (再见), so the replay visibly moves to the run's first line.
-    async function startReplay(from = 1) {
+    // Three sentences, the page on the third: the replay (of 1 and 2) starts on the first, so acting on the page's own
+    // sentence instead of the one reached would show.
+    const three: LessonDetail = { ...lesson, segment_count: 3, segments: [seg(11, 0, '你好'), seg(12, 1, '再见'), seg(13, 2, '谢谢')] }
+    async function startReplay(from = 1, l: LessonDetail = lesson) {
+      h.api.lessons.get.mockResolvedValue(l)
       h.api.lessons.flowRuns.mockResolvedValue([storedRun])
       h.player.peaksFor.mockImplementation(() => Promise.resolve(new Float32Array(400)))
       const seq = steppedReplay()
@@ -1051,21 +1055,73 @@ describe('<Practice>', () => {
     })
 
     it('the transcript moves along with the replay: each sentence comes into the stage as its original starts', async () => {
-      const seq = await startReplay()
+      const seq = await startReplay(2, three)
       expect(current()).toHaveTextContent('你好')                             // the run's first line, not where the page was
-      expect(screen.getByTestId('position')).toHaveTextContent('1 / 2')
+      expect(screen.getByTestId('position')).toHaveTextContent('1 / 3')
       expect(within(screen.getByTestId('stage')).getByTestId('take-wave')).toHaveAttribute('data-duration', '2')
       await seq.step()                                                         // the original of 1 ends, its take plays
       expect(current()).toHaveTextContent('你好')
       await seq.step()                                                         // the take ends: sentence 2's original starts
       expect(current()).toHaveTextContent('再见')
       expect(banner()).toHaveTextContent('sentence 2 / 2')
-      expect(screen.getByTestId('position')).toHaveTextContent('2 / 2')
+      expect(screen.getByTestId('position')).toHaveTextContent('2 / 3')
       expect(screen.getAllByTestId('flow-line').map((l) => l.textContent)).toContain('1你好')  // above the stage now
       await seq.step(); await seq.step()                                       // the end: back to the Flow screen
       await waitFor(() => expect(banner()).toBeNull())
       expect(screen.getByTestId('flow-settings')).toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'Start flow (Enter)' })).toBeInTheDocument()
+      // on the last sentence it replayed, as after a stop: the screen does not jump back to where it was before
+      expect(usePractice.getState().idx).toBe(1)
+      expect(current()).toHaveTextContent('再见')
+    })
+
+    it('the take waveform in the stage never overflows it on a narrow screen', async () => {
+      await startReplay()
+      expect(screen.getByTestId('take-wave').parentElement).toHaveClass('[&_canvas]:max-w-full', 'min-w-0')
+    })
+
+    it('→ during a replay stops it and goes on from the sentence it had reached', async () => {
+      const seq = await startReplay(2, three)
+      expect(current()).toHaveTextContent('你好')
+      press('ArrowRight'); await flush()
+      expect(seq.signal!.aborted).toBe(true)
+      expect(usePractice.getState().idx).toBe(1)
+    })
+    it('F during a replay flags the sentence it had reached', async () => {
+      h.api.segments.patch.mockResolvedValue({ ...three.segments[0], difficulty_flag: true })
+      await startReplay(2, three)
+      press('f'); await flush()
+      expect(h.api.segments.patch).toHaveBeenCalledWith(11, { difficulty_flag: true })
+    })
+    it('A during a replay sends the sentence it had reached to Anki', async () => {
+      useSettings.setState({ exportNote: { deckName: 'D', modelName: 'M', fields: { sentence: 'S', audio: 'A' } } })
+      h.exportAndRecord.mockImplementation(async (s: Segment) => ({ ...s, anki_note_id: 1 }))
+      await startReplay(2, three)
+      press('a'); await flush()
+      expect(h.exportAndRecord).toHaveBeenCalledWith(expect.objectContaining({ id: 11 }), expect.anything(), expect.anything(), expect.anything())
+      cleanup(); useSettings.setState({ exportNote: null })
+    })
+    it('Esc with the list or a pop-up open closes only that; the replay plays on', async () => {
+      const seq = await startReplay()
+      fireEvent.click(screen.getByRole('button', { name: /^Lesson list/ }))
+      expect(screen.getByTestId('lesson-drawer')).toBeInTheDocument()
+      fireEvent.keyDown(document.body, { key: 'Escape' }); await flush()
+      expect(screen.queryByTestId('lesson-drawer')).toBeNull()
+      expect(seq.signal!.aborted).toBe(false)
+      expect(banner()).not.toBeNull()
+      fireEvent.click(screen.getByRole('button', { name: 'Sound' }))
+      expect(screen.getByLabelText('Playback speed')).toBeInTheDocument()
+      fireEvent.keyDown(document.body, { key: 'Escape' }); await flush()
+      expect(screen.queryByLabelText('Playback speed')).toBeNull()
+      expect(seq.signal!.aborted).toBe(false)
+      expect(banner()).not.toBeNull()
+      fireEvent.keyDown(document.body, { key: 'Escape' }); await flush()     // now it stops
+      expect(seq.signal!.aborted).toBe(true)
+      expect(banner()).toBeNull()
+    })
+    it('only the stage announces the replay (one status, not two)', async () => {
+      await startReplay()
+      expect(screen.getAllByRole('status').filter((s) => /Replaying/.test(s.textContent ?? ''))).toHaveLength(1)
     })
 
     it.each([
