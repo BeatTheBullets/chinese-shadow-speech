@@ -5,7 +5,9 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select
 from shadow.scoring.sounds.contrasts import checkable_directions_of, direction
-from shadow.stats.scores import SylRow, character_stats, rank_sentences, sound_directions, tone_groups, tone_value
+from shadow.drill.summary import recent_sessions
+from shadow.stats.scores import (MIN_WEAK, SylRow, character_stats, rank_sentences, score_set, sound_directions, tone_groups,
+                                 tone_value, weakest_sounds, weakest_tones)
 from shadow.store.db import get_session
 from shadow.store.models import Attempt, DrillSession, Lesson, PracticeSession, Segment, SyllableScore
 
@@ -167,3 +169,18 @@ def _sentences(db: Session, since: datetime) -> list[dict]:
 @router.get("/sentences")
 def sentences(db: Session = Depends(get_session)):
     return {"sentences": _sentences(db, _since(WINDOW_DAYS))}
+
+
+@router.get("/overview")
+def overview(db: Session = Depends(get_session)):
+    now = datetime.now(timezone.utc)
+    since = now - timedelta(days=WINDOW_DAYS)
+    rows = _rows(db, since, None)
+    flow_rows = _rows(db, since, "flow")
+    chars = sorted((c for c in character_stats(rows) if c["takes"] >= MIN_WEAK), key=lambda c: (c["score"], -c["takes"], c["ch"]))
+    week = _activity_days(db, 7)
+    return {"scores": score_set(rows, now), "flow": score_set(flow_rows, now),
+            "weakest": {"characters": chars[:3], "tones": weakest_tones(rows), "sounds": weakest_sounds(rows)},
+            "activity": {"minutes": sum(d["minutes"] for d in week), "takes": sum(d["attempts"] for d in week),
+                         "days": sum(1 for d in week if d["attempts"] >= 1)},
+            "sentences": _sentences(db, since)[:3], "drills": recent_sessions(db, 2)}

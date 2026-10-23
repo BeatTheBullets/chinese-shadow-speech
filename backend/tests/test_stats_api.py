@@ -238,3 +238,54 @@ def test_mode_filter_flow_only(client):
     assert client.get("/api/stats/tones", params={"mode": "flow"}).json() == {"tones": [], "pairs": [], "weeks": []}
     _scores(client, [(3, 3, 2, 0.8, "好")], mode="flow")
     assert client.get("/api/stats/tones", params={"mode": "flow"}).json()["tones"] == [{"tone": 3, "mean": 0.8, "n": 1}]
+
+
+def test_overview_scores_and_weekly_change(client):
+    _scores(client, [(3, 3, None, 1.0, "好")] * 30, days_ago=2)
+    _scores(client, [(3, 3, None, 0.5, "好")] * 30, days_ago=10)
+    t = client.get("/api/stats/overview").json()["scores"]["tones"]
+    assert t["n"] == 60 and abs(t["value"] - 0.75) < 1e-9 and abs(t["last7"] - 1.0) < 1e-9 and abs(t["prev7"] - 0.5) < 1e-9
+    _scores(client, [(3, 3, None, 0.2, "好")] * 30, days_ago=2, mode="flow")
+    flow = client.get("/api/stats/overview").json()["flow"]["tones"]
+    assert abs(flow["value"] - 0.2) < 1e-9 and flow["prev7"] is None
+
+
+def test_overview_lists_and_activity(client):
+    from datetime import timedelta
+    from sqlmodel import Session
+    from shadow.store.models import Attempt, DrillSession, Lesson, Segment
+    with Session(client.app.state.engine) as db:
+        les = Lesson(title="Les", source_type="upload"); db.add(les); db.commit()
+        segs = [Segment(lesson_id=les.id, idx=i, start_s=0, end_s=1, text=f"句{i}") for i in range(4)]
+        db.add_all(segs); db.commit()
+        ids = [s.id for s in segs]
+        n = _now()
+        for k in range(3):
+            ds = DrillSession(kind="tone", key=str(k), label="x", items_json=[{"segment_id": ids[0], "targets": []}],
+                              started_at=n - timedelta(minutes=5), ended_at=n - timedelta(minutes=k))
+            db.add(ds); db.commit(); db.refresh(ds)
+            db.add(Attempt(segment_id=ids[0], drill_session_id=ds.id, mode="drill", audio_path="x", duration_s=1.0,
+                           score_json={"overall": 0.5}, created_at=n))
+        db.commit()
+    for i, sid in enumerate(ids):
+        _take(client, sid, days_ago=1, overall=0.3 + 0.1 * i)
+    _take(client, ids[0], days_ago=8, overall=0.9)
+    _scores(client, [(3, 3, None, 0.9, "好")] * 7, days_ago=1)
+    out = client.get("/api/stats/overview").json()
+    assert len(out["sentences"]) == 3 and all(s["text"] for s in out["sentences"])
+    assert len(out["drills"]) == 2
+    # 3 drill takes + 4 sentence takes + 7 syllable-attempts within 7 days, on today and yesterday; the take 8 days ago does not count.
+    assert out["activity"]["takes"] == 14 and out["activity"]["days"] == 2
+    assert out["weakest"]["characters"] == []
+
+
+def test_overview_empty(client):
+    r = client.get("/api/stats/overview")
+    assert r.status_code == 200
+    out = r.json()
+    for key in ("scores", "flow"):
+        for s in out[key].values():
+            assert s["value"] is None and s["n"] == 0
+    assert out["weakest"] == {"characters": [], "tones": [], "sounds": []}
+    assert out["sentences"] == [] and out["drills"] == []
+    assert out["activity"] == {"minutes": 0.0, "takes": 0, "days": 0}
