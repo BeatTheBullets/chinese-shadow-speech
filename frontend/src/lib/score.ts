@@ -1,4 +1,4 @@
-import type { Score, Segment } from '../api/types'
+import type { TakeScore, Segment } from '../api/types'
 import type { Cell } from './cells'
 
 export const TONE_NAMES: Record<number, string> = { 0: 'neutral', 1: 'high', 2: 'rising', 3: 'low', 4: 'falling' }
@@ -17,14 +17,14 @@ const WARNINGS: Record<string, string> = {
 }
 
 // The You row's cells with each syllable's verdict; unchanged when there is no score or it is for other text.
-export function withScore(cells: Cell[], score: Score | null | undefined): Cell[] {
+export function withScore(cells: Cell[], score: TakeScore | null | undefined): Cell[] {
   const syl = score?.syllables
   if (!syl?.length || syl.length !== cells.length) return cells
   return cells.map((c, i) => ({ ...c, status: syl[i].status, score: syl[i].tone_score, target: syl[i].target_tone, heard: syl[i].heard_tone,
     heardSound: syl[i].sound?.status === 'slip' ? syl[i].sound.heard_pinyin : null }))
 }
 
-export function warningText(score: Score | null | undefined): string | null {
+export function warningText(score: TakeScore | null | undefined): string | null {
   const w = score?.overall == null ? score?.warnings?.[0] : undefined
   if (!w) return null
   const text = WARNINGS[w] ?? `Not scored (${w}).`
@@ -34,7 +34,7 @@ export function warningText(score: Score | null | undefined): string | null {
 const WORDS_DIFFER = 'Some words sounded different'
 
 // A scored take's notice (Phase 2 spec §1): some words sounded different, but the take was tone-scored.
-export function noticeText(score: Score | null | undefined): string | null {
+export function noticeText(score: TakeScore | null | undefined): string | null {
   if (score?.overall == null || !score.notices?.includes('words_differ')) return null
   return score.heard_text ? `${WORDS_DIFFER} — heard: ${score.heard_text}` : `${WORDS_DIFFER}.`
 }

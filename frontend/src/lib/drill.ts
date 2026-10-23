@@ -1,4 +1,4 @@
-import type { Score } from '../api/types'
+import type { TakeScore } from '../api/types'
 
 // One drill session's walk through its queue: listen to the reference, record, review the scored take, then either
 // retry the same sentence or move on. Pure state transitions; the page owns the audio and the network.
@@ -29,7 +29,7 @@ export const advance = (s: DrillState): DrillState =>
 // Green = every target syllable came out `ok`. An unscored take (overall null) or a stale index never counts.
 // A sound drill is green on the wrong-sound check instead: tone status is irrelevant, and a target with no sound result
 // (not checked) is not green.
-export function targetsGreen(score: Score | null | undefined, targets: number[], kind: string = 'tone'): boolean {
+export function targetsGreen(score: TakeScore | null | undefined, targets: number[], kind: string = 'tone'): boolean {
   if (score?.overall == null) return false
   if (kind === 'sound') return targets.every((t) => score.syllables[t]?.sound?.status === 'ok')
   return targets.every((t) => score.syllables[t]?.status === 'ok')

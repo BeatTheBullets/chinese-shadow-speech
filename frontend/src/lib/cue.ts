@@ -3,8 +3,9 @@ import type { EchoState } from './echo'
 import type { FlowSub } from './flow'
 
 // What the whole stage shows (spec §3): listening, the 3 · 2 · 1 countdown (Flow only, set by the countdown itself),
-// the learner's turn, speaking along (Flow along), the take's review playback, or nothing going on.
-export type Stage = 'idle' | 'listen' | 'getReady' | 'yourTurn' | 'review' | 'along'
+// the learner's turn, speaking along (Flow along), the take's review playback, a stored Flow run playing back
+// (replay, set by the page while it plays), or nothing going on.
+export type Stage = 'idle' | 'listen' | 'getReady' | 'yourTurn' | 'review' | 'along' | 'replay'
 
 export interface PageActivity {
   mode: Mode; echo: EchoState; runKind: 'flow' | null

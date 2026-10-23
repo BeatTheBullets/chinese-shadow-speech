@@ -17,7 +17,7 @@ export default function SoundsPanel({ stats, onDrill }: { stats: SoundStats; onD
   return (
     <>{stats.sounds.map((s) => (
       <div key={s.key} className="border-b border-line py-1 flex gap-4 items-center">
-        <span>{s.label}</span><span className="text-fgdim">{s.slips} of {s.chances}</span><span className="tabular-nums">{Math.round(s.rate * 100)}%</span>
+        <span>{s.label}</span>{s.hard && <span className="border border-line rounded px-1 text-xs text-fgdim">hard</span>}<span className="text-fgdim">{s.slips} of {s.chances}</span><span className="tabular-nums">{Math.round(s.rate * 100)}%</span>
         <Spark label={s.label} rates={stats.weeks.filter((w) => w.key === s.key).sort((a, b) => a.week.localeCompare(b.week)).map((w) => w.rate)} />
         <button type="button" className="text-xs text-accent ml-auto hover:underline" aria-label={`Drill ${s.label}`} onClick={() => onDrill(s.key)}>Drill this</button>
       </div>))}</>

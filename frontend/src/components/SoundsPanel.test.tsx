@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import SoundsPanel from './SoundsPanel'
 
 const stats = {
-  sounds: [{ key: 'ch>c', label: 'ch said as c', slips: 2, chances: 10, rate: 0.2 }],
+  sounds: [{ key: 'ch>c', label: 'ch said as c', slips: 2, chances: 10, rate: 0.2, hard: true }],
   weeks: [{ week: '2026-W40', key: 'ch>c', rate: 0.4, slips: 2, chances: 5 }, { week: '2026-W41', key: 'ch>c', rate: 0.2, slips: 1, chances: 5 }],
 }
 
@@ -12,6 +12,7 @@ describe('<SoundsPanel>', () => {
     const onDrill = vi.fn()
     render(<SoundsPanel stats={stats} onDrill={onDrill} />)
     expect(screen.getByText('ch said as c')).toBeInTheDocument()
+    expect(screen.getByText('hard')).toBeInTheDocument()
     expect(screen.getByText('2 of 10')).toBeInTheDocument()
     expect(screen.getByText('20%')).toBeInTheDocument()
     expect(screen.getByRole('img', { name: /ch said as c.*per week/ })).toBeInTheDocument()

@@ -5,12 +5,13 @@ import type { DrillSession, Segment } from '../api/types'
 const h = vi.hoisted(() => ({
   api: { segments: { audioUrl: (id: number, fmt = 'opus') => `/seg/${id}.${fmt}`, postAttempt: vi.fn() }, drill: { end: vi.fn() } },
   player: { play: vi.fn(() => Promise.resolve()), playRange: vi.fn(() => Promise.resolve()), stop: vi.fn(), setVolume: vi.fn(), preload: vi.fn(() => Promise.resolve()), peaksFor: vi.fn(() => new Promise(() => {})) },
-  twoTrack: null as null | { onPlayYouSyllable?: (i: number) => void; score?: unknown },
+  twoTrack: null as null | { onPlayYouSyllable?: (i: number) => void; onPlaySyllable?: (i: number) => void; onCompareSyllable?: (i: number) => void; score?: unknown },
+  playSequence: vi.fn<(...a: unknown[]) => Promise<void>>(() => Promise.resolve()),
 }))
 vi.mock('../api/client', async (importOriginal) => ({ ...(await importOriginal<typeof import('../api/client')>()), api: h.api }))
 vi.mock('../audio/player', () => ({
   ClipPlayer: class { constructor() { return h.player } },
-  playSequence: () => Promise.resolve(),
+  playSequence: h.playSequence,
   peaks: () => new Float32Array(4),
 }))
 vi.mock('../audio/abortable', () => ({ playClip: () => Promise.resolve() }))
@@ -86,5 +87,39 @@ describe('<DrillRunner> your syllable', () => {
       const [url, , from, to] = h.player.playRange.mock.calls[0] as unknown as [string, number, number, number]
       expect(url).toBe('/seg/11.wav'); expect(from).toBeCloseTo(0.5, 5); expect(to).toBeCloseTo(1.25, 5)
     } finally { Range.prototype.getClientRects = orig }
+  })
+
+  it('a verdict cell’s speaker plays the reference syllable at the drill’s speed; its character the speaker, a pause, then you', async () => {
+    const aligned: Segment = { ...seg, start_s: 10, end_s: 12, ref_alignment_json: [
+      { ch: '你', start: 10.2, end: 10.5, conf: 1 }, { ch: '好', start: 10.5, end: 11.25, conf: 1 }, { ch: '吗', start: 11.25, end: 11.5, conf: 1 }] }
+    render(<DrillRunner session={{ ...session, items: [{ ...session.items[0], segment: aligned }] }} onFinish={() => {}} />)
+    const flush = () => act(async () => { for (let i = 0; i < 10; i++) await Promise.resolve() })
+    await flush()
+    fireEvent.keyDown(window, { key: 'Enter' }); await flush()
+    fireEvent.keyDown(window, { key: 'Enter' }); await flush()
+    await waitFor(() => expect(h.twoTrack?.score).toEqual(score))
+    fireEvent.keyDown(window, { key: 's' }); await flush()        // the drill's reference at 0.75: the take must stay at 1
+    h.player.playRange.mockClear(); h.playSequence.mockClear()
+    act(() => h.twoTrack!.onPlaySyllable!(1)); await flush()
+    expect(h.player.playRange).toHaveBeenCalledTimes(1)
+    const [url, rate, from, to] = h.player.playRange.mock.calls[0] as unknown as [string, number, number, number]
+    expect([url, rate]).toEqual(['/seg/11.wav', 0.75]); expect(from).toBeCloseTo(0.5, 5); expect(to).toBeCloseTo(1.25, 5)
+    act(() => h.twoTrack!.onCompareSyllable!(0)); await flush()
+    expect(h.playSequence).toHaveBeenCalledTimes(1)
+    const [, items, gap] = h.playSequence.mock.calls[0] as unknown as [unknown, { url: string; rate: number; from: number; to: number }[], number]
+    expect(gap).toBe(250)
+    expect(items.map((i) => [i.url, i.rate])).toEqual([['/seg/11.wav', 0.75], ['blob:take', 1]])
+    expect(items[0].from).toBeCloseTo(0.2, 5); expect(items[0].to).toBeCloseTo(0.5, 5)
+    expect([items[1].rate, items[1].from, items[1].to]).toEqual([1, 0.1, 0.4])
+    act(() => h.twoTrack!.onCompareSyllable!(2)); await flush()     // missing: the speaker alone
+    const [, only] = h.playSequence.mock.calls[1] as unknown as [unknown, { url: string }[]]
+    expect(only.map((i) => i.url)).toEqual(['/seg/11.wav'])
+  })
+
+  it('the drill stage is the same slim line as Echo’s: no reserved room under the card', async () => {
+    render(<DrillRunner session={session} onFinish={() => {}} />)
+    await act(async () => { for (let i = 0; i < 10; i++) await Promise.resolve() })
+    expect(screen.getByTestId('stage-cue')).toHaveClass('min-h-8')
+    expect(screen.getByTestId('stage-cue')).not.toHaveClass('min-h-28')
   })
 })

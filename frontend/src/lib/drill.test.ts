@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import type { Score } from '../api/types'
+import type { TakeScore } from '../api/types'
 import { advance, listened, scored, skip, startDrill, targetsGreen } from './drill'
 
-const sc = (statuses: string[]): Score => ({ overall: 0.5, tone_overall: 0.5, segmental_overall: null, rate_ratio: 1, ref_contour: null, usr_contour: null, warnings: [],
+const sc = (statuses: string[]): TakeScore => ({ overall: 0.5, tone_overall: 0.5, segmental_overall: null, rate_ratio: 1, ref_contour: null, usr_contour: null, warnings: [],
   syllables: statuses.map((s) => ({ ch: 'x', pinyin: 'x', tone: 3, target_tone: 3, heard_tone: 3, status: s as never, tone_score: 0.5, p_target: 0.5, contour: 0.5 })) })
 
 describe('drill steps', () => {
@@ -39,7 +39,7 @@ describe('drill steps', () => {
   })
   it('sound kind needs every target sound ok', () => {
     const snd = (status: 'ok' | 'slip') => ({ status, heard: null, heard_pinyin: null, z: 0, rule: 'fused' as const })
-    const withSounds = (tone: string, sounds: ({ status: 'ok' | 'slip' } | null)[]): Score => {
+    const withSounds = (tone: string, sounds: ({ status: 'ok' | 'slip' } | null)[]): TakeScore => {
       const base = sc(sounds.map(() => tone))
       return { ...base, syllables: base.syllables.map((y, k) => ({ ...y, sound: sounds[k] ? snd(sounds[k]!.status) : null })) }
     }

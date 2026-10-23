@@ -23,7 +23,7 @@ export interface ScoredSyllable {
   tone_score: number | null; p_target: number | null; contour: number | null
   sound?: SoundResult | null  // the wrong-sound check's verdict (absent in older score JSON)
 }
-export interface Score {
+export interface TakeScore {
   overall: number | null; tone_overall: number | null; segmental_overall: number | null; rate_ratio: number | null
   ref_contour: Contour | null; usr_contour: Contour | null; syllables: ScoredSyllable[]; warnings: string[]
   heard_text?: string | null  // what the recogniser heard (null when the words check did not run)
@@ -32,25 +32,27 @@ export interface Score {
   notices?: string[]          // a scored take's remarks, e.g. 'words_differ' (absent in older score JSON)
 }
 // `dropped`: the recording gates rejected the take, so the server kept nothing (id null); score_json says why.
-export interface Attempt { id: number | null; segment_id: number; session_id: number | null; created_at: string; mode: string; duration_s: number; score_json: Score | null; dropped?: boolean }
+export interface Attempt { id: number | null; segment_id: number; session_id: number | null; created_at: string; mode: string; duration_s: number; score_json: TakeScore | null; dropped?: boolean }
 // A sentence's newest stored attempt (GET /lessons/{id}/takes), and a past Flow run's takes in sentence order.
-export interface Take { segment_id: number; attempt_id: number; mode: string; created_at: string; duration_s: number; score_json?: Score | null }
+export interface Take { segment_id: number; attempt_id: number; mode: string; created_at: string; duration_s: number; score_json?: TakeScore | null }
 export interface FlowRun { started_at: string; ended_at: string; session_id: number | null; items: { segment_id: number; idx: number; attempt_id: number; duration_s: number }[] }
 export interface PracticeSession { id: number; lesson_id: number; mode: string; started_at: string; ended_at: string | null; attempts_count: number }
 export interface Job { id: string; stage: string; fraction: number; status: 'queued' | 'running' | 'done' | 'error'; error: string | null; lesson_id: number | null }
 export type Mode = 'echo' | 'chorus' | 'flow' | 'guided' | 'drill'
 export interface AnkiNotePayload { note_id: number; text: string; translation?: string | null; source?: string | null; url?: string | null; audio_b64: string; filename: string }
 
-export interface SentenceStat { segment_id: number; last: number; best: number; attempts: number }
 export interface LessonStats {
   segments: { segment_id: number; idx: number; last: number | null; best: number | null; attempts: number; trend: number[] }[]
   sessions: { session_id: number; started_at: string; mean: number | null }[]
 }
 export interface ActivityStats { days: { date: string; minutes: number; attempts: number }[] }
-export interface SentenceStats { regressed: SentenceStat[]; by_last: SentenceStat[] }
-export interface SyllableStats { syllables: { ch: string; pinyin: string; tone: number; mean: number; n: number; trend: number | null }[] }
+export interface SentenceRow {
+  segment_id: number; lesson_id: number; lesson_title: string; idx: number; text: string
+  last: number; best: number; attempts: number; regressed: boolean
+}
+export interface SentenceStats { sentences: SentenceRow[] }
 export interface SoundStats {
-  sounds: { key: string; label: string; slips: number; chances: number; rate: number }[]
+  sounds: { key: string; label: string; slips: number; chances: number; rate: number; hard: boolean }[]
   weeks: { week: string; key: string; rate: number; slips: number; chances: number }[]
 }
 export interface ToneStats {
@@ -82,3 +84,16 @@ export interface DrillRecent {
   id: number; kind: string; key: string; label: string; started_at: string; ended_at: string | null
   first_mean: number | null; best_mean: number | null
 }
+
+// Stats overview (GET /api/stats/overview). Scores travel as 0..1; null when there is too little data.
+export interface Score { value: number | null; last7: number | null; prev7: number | null; n: number }
+export interface ScoreSet { characters: Score; tones: Score; sounds: Score }
+export interface CharStat { ch: string; pinyin: string; score: number; tone_right: number | null; sound_right: number | null; takes: number; trend: number | null }
+export interface ToneItem { kind: 'tone' | 'pair'; key: string; label: string; mean: number; n: number }
+export interface StatsOverview {
+  scores: ScoreSet; flow: ScoreSet
+  weakest: { characters: CharStat[]; tones: ToneItem[]; sounds: SoundStats['sounds'] }
+  activity: { minutes: number; takes: number; days: number }
+  sentences: SentenceRow[]; drills: DrillRecent[]
+}
+export interface CharacterStats { characters: CharStat[] }

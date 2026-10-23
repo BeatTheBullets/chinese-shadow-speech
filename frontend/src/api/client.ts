@@ -1,10 +1,12 @@
 import type {
-  ActivityStats, AnkiNotePayload, Attempt, DrillFocus, DrillRecent, DrillSession, DrillSummary, FlowRun, Job, Lesson, LessonDetail, LessonStats, Mode, PracticeSession,
-  Segment, SentenceStats, SoundStats, SyllableStats, Take, ToneStats, UnexportedItem, VoiceProfile,
+  ActivityStats, AnkiNotePayload, Attempt, CharacterStats, DrillFocus, DrillRecent, DrillSession, DrillSummary, FlowRun, Job, Lesson, LessonDetail, LessonStats, Mode, PracticeSession,
+  Segment, SentenceStats, SoundStats, StatsOverview, Take, ToneStats, UnexportedItem, VoiceProfile,
 } from './types'
 
 // Same-origin in production (the backend serves the built SPA); the dev server talks to the backend directly.
 const base: string = import.meta.env.VITE_API ?? (import.meta.env.DEV ? 'http://127.0.0.1:8000' : '')
+
+const modeQuery = (mode?: 'flow') => (mode ? `?mode=${mode}` : '')
 
 // A non-2xx answer. `detail` is FastAPI's `{"detail": ...}` message when there is one, else the raw body.
 export class ApiError extends Error {
@@ -100,11 +102,12 @@ export const api = {
   },
   stats: {
     lesson: (id: number) => req<LessonStats>(`/lessons/${id}/stats`),
-    activity: (days = 30) => req<ActivityStats>(`/stats/activity?days=${days}`),
-    sentences: () => req<SentenceStats>('/stats/sentences'),
-    syllables: () => req<SyllableStats>('/stats/syllables'),
-    tones: () => req<ToneStats>('/stats/tones'),
-    sounds: () => req<SoundStats>('/stats/sounds'),
+    overview: () => req<StatsOverview>('/api/stats/overview'),
+    characters: (mode?: 'flow') => req<CharacterStats>(`/api/stats/characters${modeQuery(mode)}`),
+    tones: (mode?: 'flow') => req<ToneStats>(`/api/stats/tones${modeQuery(mode)}`),
+    sounds: (mode?: 'flow') => req<SoundStats>(`/api/stats/sounds${modeQuery(mode)}`),
+    sentences: () => req<SentenceStats>('/api/stats/sentences'),
+    activity: (days = 30) => req<ActivityStats>(`/api/stats/activity?days=${days}`),
   },
   voiceProfile: {
     get: () => req<VoiceProfile>('/voice-profile'),

@@ -24,6 +24,16 @@ describe('<StageState>', () => {
     expect(label).toHaveClass('text-ref')
     expect(screen.getByTestId('stage')).not.toHaveClass('border-record')
   })
+  it('replay: a calm "▶ Replaying" in the speaker colour, never the record frame or "Your turn"; its wave (the take) shows', () => {
+    render(<StageState compact stage="replay" wave={<div data-testid="w" />}>{card}</StageState>)
+    const label = screen.getByRole('status')
+    expect(label).toHaveTextContent('▶ Replaying')
+    expect(label).toHaveClass('text-ref')
+    expect(screen.getByTestId('stage')).not.toHaveClass('border-record')
+    expect(screen.queryByText('Your turn')).toBeNull()
+    expect(screen.queryByTestId('rec-dot')).toBeNull()
+    expect(screen.getByTestId('wave-slot')).toContainElement(screen.getByTestId('w'))
+  })
   it('getReady: a big count in accent inside a ring that runs down, plus "Get ready"', () => {
     const { rerender } = render(<StageState stage="getReady" count={3}>{card}</StageState>)
     const ring = screen.getByLabelText('starting in 3')
@@ -135,5 +145,40 @@ describe('<StageState>', () => {
       rerender(<StageState compact stage={stage} count={count} startedAt={ago(1)} wave={<div />}>{card}</StageState>)
       expect(minH(), stage).toEqual(['min-h-20'])
     }
+  })
+
+  describe('slim (Echo, Drill)', () => {
+    const minH = () => [...screen.getByTestId('stage-cue').classList].filter((c) => c.startsWith('min-h-'))
+    const wave = <div data-testid="w" />
+    it('idle, listen and review: one slim 32 px line under the card, no reserved room, no wave slot; nothing moves between them', () => {
+      const { rerender } = render(<StageState slim stage="idle" wave={wave}>{card}</StageState>)
+      expect(minH()).toEqual(['min-h-8'])
+      expect(screen.queryByTestId('wave-slot')).toBeNull()
+      const pad = screen.getByTestId('stage').className
+      for (const stage of ['listen', 'review', 'idle'] as const) {
+        rerender(<StageState slim stage={stage} wave={wave}>{card}</StageState>)
+        expect(minH(), stage).toEqual(['min-h-8'])
+        expect(screen.getByTestId('stage-cue'), stage).not.toHaveClass('min-h-28')
+        expect(screen.queryByTestId('wave-slot'), stage).toBeNull()
+        expect(screen.getByTestId('stage').className, stage).toBe(pad)
+      }
+      rerender(<StageState slim stage="listen" wave={wave}>{card}</StageState>)
+      expect(screen.getByRole('status')).toHaveTextContent('▶ Listening')
+      expect(screen.getByRole('status')).toHaveClass('text-ref', 'text-sm')
+    })
+    it('a note shares the slim line with the label', () => {
+      render(<StageState slim stage="review" note="Scoring…">{card}</StageState>)
+      expect(screen.getByTestId('stage-cue')).toHaveClass('flex-row')
+      expect(screen.getByText('Scoring…')).toBeInTheDocument()
+      expect(screen.getByText('Listen — the original, then you')).toBeInTheDocument()
+    })
+    it('yourTurn keeps its look (record frame, large "Your turn", timer, live wave) and takes only the room it needs', () => {
+      render(<StageState slim autoStop stage="yourTurn" startedAt={ago(1)} wave={wave}>{card}</StageState>)
+      expect(screen.getByTestId('stage')).toHaveClass('border-record')
+      expect(screen.getByText('Your turn')).toHaveClass('text-3xl')
+      expect(screen.getByTestId('rec-timer')).toHaveTextContent('0:01')
+      expect(screen.getByTestId('wave-slot')).toContainElement(screen.getByTestId('w'))
+      expect(minH()).toEqual([])
+    })
   })
 })

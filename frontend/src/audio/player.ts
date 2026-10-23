@@ -117,11 +117,13 @@ export class ClipPlayer {
 }
 
 // One clip of a sequence; with `from`/`to` (clip seconds) only that range plays, e.g. a take without its silences.
-export interface SequenceItem { url: string; rate: number; onTime?: (t: number) => void; from?: number; to?: number }
+// `onStart`: called just before it plays (a replay moves its screen along with it); not for items an abort skipped.
+export interface SequenceItem { url: string; rate: number; onTime?: (t: number) => void; from?: number; to?: number; onStart?: () => void }
 
 export async function playSequence(player: ClipPlayer, items: SequenceItem[], gapMs = 250, signal?: AbortSignal) {
   for (const it of items) {
     if (signal?.aborted) { player.stop(); return }
+    it.onStart?.()
     const playPromise = it.from != null || it.to != null
       ? player.playRange(it.url, it.rate, it.from ?? 0, it.to ?? Infinity, it.onTime)
       : player.play(it.url, it.rate, it.onTime)

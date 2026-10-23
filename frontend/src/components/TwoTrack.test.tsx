@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Score, ScoredSyllable, Segment } from '../api/types'
+import type { TakeScore, ScoredSyllable, Segment } from '../api/types'
 import TwoTrack from './TwoTrack'
 
 // What each track hands its Waveform and PitchLine, in render order (reference first, then you), last render wins.
@@ -28,7 +28,7 @@ describe('<TwoTrack>', () => {
     const noop = () => {}
     render(<TwoTrack segment={segment} refPeaks={null} refDuration={2} refPlayhead={null} youPeaks={null} youDuration={0} youPlayhead={null}
       onPlayRef={noop} onPlayYou={noop} highlight={[0, 2]} />)
-    const cells = screen.getAllByRole('button').filter((b) => b.title !== '' && within(b).queryByText(/[你好吗]/))
+    const cells = screen.getAllByTestId('cell')
     expect(cells).toHaveLength(3)
     expect(screen.queryByText(/nǐ 3/)).toBeNull()             // the reference row's "pinyin tone" labels are gone
     expect(cells.map((c) => c.classList.contains('ring-accent'))).toEqual([true, false, true])
@@ -36,12 +36,21 @@ describe('<TwoTrack>', () => {
 
   const syl = (ch: string, pinyin: string, tone: number, sound?: ScoredSyllable['sound']): ScoredSyllable =>
     ({ ch, pinyin, tone, target_tone: tone, heard_tone: tone, status: 'ok', tone_score: 0.9, p_target: 0.9, contour: 0.9, ...(sound === undefined ? {} : { sound }) })
-  const score = (sounds: (ScoredSyllable['sound'] | undefined)[]): Score => ({ overall: 0.8, tone_overall: 0.8, segmental_overall: null, rate_ratio: 1, ref_contour: null, usr_contour: null, warnings: [],
+  const score = (sounds: (ScoredSyllable['sound'] | undefined)[]): TakeScore => ({ overall: 0.8, tone_overall: 0.8, segmental_overall: null, rate_ratio: 1, ref_contour: null, usr_contour: null, warnings: [],
     syllables: [syl('你', 'nǐ', 3, sounds[0]), syl('好', 'hǎo', 3, sounds[1]), syl('吗', 'ma', 0, sounds[2])] })
   const slip = { status: 'slip' as const, heard: 'n', heard_pinyin: 'lǐ', z: 3, rule: 'fused' as const }
   const props = { segment, refPeaks: null, refDuration: 2, refPlayhead: null, youPeaks: null, youDuration: 0, youPlayhead: null, onPlayRef: () => {}, onPlayYou: () => {} }
-  const cellButtons = () => screen.getAllByRole('button').filter((b) => b.title !== '' && within(b).queryByText(/[你好吗]/))
+  const cellButtons = () => screen.getAllByTestId('cell')
 
+  it('the cards are their own centred section after both tracks, not inside the You track box', () => {
+    render(<TwoTrack {...props} score={score([undefined, undefined, undefined])} />)
+    const section = screen.getByTestId('characters')
+    expect(section).toHaveTextContent('Characters')
+    for (const c of screen.getAllByTestId('cell')) expect(section).toContainElement(c)
+    const youBox = screen.getByText(/^You/).closest('div.border')!
+    expect(youBox).not.toContainElement(section)
+    expect(youBox.compareDocumentPosition(section) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
   it('a heard sound shows in the HEARD row under its cell, the expected pinyin in its tooltip; no purple ring', () => {
     render(<TwoTrack {...props} score={score([slip, undefined, undefined])} />)
     expect(screen.getByText('HEARD')).toBeInTheDocument()
@@ -52,7 +61,7 @@ describe('<TwoTrack>', () => {
     render(<TwoTrack {...props} score={score([undefined, undefined, undefined])} />)
     expect(screen.queryByText('HEARD')).toBeNull()
     expect(cellButtons().some((c) => c.classList.contains('ring-sound'))).toBe(false)
-    expect(cellButtons().map((c) => c.textContent)).toEqual(['你390', '好390', '吗090'])
+    expect(cellButtons().map((c) => within(c).getByTestId('cell-compare').textContent)).toEqual(['你390', '好390', '吗090'])
   })
   it('each track plays from a labelled button with its key as the hint, not "▶ Space" / "▶ R" key faces', () => {
     const calls: string[] = []
@@ -67,11 +76,20 @@ describe('<TwoTrack>', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Me (R)' }))
     expect(calls).toEqual(['ref', 'you'])
   })
-  it('clicking a You cell calls onPlayYouSyllable(i)', () => {
-    const calls: number[] = []
-    render(<TwoTrack {...props} score={score([undefined, undefined, undefined])} onPlayYouSyllable={(i) => calls.push(i)} />)
-    fireEvent.click(cellButtons()[1])
-    expect(calls).toEqual([1])
+  it('each cell’s speaker button calls onPlaySyllable(i), its me button onPlayYouSyllable(i), its character onCompareSyllable(i)', () => {
+    const calls: string[] = []
+    render(<TwoTrack {...props} youDuration={1.5} score={score([undefined, undefined, undefined])} onPlaySyllable={(i) => calls.push(`ref ${i}`)}
+      onPlayYouSyllable={(i) => calls.push(`you ${i}`)} onCompareSyllable={(i) => calls.push(`both ${i}`)} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Speaker says 好' }))
+    fireEvent.click(screen.getByRole('button', { name: 'You say 吗' }))
+    fireEvent.click(within(cellButtons()[0]).getByTestId('cell-compare'))
+    expect(calls).toEqual(['ref 1', 'you 2', 'both 0'])
+  })
+  it('compact: both waveforms and pitch lines 36 px tall, and the track captions one slim line (small row buttons)', () => {
+    h.waves.length = 0
+    render(<TwoTrack {...props} youDuration={1.5} />)
+    expect(h.waves.slice(-2).map((w) => w.height)).toEqual([36, 36])
+    for (const name of ['Listen (Space)', 'Me (R)']) expect(screen.getByRole('button', { name })).toHaveClass('flex-row')
   })
 
   describe('speech-aligned tracks on one time scale', () => {
@@ -83,7 +101,7 @@ describe('<TwoTrack>', () => {
     const refPeaks = Float32Array.from({ length: 200 }, (_, i) => i), youPeaks = Float32Array.from({ length: 490 }, (_, i) => i)
     const usr = { t0_s: 1.75, step_ms: 10, f0_st: [1, 2, 3], spans: [[1.8, 2.2], [2.2, 2.7], [2.7, 3.1]] as [number, number][] }
     const ref = { t0_s: 0.45, step_ms: 10, f0_st: Array.from({ length: 120 }, () => 1), spans: [[0.5, 0.8], [0.8, 1.1], [1.1, 1.6]] as [number, number][] }
-    const scored = (rate: number | null): Score => ({ ...score([undefined, undefined, undefined]), rate_ratio: rate, ref_contour: ref, usr_contour: usr })
+    const scored = (rate: number | null): TakeScore => ({ ...score([undefined, undefined, undefined]), rate_ratio: rate, ref_contour: ref, usr_contour: usr })
     const track = { ...props, segment: aligned, refPeaks, refDuration: 2, youPeaks, youDuration: 4.9 }
     const lastTwo = <T,>(xs: T[]) => xs.slice(-2)
     beforeEach(() => { h.waves.length = 0; h.lines.length = 0 })
@@ -116,7 +134,7 @@ describe('<TwoTrack>', () => {
       expect(screen.queryByText(/\d s\b/)).toBeNull()
     })
     it('equal-speed speech gives equal window lengths, scored (both from the score’s windows) or not (tail vs peaks)', () => {
-      const even: Score = { ...scored(1), usr_contour: { ...usr, spans: [[1.8, 2.1], [2.1, 2.4], [2.4, 2.9]] } } // 1.1 s, as the reference
+      const even: TakeScore = { ...scored(1), usr_contour: { ...usr, spans: [[1.8, 2.1], [2.1, 2.4], [2.4, 2.9]] } } // 1.1 s, as the reference
       render(<TwoTrack {...track} score={even} />)
       let [r, y] = lastTwo(h.waves)
       expect(r.duration).toBeCloseTo(1.3, 6); expect(y.duration).toBeCloseTo(1.3, 6)

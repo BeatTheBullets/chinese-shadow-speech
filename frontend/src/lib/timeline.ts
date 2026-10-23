@@ -47,3 +47,19 @@ export function sliceToWindow(peaks: Float32Array | null, duration: number, w: S
   const i0 = Math.max(0, Math.floor(w.from / dt + 1e-9)), i1 = Math.min(peaks.length, Math.ceil(w.to / dt - 1e-9))
   return { peaks: peaks.subarray(i0, Math.max(i0, i1)), from: i0 * dt, to: Math.max(i0, i1) * dt }
 }
+
+// The quietest peak normalisation scales up to full height: about -30 dBFS. Real speech, even from a quiet mic, peaks
+// above it and fills its track; mic hiss or a take too quiet to score stays below it and is drawn as the near-flat line
+// it is, rather than as full bars that would contradict "Too quiet — move closer".
+export const PEAK_FLOOR = 0.03
+
+// A track's bars scaled to its own loudest one (display only: scoring never sees this), so a quiet mic still draws a
+// clear waveform beside a loud clip; divided by at least PEAK_FLOOR, so near-silence stays flat and nothing divides
+// by zero. A copy.
+export function normalizePeaks(peaks: Float32Array | null): Float32Array | null {
+  if (!peaks) return null
+  let max = 0
+  for (const p of peaks) if (p > max) max = p
+  const by = Math.max(max, PEAK_FLOOR)
+  return peaks.map((p) => p / by)
+}

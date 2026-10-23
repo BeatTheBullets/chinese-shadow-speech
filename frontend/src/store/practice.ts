@@ -1,10 +1,10 @@
 import { create } from 'zustand'
-import type { LessonDetail, Mode, Passage, Score, Segment } from '../api/types'
+import type { LessonDetail, Mode, Passage, TakeScore, Segment } from '../api/types'
 import { defaultTextPrefs, type TextPrefs } from './settings'
 
-export interface LastAttempt { id: number; url: string; duration: number; peaks: Float32Array | null; score?: Score | null }
+export interface LastAttempt { id: number; url: string; duration: number; peaks: Float32Array | null; score?: TakeScore | null }
 // A sentence's newest take on the server (from an earlier visit, or uploaded during this one); `url` is its attempt audio.
-export interface StoredTake { id: number; url: string; duration: number; score?: Score | null }
+export interface StoredTake { id: number; url: string; duration: number; score?: TakeScore | null }
 export interface PracticeState {
   lesson: LessonDetail | null; idx: number; mode: Mode; sessionId: number | null; rate: number; drawerOpen: boolean
   attemptsThisSegment: number; lastAttempt: LastAttempt | null; textPrefs: TextPrefs; recordingNow: boolean; hint: string

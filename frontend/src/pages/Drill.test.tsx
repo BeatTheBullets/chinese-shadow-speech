@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { DrillFocus, DrillItem, DrillRecent, DrillSession, DrillSummary, Score, Segment, SylStatus } from '../api/types'
+import type { DrillFocus, DrillItem, DrillRecent, DrillSession, DrillSummary, TakeScore, Segment, SylStatus } from '../api/types'
 import { ApiError } from '../api/client'
 import Shell from '../components/Shell'
 import { useSettings } from '../store/settings'
@@ -53,7 +53,7 @@ const seg = (id: number, idx: number, text: string): Segment => ({
 const item = (id: number, idx: number, text: string, targets: number[]): DrillItem => ({ segment: seg(id, idx, text), lesson_id: 3, lesson_title: 'Lesson A', targets })
 const run = (items: DrillItem[], id = 7): DrillSession => ({ id, kind: 'tone', key: '3', label: 'tone 3 (low)', short: false, items })
 const twoItems = [item(11, 0, '你好吗', [0, 1]), item(12, 1, '我很好', [0, 1, 2])]
-const score = (statuses: SylStatus[], overall: number | null = 0.7, warnings: string[] = []): Score => ({
+const score = (statuses: SylStatus[], overall: number | null = 0.7, warnings: string[] = []): TakeScore => ({
   overall, tone_overall: overall, segmental_overall: null, rate_ratio: 1, ref_contour: null, usr_contour: null, warnings,
   syllables: statuses.map((status) => ({ ch: 'x', pinyin: 'x', tone: 3, target_tone: 3, heard_tone: 3, status, tone_score: 0.5, p_target: 0.5, contour: 0.5 })),
 })

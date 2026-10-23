@@ -1,10 +1,10 @@
-import type { Score } from '../api/types'
+import type { TakeScore } from '../api/types'
 import { pct, warningText } from '../lib/score'
 
 const HEARD_MAX = 24
 
 // The You track's header (main spec §7.2): overall large, then tone, sounds off/ok, best so far, attempts.
-export default function ScoreHeader({ score, best, attempts }: { score: Score | null | undefined; best: number | null; attempts: number }) {
+export default function ScoreHeader({ score, best, attempts }: { score: TakeScore | null | undefined; best: number | null; attempts: number }) {
   const chip = 'normal-case tracking-normal rounded bg-card px-1.5 py-0.5 text-fgdim'
   if (!score) return <span className="normal-case tracking-normal text-fgdim">no score yet</span>
   const heard = Array.from(score.heard_text ?? '')
