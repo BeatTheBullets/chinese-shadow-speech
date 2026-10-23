@@ -60,7 +60,7 @@ def test_null_overall_is_skipped_by_lessons_and_stats(client, tmp_path, monkeypa
     assert _post(client, make_tone_wav(tmp_path / "t.wav", 2.6), seg["id"]).status_code == 201
     out = client.get(f"/lessons/{lid}").json()["segments"][0]
     assert (out["last_score"], out["best_score"], out["attempts"]) == (good, good, 2)
-    assert client.get("/stats/sentences").status_code == 200
+    assert client.get("/api/stats/sentences").status_code == 200
     assert client.get(f"/lessons/{lid}/stats").status_code == 200
     assert client.get("/lessons").json()[0]["mean_last_score"] == good
 
