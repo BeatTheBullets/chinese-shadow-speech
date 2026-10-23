@@ -5,7 +5,7 @@ import Library from './pages/Library'
 import Practice from './pages/Practice'
 import Review from './pages/Review'
 import Drill from './pages/Drill'
-import Stats from './pages/Stats'
+import Overview from './pages/stats/Overview'
 
 export default function App() {
   return (
@@ -16,7 +16,7 @@ export default function App() {
         <Route path="/practice/:id" element={<Practice />} />
         <Route path="/review" element={<Review />} />
         <Route path="/drill" element={<Drill />} />
-        <Route path="/stats" element={<Stats />} />
+        <Route path="/stats" element={<Overview />} />
         <Route path="/settings" element={<Shell><Settings /></Shell>} />
         <Route path="*" element={<div className="p-8 text-fgdim">Not found</div>} />
       </Routes>
