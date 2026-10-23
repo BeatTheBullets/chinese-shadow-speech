@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { exportAndRecord, reexportQuestion } from '../anki/export'
 import { api, ApiError } from '../api/client'
-import type { Attempt, FlowRun, LessonDetail, Mode, Score, Segment, Take } from '../api/types'
+import type { Attempt, FlowRun, LessonDetail, Mode, TakeScore, Segment, Take } from '../api/types'
 import { findSilenceEnd } from '../audio/pcm'
 import { ClipPlayer, peaks as peaksOf, playSequence, type SequenceItem } from '../audio/player'
 import { toWav16k } from '../audio/recorder'
@@ -58,7 +58,7 @@ function loadTakes(lessonId: number, current: () => boolean) {
     usePractice.getState().setStoredTakes(Object.fromEntries(takes.map((t) => [t.segment_id, stored(t.attempt_id, t.duration_s, t.score_json)])))
   }).catch(() => {})
 }
-const stored = (attemptId: number, duration: number, score?: Score | null): StoredTake => ({ id: attemptId, url: api.attempts.audioUrl(attemptId), duration, score })
+const stored = (attemptId: number, duration: number, score?: TakeScore | null): StoredTake => ({ id: attemptId, url: api.attempts.audioUrl(attemptId), duration, score })
 
 // A multi-step run in progress (a Flow run). Aborting its controller (stop, mode switch, navigation, unmount) ends it.
 type RunKind = 'flow'

@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Score, ScoredSyllable, Segment } from '../api/types'
+import type { TakeScore, ScoredSyllable, Segment } from '../api/types'
 import TwoTrack from './TwoTrack'
 
 // What each track hands its Waveform and PitchLine, in render order (reference first, then you), last render wins.
@@ -36,7 +36,7 @@ describe('<TwoTrack>', () => {
 
   const syl = (ch: string, pinyin: string, tone: number, sound?: ScoredSyllable['sound']): ScoredSyllable =>
     ({ ch, pinyin, tone, target_tone: tone, heard_tone: tone, status: 'ok', tone_score: 0.9, p_target: 0.9, contour: 0.9, ...(sound === undefined ? {} : { sound }) })
-  const score = (sounds: (ScoredSyllable['sound'] | undefined)[]): Score => ({ overall: 0.8, tone_overall: 0.8, segmental_overall: null, rate_ratio: 1, ref_contour: null, usr_contour: null, warnings: [],
+  const score = (sounds: (ScoredSyllable['sound'] | undefined)[]): TakeScore => ({ overall: 0.8, tone_overall: 0.8, segmental_overall: null, rate_ratio: 1, ref_contour: null, usr_contour: null, warnings: [],
     syllables: [syl('你', 'nǐ', 3, sounds[0]), syl('好', 'hǎo', 3, sounds[1]), syl('吗', 'ma', 0, sounds[2])] })
   const slip = { status: 'slip' as const, heard: 'n', heard_pinyin: 'lǐ', z: 3, rule: 'fused' as const }
   const props = { segment, refPeaks: null, refDuration: 2, refPlayhead: null, youPeaks: null, youDuration: 0, youPlayhead: null, onPlayRef: () => {}, onPlayYou: () => {} }
@@ -101,7 +101,7 @@ describe('<TwoTrack>', () => {
     const refPeaks = Float32Array.from({ length: 200 }, (_, i) => i), youPeaks = Float32Array.from({ length: 490 }, (_, i) => i)
     const usr = { t0_s: 1.75, step_ms: 10, f0_st: [1, 2, 3], spans: [[1.8, 2.2], [2.2, 2.7], [2.7, 3.1]] as [number, number][] }
     const ref = { t0_s: 0.45, step_ms: 10, f0_st: Array.from({ length: 120 }, () => 1), spans: [[0.5, 0.8], [0.8, 1.1], [1.1, 1.6]] as [number, number][] }
-    const scored = (rate: number | null): Score => ({ ...score([undefined, undefined, undefined]), rate_ratio: rate, ref_contour: ref, usr_contour: usr })
+    const scored = (rate: number | null): TakeScore => ({ ...score([undefined, undefined, undefined]), rate_ratio: rate, ref_contour: ref, usr_contour: usr })
     const track = { ...props, segment: aligned, refPeaks, refDuration: 2, youPeaks, youDuration: 4.9 }
     const lastTwo = <T,>(xs: T[]) => xs.slice(-2)
     beforeEach(() => { h.waves.length = 0; h.lines.length = 0 })
@@ -134,7 +134,7 @@ describe('<TwoTrack>', () => {
       expect(screen.queryByText(/\d s\b/)).toBeNull()
     })
     it('equal-speed speech gives equal window lengths, scored (both from the score’s windows) or not (tail vs peaks)', () => {
-      const even: Score = { ...scored(1), usr_contour: { ...usr, spans: [[1.8, 2.1], [2.1, 2.4], [2.4, 2.9]] } } // 1.1 s, as the reference
+      const even: TakeScore = { ...scored(1), usr_contour: { ...usr, spans: [[1.8, 2.1], [2.1, 2.4], [2.4, 2.9]] } } // 1.1 s, as the reference
       render(<TwoTrack {...track} score={even} />)
       let [r, y] = lastTwo(h.waves)
       expect(r.duration).toBeCloseTo(1.3, 6); expect(y.duration).toBeCloseTo(1.3, 6)

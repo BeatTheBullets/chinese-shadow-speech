@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { Score, Segment } from '../api/types'
+import type { TakeScore, Segment } from '../api/types'
 import { cellsFromWords } from '../lib/cells'
 import { contourPoints, pitchRange, warpPoints, type Pt } from '../lib/pitch'
 import { withScore } from '../lib/score'
@@ -20,7 +20,7 @@ interface Props {
   // A verdict cell's buttons: ▶ the speaker's syllable i, me your syllable i; its character both, speaker first.
   onPlaySyllable?: (i: number) => void; onPlayYouSyllable?: (i: number) => void; onCompareSyllable?: (i: number) => void
   scoreHeader?: React.ReactNode
-  score?: Score | null
+  score?: TakeScore | null
   highlight?: number[] // syllables to outline in the cell row (a drill's targets)
 }
 const shift = (pts: Pt[], by: number): Pt[] => pts.map(([t, v]) => [t - by, v])

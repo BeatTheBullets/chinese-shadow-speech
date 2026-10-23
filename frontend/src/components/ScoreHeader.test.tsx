@@ -1,9 +1,9 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
-import type { Score } from '../api/types'
+import type { TakeScore } from '../api/types'
 import ScoreHeader from './ScoreHeader'
 
-const s = (o: Partial<Score>): Score => ({ overall: 0.82, tone_overall: 0.82, segmental_overall: null, rate_ratio: 1.1, ref_contour: null, usr_contour: null, syllables: [], warnings: [], ...o })
+const s = (o: Partial<TakeScore>): TakeScore => ({ overall: 0.82, tone_overall: 0.82, segmental_overall: null, rate_ratio: 1.1, ref_contour: null, usr_contour: null, syllables: [], warnings: [], ...o })
 
 describe('<ScoreHeader>', () => {
   it('chips sounds off, sounds ok, or nothing for old scores', () => {

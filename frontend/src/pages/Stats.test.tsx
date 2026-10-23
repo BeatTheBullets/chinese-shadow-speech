@@ -3,8 +3,7 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 
 const h = vi.hoisted(() => ({ stats: {
-  activity: vi.fn(() => Promise.resolve({ days: [] })), sentences: vi.fn(() => Promise.resolve({ regressed: [], by_last: [] })),
-  syllables: vi.fn(() => Promise.resolve({ syllables: [{ ch: '好', pinyin: 'hao', tone: 3, mean: 0.5, n: 20, trend: 0.2 }] })),
+  activity: vi.fn(() => Promise.resolve({ days: [] })), sentences: vi.fn(() => Promise.resolve({ sentences: [] })),
   tones: vi.fn(() => Promise.resolve({ tones: [{ tone: 3, mean: 0.55, n: 20 }], pairs: [{ prev_tone: 3, tone: 3, mean: 0.4, n: 6 }], weeks: [{ week: '2026-W41', tone: 3, mean: 0.55, n: 20 }] })),
   sounds: vi.fn(() => Promise.resolve({ sounds: [{ key: 'ch>c', label: 'ch said as c', slips: 2, chances: 10, rate: 0.2 }], weeks: [] })),
 }, drill: { recent: vi.fn(() => Promise.resolve([] as unknown[])) } }))
@@ -12,11 +11,9 @@ vi.mock('../api/client', async (importOriginal) => ({ ...(await importOriginal<t
 import Stats from './Stats'
 
 describe('<Stats>', () => {
-  it('shows characters with trend, tone means, the trend chart and the pair matrix', async () => {
+  it('shows tone means, the trend chart and the pair matrix', async () => {
     render(<MemoryRouter><Stats /></MemoryRouter>)
-    expect(await screen.findByText('好')).toBeInTheDocument()
-    expect(screen.getByText('↑ 20')).toBeInTheDocument()
-    expect(screen.getByText(/Tone 3 \(low\)/)).toBeInTheDocument()
+    expect(await screen.findByText(/Tone 3 \(low\)/)).toBeInTheDocument()
     expect(screen.getByRole('img', { name: /Tone scores per week/ })).toBeInTheDocument()
     expect(screen.getByTitle('after tone 3, tone 3: 40 (n 6)')).toBeInTheDocument()
   })
@@ -26,12 +23,11 @@ describe('<Stats>', () => {
 
   it.each([
     ['Drill tone 3', '/drill?kind=tone&key=3'],
-    ['Drill 好', '/drill?kind=char&key=%E5%A5%BD'],
     ['Drill tone pair 3→3', '/drill?kind=pair&key=3-3'],
     ['Drill ch said as c', '/drill?kind=sound&key=ch%3Ec'],
   ])('"%s" navigates to the drill page', async (name, url) => {
     renderRouted()
-    await screen.findByText('好')
+    await screen.findByText(/Tone 3 \(low\)/)
     fireEvent.click(await screen.findByRole('button', { name }))
     expect((await screen.findByTestId('where')).textContent).toBe(url)
   })

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api, ApiError } from '../api/client'
-import type { DrillItem, DrillSession, Score, Segment } from '../api/types'
+import type { DrillItem, DrillSession, TakeScore, Segment } from '../api/types'
 import { playClip } from '../audio/abortable'
 import { findSilenceEnd } from '../audio/pcm'
 import { ClipPlayer, peaks as peaksOf, playSequence, type SequenceItem } from '../audio/player'
@@ -33,7 +33,7 @@ const DRILL_KEYS: Action[] = ['record', 'next', 'replayYou', 'play', 'speed075',
 const TOGGLE: Record<keyof TextPrefs, Action> = { hanzi: 'toggleHanzi', pinyin: 'togglePinyin', translation: 'toggleTranslation' }
 
 // This visit's take of the current sentence; `score` arrives with the upload (undefined until then).
-interface DrillTake { url: string; duration: number; peaks: Float32Array; score?: Score | null }
+interface DrillTake { url: string; duration: number; peaks: Float32Array; score?: TakeScore | null }
 
 // `playback`: the take's reference-then-you playback is running; `scoring`: its upload has not answered yet.
 // The stage (the same as Echo's, spec §8: listen, then "Your turn" with the record frame) and its small note.

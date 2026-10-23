@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import SoundsPanel from './SoundsPanel'
 
 const stats = {
-  sounds: [{ key: 'ch>c', label: 'ch said as c', slips: 2, chances: 10, rate: 0.2 }],
+  sounds: [{ key: 'ch>c', label: 'ch said as c', slips: 2, chances: 10, rate: 0.2, hard: true }],
   weeks: [{ week: '2026-W40', key: 'ch>c', rate: 0.4, slips: 2, chances: 5 }, { week: '2026-W41', key: 'ch>c', rate: 0.2, slips: 1, chances: 5 }],
 }
 

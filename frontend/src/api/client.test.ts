@@ -52,4 +52,13 @@ describe('api client', () => {
     expect(await api.lessons.flowRuns(4)).toEqual([run])
     expect(fetchMock.mock.calls.map((c) => c[0])).toEqual([`${api.base}/lessons/4/takes`, `${api.base}/lessons/4/flow-runs`])
   })
+
+  it('stats endpoints live under /api/stats, with ?mode=flow only when asked', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(new Response('{}', { status: 200 })))
+    await api.stats.overview()
+    await api.stats.characters('flow')
+    await api.stats.tones()
+    expect(fetchMock.mock.calls.map((c) => c[0])).toEqual([
+      `${api.base}/api/stats/overview`, `${api.base}/api/stats/characters?mode=flow`, `${api.base}/api/stats/tones`])
+  })
 })

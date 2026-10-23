@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import type { Score, ScoredSyllable, Segment } from '../api/types'
+import type { TakeScore, ScoredSyllable, Segment } from '../api/types'
 import type { Cell } from './cells'
 import { applyAttempt, cellTitle, isWarningText, noticeText, pct, warningText, withScore } from './score'
 
 const cells: Cell[] = [{ ch: '你', pinyin: 'ní', tone: 3, status: 'neutral' }, { ch: '好', pinyin: 'hǎo', tone: 3, status: 'neutral' }]
 const syl = (o: Partial<ScoredSyllable>): ScoredSyllable => ({ ch: '你', pinyin: 'ní', tone: 3, target_tone: 2, heard_tone: 2, status: 'ok', tone_score: 0.9, p_target: 0.9, contour: 0.9, ...o })
-const score = (o: Partial<Score> = {}): Score => ({ overall: 0.7, tone_overall: 0.7, segmental_overall: null, rate_ratio: 1, ref_contour: null, usr_contour: null,
+const score = (o: Partial<TakeScore> = {}): TakeScore => ({ overall: 0.7, tone_overall: 0.7, segmental_overall: null, rate_ratio: 1, ref_contour: null, usr_contour: null,
   syllables: [syl({}), syl({ ch: '好', target_tone: 3, heard_tone: 2, status: 'wrong', tone_score: 0.3 })], warnings: [], ...o })
 
 describe('score', () => {
