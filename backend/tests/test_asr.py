@@ -5,11 +5,12 @@ from shadow.ingest.text import is_punct
 from shadow.ingest.transcript import Transcript
 
 
-def test_funasr_sentence_info_with_matching_timestamps():
+def test_funasr_sentence_info_is_never_used():
     result = {
         "text": "你好，世界。再见。",
+        "timestamp": [[1000, 1200], [1200, 1400], [1500, 1700], [1700, 2000], [2500, 2700], [2700, 3000]],
         "sentence_info": [
-            {"text": "你好，世界。", "start": 1000, "end": 2000,
+            {"text": "你好世，界。", "start": 1000, "end": 2000,
              "timestamp": [[1000, 1200], [1200, 1400], [1500, 1700], [1700, 2000]]},
             {"text": "再见。", "start": 2500, "end": 3000, "timestamp": [[2500, 2700], [2700, 3000]]},
         ],
@@ -21,10 +22,11 @@ def test_funasr_sentence_info_with_matching_timestamps():
     assert tr.segments == [(0, 5), (6, 8)]
 
 
-def test_funasr_timestamp_count_mismatch_falls_back_to_interpolation():
-    result = {"text": "你好世界", "sentence_info": [{"text": "你好世界", "start": 0, "end": 2000, "timestamp": [[0, 500]]}]}
-    tr = transcript_from_funasr(result)
+def test_funasr_timestamp_count_mismatch_lays_the_text_over_the_timestamps(caplog):
+    with caplog.at_level("WARNING"):
+        tr = transcript_from_funasr({"text": "你好世界", "timestamp": [[0, 2000]]})
     assert [round(c.start, 2) for c in tr.chars] == [0.0, 0.5, 1.0, 1.5]
+    assert "4 speech characters in 4 timed units for 1 timestamps" in caplog.text
 
 
 def test_funasr_without_sentence_info_uses_whole_text():
@@ -135,19 +137,66 @@ def test_funasr_unpunctuated_latin_words_are_cut_at_pauses_with_their_own_times(
     assert [tr.text[a:b + 1] for a, b in tr.segments] == ["我给大家update一下youknow", "我本来想干啥"]
 
 
-def test_funasr_top_level_count_mismatch_falls_back_to_sentence_info_with_a_warning(caplog):
+def test_funasr_top_level_count_mismatch_keeps_the_top_level_text_with_a_warning(caplog):
     r = {**_GLUED, "timestamp": _GLUED["timestamp"][:8]}
     with caplog.at_level("WARNING"):
         tr = transcript_from_funasr(r)
     assert "9 speech characters" in caplog.text and "8 timestamps" in caplog.text
-    assert tr.segments == [(0, 6), (7, 10)]          # the sentence_info path
+    assert tr.text == _GLUED["text"] and tr.segments == [(0, 10)]       # not the drifted sentence_info
+    speech = [c for c in tr.chars if not is_punct(c.c)]
+    assert speech[0].start == 0.0 and speech[-1].end == 1.28
+    assert all(x.start <= x.end <= y.start for x, y in zip(speech, speech[1:]))
 
 
-def test_funasr_interpolated_sentence_times_are_logged(caplog):
+def test_funasr_tokens_paraformer_does_not_time_are_zero_length():
+    # sentence_postprocess gives "&" (AT&T, R&B) no timestamp: the units still pair exactly
+    r = {"text": "我在AT&T上班。", "timestamp": [[0, 100], [100, 200], [200, 400], [450, 500], [500, 600], [600, 700]]}
+    tr = transcript_from_funasr(r)
+    c = {x.c + str(i): x for i, x in enumerate(tr.chars)}
+    assert tr.text == "我在AT&T上班。"
+    assert (c["A2"].start, c["T3"].end) == (0.2, 0.4)
+    assert c["&4"].start == c["&4"].end == 0.4
+    assert (c["T5"].start, c["T5"].end) == (0.45, 0.5) and c["上6"].start == 0.5
+
+
+def test_funasr_last_resort_lays_units_proportionally_without_drift(caplog):
+    # a stray "1@@" glues a digit to the next word: 4 units for 3 timestamps
+    r = {"text": "我1hello好。", "timestamp": [[0, 300], [300, 900], [1200, 1500]]}
     with caplog.at_level("WARNING"):
-        transcript_from_funasr({"text": "你好世界", "sentence_info": [
-            {"text": "你好世界", "start": 0, "end": 2000, "timestamp": [[0, 500]]}]})
-    assert "interpolat" in caplog.text
+        tr = transcript_from_funasr(r)
+    assert "in 4 timed units for 3 timestamps" in caplog.text
+    assert tr.text == "我1hello好。" and tr.segments == [(0, 8)]
+    speech = [c for c in tr.chars if not is_punct(c.c)]
+    assert speech[0].start == 0.0 and speech[-1].end == 1.5
+    assert all(x.start <= x.end <= y.start for x, y in zip(speech, speech[1:]))
+
+
+def test_funasr_per_character_count_coinciding_is_not_trusted_over_latin_words(caplog):
+    # "ok" is one Paraformer token: 4 units, though the 5 timestamps equal the 5 speech characters
+    r = {"text": "我说ok好", "timestamp": [[0, 100], [100, 200], [200, 300], [300, 400], [400, 500]]}
+    with caplog.at_level("WARNING"):
+        tr = transcript_from_funasr(r)
+    assert "5 speech characters in 4 timed units for 5 timestamps" in caplog.text
+    o, k = tr.chars[2], tr.chars[3]
+    assert (o.start, o.end) != (0.2, 0.3) and o.end == k.start      # the word's letters share one span
+    assert tr.chars[-1].end == 0.5
+
+
+def test_funasr_ascii_sentence_end_after_a_latin_word_ends_a_sentence():
+    r = {"text": "我说hello. 你好。", "timestamp": [[0, 100], [100, 200], [200, 400], [500, 600], [600, 700]]}
+    assert transcript_from_funasr(r).segments == [(0, 8), (9, 11)]
+    r = {"text": "我用v2.5版本ok? 好。", "timestamp": [[i * 100, i * 100 + 90] for i in range(9)]}
+    tr = transcript_from_funasr(r)
+    assert [tr.text[a:b + 1] for a, b in tr.segments] == ["我用v2.5版本ok? ", "好。"]   # a decimal point does not
+
+
+def test_funasr_unpunctuated_apostrophe_word_still_cuts_at_pauses():
+    from shadow.config import SegmentationCfg
+    text = "我 说 don't stop 我 本 来 想"
+    ts = [[0, 200], [200, 400], [400, 700], [700, 1000], [2000, 2200], [2200, 2400], [2400, 2600], [2600, 2800]]
+    tr = transcript_from_funasr({"text": text, "timestamp": ts}, pauses=SegmentationCfg())
+    assert tr.text == "我说don'tstop我本来想"
+    assert [tr.text[a:b + 1] for a, b in tr.segments] == ["我说don'tstop", "我本来想"]
 
 
 def test_funasr_empty_text_gives_empty_transcript():
