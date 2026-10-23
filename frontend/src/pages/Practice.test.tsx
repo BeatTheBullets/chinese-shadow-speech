@@ -40,6 +40,10 @@ vi.mock('../audio/player', () => ({
   playSequence: h.playSequence,
   peaks: () => h.takePeaks,
 }))
+// jsdom has no canvas: the replay's take waveform is a stand-in that shows what it was given.
+vi.mock('../components/Waveform', () => ({
+  default: (p: { duration: number; playhead?: number | null }) => <div data-testid="take-wave" data-duration={p.duration} data-playhead={p.playhead ?? ''} />,
+}))
 vi.mock('../components/TwoTrack', () => ({
   default: (p: NonNullable<typeof h.twoTrack>) => { h.twoTrack = p; return <div data-testid="two-track" /> },
 }))
@@ -993,10 +997,128 @@ describe('<Practice>', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Replay last run' })); await flush()
       const [, items] = h.playSequence.mock.calls.at(-1) as unknown as [unknown, { url: string; rate: number }[]]
       const b = speechBounds(p51, 2)!
-      expect(items).toEqual([{ url: '/seg/11.opus', rate: 1 }, { url: '/att/50.wav', rate: 1 }, { url: '/seg/12.opus', rate: 1 }, { url: '/att/51.wav', rate: 1, from: b.from, to: b.to }])
+      // what plays is unchanged; the items only carry the callbacks that move the screen along
+      const played = items.map(({ url, rate, from, to }: { url: string; rate: number; from?: number; to?: number }) => ({ url, rate, ...(from != null ? { from, to } : {}) }))
+      expect(played).toEqual([{ url: '/seg/11.opus', rate: 1 }, { url: '/att/50.wav', rate: 1 }, { url: '/seg/12.opus', rate: 1 }, { url: '/att/51.wav', rate: 1, from: b.from, to: b.to }])
       expect(signal!.aborted).toBe(false)
       press(' '); await flush()
       expect(signal!.aborted).toBe(true)
+    })
+
+    // A fake playSequence for a replay: each item starts (its onStart) once the one before it has finished (step()).
+    // Aborting the signal settles it, like the real one.
+    type Item = { url: string; onStart?: () => void; onTime?: (t: number) => void }
+    function steppedReplay() {
+      const r = { signal: undefined as AbortSignal | undefined, waiting: [] as (() => void)[] }
+      h.playSequence.mockImplementation((async (_p: unknown, items: Item[], _gap: unknown, s: AbortSignal) => {
+        r.signal = s
+        for (const it of items) {
+          if (s.aborted) return
+          it.onStart?.()
+          await new Promise<void>((done) => { r.waiting.push(done); s.addEventListener('abort', () => done(), { once: true }) })
+        }
+      }) as unknown as () => Promise<void>)
+      return { ...r, get signal() { return r.signal }, step: async () => { r.waiting.shift()?.(); await flush() } }
+    }
+    const current = () => screen.getByTestId('flow-current')
+    const banner = () => screen.queryByTestId('replay-banner')
+    // From sentence 2 (再见), so the replay visibly moves to the run's first line.
+    async function startReplay(from = 1) {
+      h.api.lessons.flowRuns.mockResolvedValue([storedRun])
+      h.player.peaksFor.mockImplementation(() => Promise.resolve(new Float32Array(400)))
+      const seq = steppedReplay()
+      renderPractice()
+      await screen.findByText('你好', { selector: 'p.sentence' })
+      act(() => usePractice.getState().setIdx(from))
+      await enterFlow()
+      fireEvent.click(await screen.findByRole('button', { name: 'Replay last run' })); await flush()
+      return seq
+    }
+
+    it('a replay is a clear playback mode: the banner, a "Replaying" stage, no settings line, ■ Stop replay instead of Record', async () => {
+      await startReplay()
+      expect(banner()).toHaveTextContent(/^Replaying run from \w{3} \d\d:\d\d · sentence 1 \/ 2$/)
+      expect(banner()).toHaveClass('text-ref')
+      expect(banner()!.querySelector('svg')).not.toBeNull()                  // the play icon
+      expect(screen.getByTestId('stage')).toHaveAttribute('data-stage', 'replay')
+      expect(screen.getByTestId('stage')).toHaveTextContent('Replaying')
+      expect(screen.getByTestId('stage')).not.toHaveTextContent('Your turn')
+      expect(screen.getByTestId('stage')).not.toHaveClass('border-record')
+      expect(screen.queryByTestId('flow-settings')).toBeNull()
+      const stop = screen.getByRole('button', { name: 'Stop replay (Enter)' })
+      expect(stop).not.toHaveClass('bg-record')
+      expect(screen.queryByRole('button', { name: 'Start flow (Enter)' })).toBeNull()
+    })
+
+    it('the transcript moves along with the replay: each sentence comes into the stage as its original starts', async () => {
+      const seq = await startReplay()
+      expect(current()).toHaveTextContent('你好')                             // the run's first line, not where the page was
+      expect(screen.getByTestId('position')).toHaveTextContent('1 / 2')
+      expect(within(screen.getByTestId('stage')).getByTestId('take-wave')).toHaveAttribute('data-duration', '2')
+      await seq.step()                                                         // the original of 1 ends, its take plays
+      expect(current()).toHaveTextContent('你好')
+      await seq.step()                                                         // the take ends: sentence 2's original starts
+      expect(current()).toHaveTextContent('再见')
+      expect(banner()).toHaveTextContent('sentence 2 / 2')
+      expect(screen.getByTestId('position')).toHaveTextContent('2 / 2')
+      expect(screen.getAllByTestId('flow-line').map((l) => l.textContent)).toContain('1你好')  // above the stage now
+      await seq.step(); await seq.step()                                       // the end: back to the Flow screen
+      await waitFor(() => expect(banner()).toBeNull())
+      expect(screen.getByTestId('flow-settings')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Start flow (Enter)' })).toBeInTheDocument()
+    })
+
+    it.each([
+      ['the ■ Stop replay button', () => fireEvent.click(screen.getByRole('button', { name: 'Stop replay (Enter)' }))],
+      ['Enter', () => press('Enter')],
+      ['Esc', () => press('Escape')],
+    ])('%s stops the replay: the audio stops, the banner goes, the Flow screen stays on the sentence it had reached', async (_how, stop) => {
+      const seq = await startReplay(0)
+      await seq.step(); await seq.step()
+      expect(current()).toHaveTextContent('再见')
+      h.player.stop.mockClear()
+      stop(); await flush()
+      expect(seq.signal!.aborted).toBe(true)
+      expect(h.player.stop).toHaveBeenCalled()
+      expect(banner()).toBeNull()
+      expect(screen.getByTestId('stage')).toHaveAttribute('data-stage', 'idle')
+      expect(usePractice.getState().idx).toBe(1)
+      expect(current()).toHaveTextContent('再见')
+      expect(screen.getByTestId('flow-settings')).toBeInTheDocument()
+      expect(h.rec.start).not.toHaveBeenCalled()                               // Enter only stopped: no run started
+      expect(screen.getByRole('button', { name: 'Start flow (Enter)' })).toBeInTheDocument()
+    })
+
+    it('starting a run during a replay stops it first; the run starts where the replay was', async () => {
+      clipsTake(2, () => true)
+      const seq = await startReplay(0)
+      await seq.step(); await seq.step()
+      press('Enter'); await flush()                                            // stops the replay
+      press('Enter'); await flush()                                            // starts the run
+      expect(seq.signal!.aborted).toBe(true)
+      await waitFor(() => expect(h.player.play).toHaveBeenCalledWith('/seg/12.opus', 1, expect.any(Function)))
+      expect(banner()).toBeNull()
+    })
+
+    it('switching mode during a replay stops it; Echo goes on from the sentence it had reached', async () => {
+      const seq = await startReplay(0)
+      await seq.step(); await seq.step()
+      fireEvent.click(screen.getByRole('button', { name: 'Echo' })); await flush()
+      expect(seq.signal!.aborted).toBe(true)
+      expect(usePractice.getState().mode).toBe('echo')
+      expect(usePractice.getState().idx).toBe(1)
+      expect(banner()).toBeNull()
+    })
+
+    it('picking a sentence in the drawer during a replay stops it and goes there', async () => {
+      const seq = await startReplay(1)
+      expect(current()).toHaveTextContent('你好')
+      fireEvent.click(screen.getByRole('button', { name: /^Lesson list/ }))
+      fireEvent.click(within(screen.getByTestId('lesson-drawer')).getAllByRole('button', { name: /再见/ })[0]); await flush()
+      expect(seq.signal!.aborted).toBe(true)
+      expect(banner()).toBeNull()
+      expect(usePractice.getState().idx).toBe(1)
+      expect(current()).toHaveTextContent('再见')
     })
 
     it('the runs list refreshes once a run has uploaded', async () => {

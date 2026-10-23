@@ -7,7 +7,8 @@ const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60))
 const nowS = () => performance.now() / 1000
 
 // The whole stage shows what to do (spec §3, mockup listen-speak.html), instead of a text line and a mic meter:
-// - listen / review: a small, calm label in the speaker's colour;
+// - listen / review / replay: a small, calm label in the speaker's colour (replay: a stored Flow run playing back, which
+//   is playback, never recording: no frame, no "Your turn"; its `wave` is the take's waveform, in the same slot);
 // - getReady (Flow after): a big `count` in accent inside a ring that runs down, plus "Get ready";
 // - yourTurn / along: a record-coloured frame round the stage, large "Your turn" ("Speak along"), a pulsing red dot
 //   and the take's m:ss timer from `startedAt` (performance clock, seconds), with `autoStop`'s small "stops by itself
@@ -32,7 +33,8 @@ export default function StageState({ stage, count = null, startedAt, autoStop = 
   // slim: the line while nothing is spoken; speaking, only its content's height; a countdown (unused there) its ring's room.
   const cue = !slim ? `${compact ? 'min-h-20' : 'min-h-28'} flex-col gap-1`
     : speaking ? 'flex-col gap-1' : stage === 'getReady' ? 'min-h-28 flex-col gap-1' : 'min-h-8 flex-row flex-wrap gap-x-3 text-sm'
-  const showWave = wave != null && (!slim || speaking)
+  const waving = speaking || stage === 'replay'
+  const showWave = wave != null && (!slim || waving)
   const ring = (place: string) => count != null && (
     <div data-testid="countdown" role="timer" aria-label={`starting in ${count}`} className={`absolute ${place} w-20 h-20 text-accent`}>
       <svg viewBox="0 0 80 80" aria-hidden="true" className="absolute inset-0 -rotate-90">
@@ -46,13 +48,13 @@ export default function StageState({ stage, count = null, startedAt, autoStop = 
     <section data-testid="stage" data-stage={stage}
       className={`rounded-2xl border-2 ${slim ? 'p-2 space-y-2' : compact ? 'p-3 space-y-2' : 'p-3 space-y-4'} ${speaking ? 'border-record ring-4 ring-inset ring-record/20' : 'border-transparent'}`}>
       {children}
-      {showWave && <div data-testid="wave-slot" className={compact ? 'h-10' : 'h-12'}>{speaking && wave}</div>}
+      {showWave && <div data-testid="wave-slot" className={compact ? 'h-10' : 'h-12'}>{waving && wave}</div>}
       {/* min-h-28 (112 px): getReady's ring (80) over "Get ready" (28), the tallest state; compact: the ring (80) alone,
           "Your turn" with its timer (~60) fits under it */}
       <div data-testid="stage-cue" className={`relative ${cue} flex items-center justify-center`}>
-        {(stage === 'listen' || stage === 'review') && (
+        {(stage === 'listen' || stage === 'review' || stage === 'replay') && (
           <p role="status" className={`flex justify-center gap-2 text-ref${slim ? ' text-sm' : ''}`}>
-            <span aria-hidden="true">▶</span> <span>{stage === 'listen' ? 'Listening' : 'Listen — the original, then you'}</span>
+            <span aria-hidden="true">▶</span> <span>{stage === 'listen' ? 'Listening' : stage === 'replay' ? 'Replaying' : 'Listen — the original, then you'}</span>
           </p>)}
         {stage === 'getReady' && (compact ? (<>
           {ring('top-0 right-1/2 mr-2')}

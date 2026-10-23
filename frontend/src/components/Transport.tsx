@@ -16,12 +16,14 @@ interface Props {
   // The lesson list: the position becomes its button, and the panel renders just above it (see Drawer).
   list?: { open: boolean; onToggle: () => void; panel: ReactNode }
   pulse?: 'record' | 'next' // the next expected action pulses (Record / Enter, or › to move on); never while recording
+  // A stored Flow run is playing back: Enter is "■ Stop replay", in the plain look, since it stops playback, not a recording.
+  replaying?: boolean
 }
 
 // The control bar (spec §2), three groups left to right: where am I (‹ n / N ›), what do I do (Listen, Record, Me),
 // extras (Anki, Sound). Every button says what it does; its key is the small grey hint under the label.
 // recordLabel: what Enter does when not recording (Flow's start, the drill's Again/Next).
-export default function Transport({ onAction, idx, total, recording, busy, hint, error, recordLabel, advance = false, sound, canPrev = idx > 0, canNext = true, showAnki = true, pulse, list }: Props) {
+export default function Transport({ onAction, idx, total, recording, busy, hint, error, recordLabel, advance = false, sound, canPrev = idx > 0, canNext = true, showAnki = true, pulse, list, replaying = false }: Props) {
   return (
     <div data-testid="transport" className="border-t border-line bg-panel px-3.5 py-3 space-y-1">
       <div className="flex flex-wrap items-center justify-between gap-2.5">
@@ -42,8 +44,10 @@ export default function Transport({ onAction, idx, total, recording, busy, hint,
         <div className="flex items-center gap-2">
           {/* ▶ is Listen (the speaker), never navigation: the chevrons are */}
           <Button icon={<span className="text-accent"><IconPlay /></span>} label="Listen" keyHint="Space" onClick={() => onAction('play')} disabled={recording} />
-          <Button icon={recording ? <IconStop /> : advance ? <IconChevronRight /> : <IconRecord />} label={recording ? 'Stop' : recordLabel ?? 'Record'} keyHint="Enter"
-            variant={advance && !recording ? 'primary' : 'record'} size="lg" pulse={pulse === 'record' && !recording} onClick={() => onAction('record')} disabled={busy} />
+          {replaying
+            ? <Button icon={<IconStop />} label="Stop replay" keyHint="Enter" size="lg" onClick={() => onAction('record')} />
+            : <Button icon={recording ? <IconStop /> : advance ? <IconChevronRight /> : <IconRecord />} label={recording ? 'Stop' : recordLabel ?? 'Record'} keyHint="Enter"
+              variant={advance && !recording ? 'primary' : 'record'} size="lg" pulse={pulse === 'record' && !recording} onClick={() => onAction('record')} disabled={busy} />}
           {/* nothing to hear while recording: every page ignores R then */}
           <Button icon={<IconMe />} label="Me" keyHint="R" onClick={() => onAction('replayYou')} disabled={recording} />
         </div>

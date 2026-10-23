@@ -285,6 +285,24 @@ describe('ClipPlayer', () => {
     clearSpy.mockRestore()
   })
 
+  it("calls each item's onStart just before it plays, in order, and none after an abort", async () => {
+    const events: string[] = []
+    const controller = new AbortController()
+    vi.spyOn(player, 'play').mockImplementation(async (url: string) => {
+      events.push(`play ${url}`)
+      if (url === 'b.mp3') controller.abort()
+    })
+    vi.useFakeTimers()
+    const seq = playSequence(player, [
+      { url: 'a.mp3', rate: 1, onStart: () => events.push('start a') },
+      { url: 'b.mp3', rate: 1, onStart: () => events.push('start b') },
+      { url: 'c.mp3', rate: 1, onStart: () => events.push('start c') },
+    ], 100, controller.signal)
+    await vi.advanceTimersByTimeAsync(300)
+    await seq
+    expect(events).toEqual(['start a', 'play a.mp3', 'start b', 'play b.mp3'])
+  })
+
   it('a sequence item with from/to plays that range of its clip', async () => {
     const range = vi.spyOn(player, 'playRange').mockResolvedValue()
     const play = vi.spyOn(player, 'play').mockResolvedValue()

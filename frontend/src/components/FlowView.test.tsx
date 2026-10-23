@@ -152,6 +152,20 @@ describe('<FlowView>', () => {
     expect(screen.queryByTestId('settings')).toBeNull()
     expect(slot).toHaveClass('min-h-9')
   })
+  it('replaying: the banner takes the settings line\'s place, the stage says Replaying with no count-in, the take\'s wave shows', () => {
+    const controls = <div data-testid="settings">from … to</div>
+    render(<FlowView {...base} running controls={controls} banner={<p data-testid="banner">Replaying</p>} stage="replay" sub="after" showText clipTime={1.6}
+      replayWave={<div data-testid="take-wave" />} />)
+    expect(screen.queryByTestId('settings')).toBeNull()
+    expect(screen.getByTestId('banner').parentElement).toHaveClass('min-h-9')
+    expect(screen.getByTestId('stage')).toHaveAttribute('data-stage', 'replay')
+    expect(screen.getByTestId('stage')).toHaveTextContent('Replaying')
+    expect(screen.queryByText('Get ready')).toBeNull()
+    expect(screen.queryByTestId('countdown')).toBeNull()
+    expect(screen.queryByTestId('live-wave')).toBeNull()
+    expect(screen.getByTestId('wave-slot')).toContainElement(screen.getByTestId('take-wave'))
+    expect(screen.getByTestId('wipe')).toBeInTheDocument()
+  })
   it('the last sentence of the run previews nothing: no next line, no count-in for it', () => {
     const late = { ...seg(2, 1, '再见', 2), ref_alignment_json: [{ ch: '再', start: 2.6, end: 3.0, conf: 1 }, { ch: '见', start: 3.0, end: 3.5, conf: 1 }] }
     render(<FlowView {...base} segments={[seg(1, 0, '你好', 0), late]} last={0} sub="along" showText clipTime={1.5} />)

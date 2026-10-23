@@ -24,6 +24,16 @@ describe('<StageState>', () => {
     expect(label).toHaveClass('text-ref')
     expect(screen.getByTestId('stage')).not.toHaveClass('border-record')
   })
+  it('replay: a calm "▶ Replaying" in the speaker colour, never the record frame or "Your turn"; its wave (the take) shows', () => {
+    render(<StageState compact stage="replay" wave={<div data-testid="w" />}>{card}</StageState>)
+    const label = screen.getByRole('status')
+    expect(label).toHaveTextContent('▶ Replaying')
+    expect(label).toHaveClass('text-ref')
+    expect(screen.getByTestId('stage')).not.toHaveClass('border-record')
+    expect(screen.queryByText('Your turn')).toBeNull()
+    expect(screen.queryByTestId('rec-dot')).toBeNull()
+    expect(screen.getByTestId('wave-slot')).toContainElement(screen.getByTestId('w'))
+  })
   it('getReady: a big count in accent inside a ring that runs down, plus "Get ready"', () => {
     const { rerender } = render(<StageState stage="getReady" count={3}>{card}</StageState>)
     const ring = screen.getByLabelText('starting in 3')

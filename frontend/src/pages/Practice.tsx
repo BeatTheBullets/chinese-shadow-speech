@@ -23,6 +23,7 @@ import TopBar from '../components/TopBar'
 import Transport from '../components/Transport'
 import type { SoundControls } from '../components/SoundPopover'
 import TwoTrack from '../components/TwoTrack'
+import Waveform from '../components/Waveform'
 import { stageOf } from '../lib/cue'
 import { echoReducer, MIN_TAKE_S, type EchoEvent, type EchoState } from '../lib/echo'
 import { weakestResults, type FlowResult, type FlowSub } from '../lib/flow'
@@ -32,11 +33,13 @@ import { passageIndexOf, passageSpan } from '../lib/passages'
 import { applyAttempt, isWarningText, noticeText, warningText } from '../lib/score'
 import { sessionUnsent } from '../lib/sessionExport'
 import { speechBounds } from '../lib/speech'
+import { weekdayTime } from '../lib/time'
 import { useNow } from '../lib/useNow'
 import { clamp01, guideApplies, playbackVolume } from '../lib/volume'
 import { usePractice, currentSegment, currentTake, type LastAttempt, type StoredTake } from '../store/practice'
 import { useSettings, defaultTextPrefs, type TextPrefs } from '../store/settings'
 import { TOKENS } from '../theme/tokens'
+import { IconPlay } from '../ui/icons'
 import { useFlow } from './useFlow'
 
 const MOVE_ON = 'Several tries on this one. Move on and come back later.'
@@ -61,6 +64,12 @@ const stored = (attemptId: number, duration: number, score?: Score | null): Stor
 type RunKind = 'flow'
 // One syllable's stretch of a clip, to play alone or in a sequence.
 type ClipRange = Required<Pick<SequenceItem, 'url' | 'rate' | 'from' | 'to'>>
+// A stored Flow run playing back (replayRun): its playback's controller, when the run was, and where the replay is:
+// its n-th of `total` sentences, `idx` in the lesson, with that sentence's take; first..last: the run's range.
+interface Replay {
+  ctrl: AbortController; startedAt: string; n: number; total: number; idx: number; first: number; last: number
+  take: { peaks: Float32Array | null; duration: number }
+}
 
 // Practice page: Echo and Flow modes (app style spec §4), the drawer's edit/split/merge and the Anki export.
 // Handlers read the stores with getState() so timers and late promises never act on a stale render's values.
@@ -113,6 +122,11 @@ export default function Practice() {
   const flow = useFlow({ lessonId, player, mic, beginRun: () => beginRun('flow'), endRun, setError,
     onUploaded: () => { if (usePractice.getState().mode === 'flow') loadFlowRuns() } })
   const [echoTurn, setEchoTurn] = useState<number | null>(null) // performance-clock second an Echo take began (ghost wipe, timer)
+  // Replay mode: a stored Flow run playing back (null: none), and the clip time of the original playing in it (its wipe).
+  const replayRef = useRef<Replay | null>(null)
+  const [replay, setReplayState] = useState<Replay | null>(null)
+  const setReplay = (r: Replay | null) => { replayRef.current = r; setReplayState(r) }
+  const [replayClip, setReplayClip] = useState<number | null>(null)
   const [runFrom, setRunFrom] = useState(0)                     // performance-clock second the Flow run began: along's timer
   const [help, setHelp] = useState(() => !useSettings.getState().helpSeen)
   const helpOpen = useRef(false)
@@ -225,9 +239,21 @@ export default function Practice() {
     usePractice.getState().setHint(HEADPHONES)
   }
   function clearVad() { if (vadTimer.current != null) { clearTimeout(vadTimer.current); vadTimer.current = null } }
+  // Stops whatever plays. A replay ends with it, the Flow screen staying on the sentence it had reached.
   function stopPlayback() {
+    endReplay(true)
     seqCtrl.current?.abort(); seqCtrl.current = null
     player.stop()
+  }
+  // Leaves replay mode (if on) and stops its playback; `stay`: on the sentence it had reached (stopped), else where the
+  // page was before it (played to its end).
+  function endReplay(stay: boolean) {
+    const r = replayRef.current
+    if (!r) return
+    setReplay(null); setReplayClip(null); setYouHead(null)
+    r.ctrl.abort()
+    const ps = usePractice.getState()
+    if (stay && alive.current && r.idx !== ps.idx) ps.setIdx(r.idx)
   }
   const busy = () => echoRef.current === 'recording' || echoRef.current === 'uploading' || runRef.current != null
 
@@ -357,15 +383,13 @@ export default function Practice() {
     stopPlayback()
     play().catch((e) => setError(`Could not play: ${message(e)}`))
   }
-  // `items` may still be on their way (a stored run's takes need their waveforms first); stopped meanwhile, nothing plays.
-  function playItems(items: SequenceItem[] | Promise<SequenceItem[]>) {
+  function playItems(items: SequenceItem[]) {
     if (busy()) return
     stopPlayback()
     const ctrl = new AbortController()
     seqCtrl.current = ctrl
-    const play = (its: SequenceItem[]) => playSequence(player, its, 250, ctrl.signal)
-    const done = Array.isArray(items) ? play(items) : items.then((its) => (ctrl.signal.aborted ? undefined : play(its)))
-    done.catch((e) => { if (!ctrl.signal.aborted) setError(`Playback failed: ${message(e)}`) })
+    playSequence(player, items, 250, ctrl.signal)
+      .catch((e) => { if (!ctrl.signal.aborted) setError(`Playback failed: ${message(e)}`) })
       .finally(() => { if (seqCtrl.current === ctrl) seqCtrl.current = null })
   }
   // This visit's take of the sentence, or its stored one when that is newer; with neither, nothing. It plays from its
@@ -411,6 +435,7 @@ export default function Practice() {
   }
 
   function goTo(i: number) {
+    if (replayRef.current) stopPlayback() // a replay ends first, so the move starts from where it had reached
     const ps = usePractice.getState(), n = ps.lesson?.segments.length ?? 0
     const j = Math.max(0, Math.min(n - 1, i))
     if (n === 0 || j === ps.idx) return
@@ -481,13 +506,42 @@ export default function Practice() {
   const pairOf = (segmentId: number, takeUrl: string, voice?: { from: number; to: number } | null): SequenceItem[] =>
     [{ url: api.segments.audioUrl(segmentId), rate: usePractice.getState().rate }, { url: takeUrl, rate: 1, ...voice }]
   const resultPair = (r: FlowResult) => pairOf(r.segmentId, r.url, r.voice)
-  // A stored run, original → you per sentence (its items come in sentence order); stops like any playback. Each
-  // take's voice is found on its waveform (cached, as the You track's); one that cannot be read plays whole.
-  const replayRun = (run: FlowRun) => playItems(Promise.all(run.items.map(async (it) => {
-    const url = api.attempts.audioUrl(it.attempt_id)
-    const peaks = await player.peaksFor(url, 400).catch(() => null)
-    return pairOf(it.segment_id, url, peaks && speechBounds(peaks, it.duration_s))
-  })).then((pairs) => pairs.flat()))
+  // A stored run, original → you per sentence (its items come in sentence order), in replay mode: the banner says so, and
+  // as each original starts its sentence comes into the stage (the transcript round it moving along as in a live run),
+  // with its take's waveform. ■ Stop replay (Enter), Esc, or anything that plays or moves elsewhere stops it like any
+  // playback (stopPlayback), on the sentence it had reached. Each take's voice is found on its waveform (cached, as the
+  // You track's); one that cannot be read plays whole.
+  async function replayRun(run: FlowRun) {
+    if (busy() || !run.items.length) return
+    stopPlayback(); setError('')
+    const ctrl = new AbortController()
+    seqCtrl.current = ctrl
+    const segs = usePractice.getState().lesson?.segments ?? []
+    // Each item's sentence by id (its idx may be stale after an edit); one that is gone keeps its stored place.
+    const at = run.items.map((it) => { const i = segs.findIndex((s) => s.id === it.segment_id); return i >= 0 ? i : Math.max(0, Math.min(segs.length - 1, it.idx)) })
+    const base = { ctrl, startedAt: run.started_at, total: run.items.length, first: Math.min(...at), last: Math.max(...at) }
+    setReplay({ ...base, n: 1, idx: at[0], take: { peaks: null, duration: run.items[0].duration_s } })
+    try {
+      const takes = await Promise.all(run.items.map(async (it) => {
+        const url = api.attempts.audioUrl(it.attempt_id)
+        return { url, peaks: await player.peaksFor(url, 400).catch(() => null), duration: it.duration_s }
+      }))
+      if (ctrl.signal.aborted) return
+      const mine = () => replayRef.current?.ctrl === ctrl
+      const items = run.items.flatMap((it, k): SequenceItem[] => {
+        const t = takes[k]
+        const [original, you] = pairOf(it.segment_id, t.url, t.peaks && speechBounds(t.peaks, t.duration))
+        const start = () => { if (mine()) { setReplay({ ...base, n: k + 1, idx: at[k], take: t }); setReplayClip(0); setYouHead(0) } }
+        return [{ ...original, onStart: start, onTime: (x) => { if (mine()) setReplayClip(x) } }, { ...you, onTime: (x) => { if (mine()) setYouHead(x) } }]
+      })
+      await playSequence(player, items, 250, ctrl.signal)
+    } catch (e) {
+      if (!ctrl.signal.aborted) setError(`Playback failed: ${message(e)}`)
+    } finally {
+      if (seqCtrl.current === ctrl) seqCtrl.current = null
+      if (replayRef.current?.ctrl === ctrl) endReplay(false) // played to its end: the Flow screen as it was before
+    }
+  }
 
   // Edit, split and merge rebuild sentences on the server. Everything in flight stops first; afterwards the lesson
   // reloads and stays on the current sentence if it still exists, else on `fallbackId`, else the same position.
@@ -610,6 +664,12 @@ export default function Practice() {
     const ps = usePractice.getState()
     if (ps.lesson?.id !== lessonId) return // the store still holds another lesson (this one is loading)
     if (a === 'help') { setHelp(true); return }
+    // During a replay Enter is ■ Stop replay. Anything else that plays or acts on a sentence ends the replay first, so
+    // it acts on the sentence the replay had reached; the text toggles, the list and the speed leave it playing.
+    if (replayRef.current) {
+      if (a === 'record') { stopPlayback(); return }
+      if (!['toggleHanzi', 'togglePinyin', 'toggleTranslation', 'toggleDrawer', 'speed075'].includes(a)) stopPlayback()
+    }
     const run = runRef.current
     if (run?.kind === 'flow') { // while Flow runs: Enter stops (finished sentences are kept), → skips, speed works
       if (a === 'record') void flow.stop()
@@ -647,10 +707,18 @@ export default function Practice() {
   }
   const actRef = useRef(act)
   actRef.current = act
+  // Esc stops a replay, unless it is closing the list or a pop-up first. True when it did.
+  const escRef = useRef<() => boolean>(() => false)
+  escRef.current = () => {
+    if (!replayRef.current || usePractice.getState().drawerOpen || document.querySelector('[data-popover-open]')) return false
+    stopPlayback()
+    return true
+  }
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (dialogOpen.current || helpOpen.current) return // a dialog or the help keeps its own keys (even with focus outside it, e.g. on the body)
       if (e.defaultPrevented) return                       // already taken, e.g. the key that closed the help
+      if (e.key === 'Escape' && escRef.current()) { e.preventDefault(); return }
       const a = actionForKey(e)
       if (!a) return
       e.preventDefault()
@@ -674,6 +742,9 @@ export default function Practice() {
   const show = !hide
   const fs = flow.state
   const flowRunning = fs.phase === 'running'
+  // Replay mode (a stored run playing back): the Flow screen as during a run, on the replay's sentence.
+  const rp = st.mode === 'flow' ? replay : null
+  const at = rp ? rp.idx : st.idx
   const recordLabel = st.mode === 'flow' ? 'Start flow' : undefined
   const range = flowRange()
   const sound: SoundControls = { rate: st.rate, onRate: st.setRate, volume: {
@@ -684,34 +755,44 @@ export default function Practice() {
   const refPlaying = echo === 'playing' || echo === 'playback'
   const { wipe } = stageWipe({ spans, refPlaying, refHead, turnStart: st.mode === 'echo' ? echoTurn : null, now, rate: st.rate })
   // The stage (spec §3). Echo goes straight to "Your turn" (no countdown); Flow's countdown is FlowView's.
-  const stage = stageOf({ mode: st.mode, echo, runKind, flowPhase: fs.phase, flowSub: fs.sub, flowTurn: fs.turn != null })
+  const stage = rp ? 'replay' : stageOf({ mode: st.mode, echo, runKind, flowPhase: fs.phase, flowSub: fs.sub, flowTurn: fs.turn != null })
   // The next expected action pulses, while nothing is going on (no "Ready / Done" line): Record before an Echo take or
   // a Flow run; › once this sentence has a take (Enter would still record again), unless it is the last sentence.
-  const pulse = echo !== 'idle' ? undefined
+  const pulse = echo !== 'idle' || rp ? undefined
     : st.mode === 'flow' ? (fs.phase === 'setup' ? 'record' : undefined)
     : st.lastAttempt == null ? 'record' : st.idx < segments.length - 1 ? 'next' : undefined
   // Picking a sentence or opening an edit/split dialog from the list closes it (the dialog is modal over the page anyway); a merge keeps it open.
-  const lessonList = <Drawer segments={segments} idx={st.idx} open={st.drawerOpen} pendingIds={fs.pending} onJump={(i) => { closeList(); goTo(i) }} onClose={closeList}
+  const lessonList = <Drawer segments={segments} idx={at} open={st.drawerOpen} pendingIds={fs.pending} onJump={(i) => { closeList(); goTo(i) }} onClose={closeList}
     onEdit={(i) => { closeList(); openDialog('edit', i) }} onSplit={(i) => { closeList(); openDialog('split', i) }} onMerge={mergeNext} passages={passages} practised={st.practised} />
-  const bar = <Transport onAction={act} idx={st.idx} total={segments.length} recording={echo === 'recording'} busy={echo === 'uploading'} hint={st.hint} error={error} recordLabel={recordLabel} sound={sound}
-    canNext={st.idx < segments.length - 1} pulse={pulse} list={{ open: st.drawerOpen, onToggle: st.toggleDrawer, panel: lessonList }} />
+  const bar = <Transport onAction={act} idx={at} total={segments.length} recording={echo === 'recording'} busy={echo === 'uploading'} hint={st.hint} error={error} recordLabel={recordLabel} sound={sound}
+    canNext={at < segments.length - 1} pulse={pulse} list={{ open: st.drawerOpen, onToggle: st.toggleDrawer, panel: lessonList }} replaying={rp != null} />
+  // In the settings line's place while a replay plays: playback (the speaker's moon-white and ▶), not recording.
+  const replayBanner = rp && (
+    <p data-testid="replay-banner" role="status" className="min-h-9 flex items-center justify-center gap-2 text-sm text-ref">
+      <IconPlay /><span>Replaying run from {weekdayTime(rp.startedAt)} · sentence {rp.n} / {rp.total}</span>
+    </p>)
+  // The replayed take's waveform in the stage, its playhead moving as it plays; at most 480 px wide.
+  const replayWave = rp && (
+    <div className="h-full flex items-center justify-center">
+      <Waveform peaks={rp.take.peaks} duration={rp.take.duration} pxPerSec={Math.min(80, 480 / Math.max(0.5, rp.take.duration))} playhead={youHead} color={TOKENS.you} height={40} />
+    </div>)
   return (
     <div className="h-full flex flex-col">
       <TopBar title={st.lesson.title} speaker={st.lesson.speaker} mode={st.mode}
         onMode={(m) => void switchMode(m)} elapsedS={elapsed} onHelp={() => setHelp(true)}
         onBack={leave}
-        passage={passages.length ? { index: passageIndexOf(passages, segments, flowRunning ? fs.current : st.idx), titles: passages.map((p) => p.title), onPick: pickPassage } : null} />
+        passage={passages.length ? { index: passageIndexOf(passages, segments, flowRunning ? fs.current : at), titles: passages.map((p) => p.title), onPick: pickPassage } : null} />
       <div className="flex-1 flex min-h-0">
         <main className="flex-1 flex flex-col min-w-0">
           {/* Flow shows its own screen as soon as it is chosen (before a run: the range's first line, idle, with the
               settings above); its summary and Echo share the sentence page. */}
           {st.mode === 'flow' && fs.phase !== 'summary' ? (<>
-            <FlowView segments={segments} current={flowRunning ? fs.current : range.from} first={flowRunning ? fs.range?.from ?? 0 : range.from}
-              last={flowRunning ? fs.range?.to ?? segments.length - 1 : range.to} running={flowRunning}
-              pending={fs.pending} sub={fs.sub} rate={st.rate} now={now}
-              stage={stage} mic={mic} startedAt={fs.turn ? fs.turn.startedAt : runFrom} clipTime={flowRunning ? fs.clipTime : null} turn={flowRunning ? fs.turn : null}
+            <FlowView segments={segments} current={rp ? rp.idx : flowRunning ? fs.current : range.from} first={rp ? rp.first : flowRunning ? fs.range?.from ?? 0 : range.from}
+              last={rp ? rp.last : flowRunning ? fs.range?.to ?? segments.length - 1 : range.to} running={flowRunning || rp != null}
+              pending={fs.pending} sub={fs.sub} rate={st.rate} now={now} banner={replayBanner} replayWave={replayWave}
+              stage={stage} mic={mic} startedAt={fs.turn ? fs.turn.startedAt : runFrom} clipTime={rp ? replayClip : flowRunning ? fs.clipTime : null} turn={flowRunning ? fs.turn : null}
               showText={!(settings.practice.hideTextWhileRecording && fs.sub === 'after' && fs.turn != null)}
-              controls={<FlowSetup segments={segments} from={range.from} to={range.to} sub={fs.sub} onChange={setFlowForm} runs={flowRuns} onReplay={replayRun} />} />
+              controls={<FlowSetup segments={segments} from={range.from} to={range.to} sub={fs.sub} onChange={setFlowForm} runs={flowRuns} onReplay={(r) => void replayRun(r)} />} />
             {flowRunning ? <FlowTransport onAction={act} idx={fs.current} total={segments.length} sound={sound} error={error} hint={st.hint} /> : bar}
           </>) : (<>
             {/* Echo is compact: the card, the slim stage line, both tracks and the bar fit a ~900 px viewport unscrolled. */}

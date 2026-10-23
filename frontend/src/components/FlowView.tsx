@@ -25,6 +25,9 @@ export interface FlowViewProps {
   clipTime: number | null; turn: { startedAt: number; duration: number } | null
   running: boolean    // false: the Flow screen before a run (Enter starts it), with `controls` shown
   controls?: ReactNode // the run's settings (FlowSetup): shown before a run; while it runs nothing shows but their space is kept
+  // A stored run playing back (stage 'replay', running true): `banner` says so in the settings' place, `replayWave` (the
+  // take's waveform) shows in the stage's wave slot. The stage counts nothing in then: no turn follows.
+  banner?: ReactNode; replayWave?: ReactNode
 }
 
 // The transcript round the stage: this many lines before the current one (above the stage) and after it (below).
@@ -48,6 +51,8 @@ export default function FlowView(p: FlowViewProps) {
     ? flowWipe({ spans, sub: p.sub, clipTime: p.clipTime, clipDuration: cur.end_s - cur.start_s, turn: p.turn, now: p.now, rate: p.rate,
       next: along && next ? nextLineStart(cur, next, p.rate) : null, lead: along && prev ? lineLead(prev, cur, p.rate) : null })
     : { wipe: null, count: null, turnLeft: null }
+  const replay = p.stage === 'replay'
+  const counting = k.count != null && !replay
   // Lines from..to-1 of the window; one past either end of the lesson is an empty slot of the same height.
   const lines = (from: number, to: number) => Array.from({ length: to - from }, (_, j) => {
     const i = from + j, s = p.segments[i]
@@ -58,14 +63,14 @@ export default function FlowView(p: FlowViewProps) {
     <div className="flex-1 overflow-y-auto p-6">
       <div data-testid="flow-transcript" className="mx-auto w-full max-w-2xl flex flex-col items-center gap-1">
         {/* the line's height is kept while a run hides it: the content is not centred, so collapsing it would move the stage */}
-        {p.controls != null && <div className="w-full min-h-9 mb-1">{!p.running && p.controls}</div>}
+        {p.controls != null && <div className="w-full min-h-9 mb-1">{!p.running ? p.controls : p.banner}</div>}
         {lines(current - WINDOW.before, current)}
         {cur && (
           <div data-testid="flow-current" className="w-full flex gap-3 items-start px-3 rounded bg-card py-2">
             <span className="flex items-center gap-2 pt-2"><RowMarks s={cur} pending={p.pending.has(cur.id)} /></span>
             <div className="flex-1 min-w-0">
-              <StageState compact stage={k.count != null && p.stage !== 'along' ? 'getReady' : p.stage} count={k.count} startedAt={p.startedAt}
-                wave={<LiveWave mic={p.mic} color={TOKENS.you} />}>
+              <StageState compact stage={counting && p.stage !== 'along' ? 'getReady' : p.stage} count={counting ? k.count : null} startedAt={p.startedAt}
+                wave={replay ? p.replayWave : <LiveWave mic={p.mic} color={TOKENS.you} />}>
                 <KaraokeSentence wipe={k.wipe} text={cur.text} words={cur.words_json} showHanzi={p.showText} showPinyin={p.showText} />
                 {!p.showText && <GhostLine count={spans.length} wipe={k.wipe} />}
                 {/* after's turn bar keeps its slot while listening, so the turn opening moves nothing */}
