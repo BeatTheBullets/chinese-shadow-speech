@@ -328,8 +328,8 @@ def test_unpunctuated_count_mismatch_fallback_is_cut_to_max_chars():
     assert flat == list(range(len(tr.chars)))
 
 
-@pytest.mark.parametrize("punctuation, expected", [(False, None), (True, "ct-punc")])
-def test_paraformer_load_passes_punc_model_only_when_punctuation_is_on(monkeypatch, punctuation, expected):
+@pytest.mark.parametrize("punctuator", [None, "fake"])
+def test_paraformer_never_loads_ct_punc(monkeypatch, punctuator):
     import sys
     import types
     from shadow.ingest.asr import ParaformerASR
@@ -340,7 +340,46 @@ def test_paraformer_load_passes_punc_model_only_when_punctuation_is_on(monkeypat
             seen.update(kw)
 
     monkeypatch.setitem(sys.modules, "funasr", types.SimpleNamespace(AutoModel=FakeAutoModel))
-    ParaformerASR("m", "cpu", punctuation=punctuation)._load()
-    assert seen.get("punc_model") == expected
-    assert ("punc_model" in seen) == punctuation
+    ParaformerASR("m", "cpu", punctuator=None if punctuator is None else _Marks())._load()
+    assert "punc_model" not in seen
     assert seen["model"] == "m" and seen["vad_model"] == "fsmn-vad"
+
+
+class _Marks:
+    """Fake punctuator: a full stop after every 4th speech char, and at the end."""
+    def __init__(self):
+        self.calls = []
+
+    def punctuate(self, text):
+        self.calls.append(text)
+        sp = text.replace(" ", "")
+        return "".join(ch + ("。" if (i + 1) % 4 == 0 or i == len(sp) - 1 else "") for i, ch in enumerate(sp))
+
+
+class _Unpunctuated:
+    def generate(self, **kw):
+        ts = [[i * 100, i * 100 + 100] for i in range(8)]
+        return [{"text": "我 是 学 生 我 爱 中 文", "timestamp": ts}]
+
+
+def test_asr_run_punctuates_with_sherpa(tmp_path):
+    from shadow.config import SegmentationCfg
+    from shadow.ingest.asr import ParaformerASR
+    marks = _Marks()
+    asr = ParaformerASR("none", "cpu", punctuator=marks, segmentation=SegmentationCfg()); asr._model = _Unpunctuated()
+    tr = asr.transcribe(tmp_path / "x.wav")
+    assert tr.text == "我是学生。我爱中文。"
+    assert len(tr.segments) == 2
+    speech = [c for c in tr.chars if not is_punct(c.c)]
+    assert [round(c.start, 1) for c in speech] == [i / 10 for i in range(8)]       # one timestamp per char
+    assert marks.calls == ["我是学生我爱中文"]
+
+
+def test_hear_skips_punctuation(tmp_path):
+    from shadow.config import SegmentationCfg
+    from shadow.ingest.asr import AsrHearer, ParaformerASR
+    marks = _Marks()
+    asr = ParaformerASR("none", "cpu", punctuator=marks, segmentation=SegmentationCfg()); asr._model = _Unpunctuated()
+    assert AsrHearer(asr).hear(tmp_path / "x.wav") == "我是学生我爱中文"
+    assert marks.calls == []
+

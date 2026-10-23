@@ -17,7 +17,11 @@ class ModelsCfg(BaseModel):
     tone_embedder: str = "TencentGameMate/chinese-wav2vec2-base"      # Phase 2 spec §10 (MIT)
     tone_embedder_revision: str = "3991242c806928916fff4a8c0e4f76acf661b743"
     tone_layer: int = 6
-    punctuation: bool = True          # False: no punctuation model; sentences are cut at pauses ([segmentation])
+    punctuation: str = "sherpa"       # "sherpa": the small sherpa-onnx punctuation model; "pauses": none, sentences are cut at pauses ([segmentation])
+    punctuation_model: str = "sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8"
+    punctuation_url: str = ("https://github.com/k2-fsa/sherpa-onnx/releases/download/punctuation-models/"
+                            "sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8.tar.bz2")
+    punctuation_sha256: str = "c0d5aa5f8eeb686032345e180bedf39319dc2e0556781c6264bcadba8328a6e1"
     int8: bool = False                # CPU only: 8-bit recogniser, aligner and sounds model (about half the RAM)
     int8_skip: list[str] = []         # models kept fp32 even with int8 on: "asr", "aligner", "sounds"
     threads: int = 0                  # CPU threads for the models; 0 = physical cores minus one

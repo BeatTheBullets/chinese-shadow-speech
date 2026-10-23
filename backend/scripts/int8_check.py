@@ -224,7 +224,7 @@ def words_half(half: str, data_dir: Path, limit: int | None, device: str) -> Non
     from shadow.scoring.reference import segment_syllables
     from shadow.store.models import Attempt, Segment
     settings = load_settings()
-    asr = ParaformerASR(settings.models.asr, device, punctuation=False, int8=(half == "int8"))
+    asr = ParaformerASR(settings.models.asr, device, int8=(half == "int8"))
     res: dict[str, dict] = {}
     with readonly_session(data_dir) as db:
         atts = db.exec(select(Attempt).where(Attempt.score_json != None).order_by(Attempt.id)).all()   # noqa: E711
@@ -296,7 +296,9 @@ def cer_half(half: str, device: str) -> None:
             print(f"{out.name}: cached")
             continue
         if asr is None:
-            asr = ParaformerASR(settings.models.asr, device, punctuation=True, int8=(half == "int8"))
+            from shadow.ingest.punct import make_punctuator
+            asr = ParaformerASR(settings.models.asr, device, punctuator=make_punctuator(settings.models),
+                                segmentation=settings.segmentation, int8=(half == "int8"))
         print(f"transcribing {wav.parent.name} ({half}) ...", flush=True)
         out.write_text(json.dumps({"text": asr.transcribe(wav).text}, ensure_ascii=False))
 

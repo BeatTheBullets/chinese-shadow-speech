@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from shadow.config import Settings
 from shadow.ingest.align import Aligner, FakeAligner, LockedAligner, MmsAligner, make_aligner
 from shadow.ingest.asr import ASR, AsrHearer, FakeASR, Hearer, ParaformerASR
+from shadow.ingest.punct import make_punctuator
 from shadow.ingest.transcript import Transcript
 from shadow.quant import cpu_threads, int8_wanted
 from shadow.ingest.youtube import Downloader, YtDlpDownloader
@@ -56,7 +57,7 @@ def build_deps(settings: Settings) -> Deps:
     skip = set(settings.models.int8_skip)          # a model that failed its int8 check stays fp32
     int8_asr, int8_aligner, int8_sounds = (int8 and n not in skip for n in ("asr", "aligner", "sounds"))
     files = FileLayout(settings.data_dir)
-    asr = ParaformerASR(settings.models.asr, device, punctuation=settings.models.punctuation,
+    asr = ParaformerASR(settings.models.asr, device, punctuator=make_punctuator(settings.models),
                        segmentation=settings.segmentation, int8=int8_asr)
     aligner = LockedAligner(make_aligner(settings.resolved_aligner(), device, int8_aligner))
     sounds, sounds_error = None, None

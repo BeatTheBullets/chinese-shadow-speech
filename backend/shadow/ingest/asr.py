@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Protocol
 from shadow.config import SegmentationCfg
 from shadow.ingest.pauses import pause_ranges
+from shadow.ingest.punct import Punctuator, punctuate_timed
 from shadow.ingest.rectify import SENTENCE_END
 from shadow.ingest.text import is_punct, to_simplified
 from shadow.memory import trim_heap
@@ -185,10 +186,10 @@ def transcript_from_funasr(result: dict[str, Any], pauses: SegmentationCfg | Non
 
 class ParaformerASR:
     """One recogniser shared by ingest jobs and attempt scoring: calls run one at a time."""
-    def __init__(self, model_id: str, device: str, punctuation: bool = True,
+    def __init__(self, model_id: str, device: str, punctuator: Punctuator | None = None,
                  segmentation: SegmentationCfg | None = None, int8: bool = False):
         self.model_id, self.device, self.int8 = model_id, device, int8
-        self.punctuation, self.segmentation = punctuation, segmentation
+        self.punctuator, self.segmentation = punctuator, segmentation
         self._model = None
         self._lock = threading.Lock()
 
@@ -203,8 +204,6 @@ class ParaformerASR:
             with model_load_lock:
                 kwargs: dict[str, Any] = {"model": self.model_id, "vad_model": "fsmn-vad", "device": self.device,
                                           "disable_update": True}
-                if self.punctuation:
-                    kwargs["punc_model"] = "ct-punc"
                 model = AutoModel(**kwargs)
                 if self.int8:
                     from shadow.quant import quantize_linear
@@ -227,18 +226,23 @@ class ParaformerASR:
             return self._run(wav_path)
 
     def try_transcribe(self, wav_path: Path, timeout: float) -> Transcript | None:
-        """None when the recogniser stays busy (another call holds it) for `timeout` seconds."""
+        """None when the recogniser stays busy (another call holds it) for `timeout` seconds. The words check only
+        needs the words: no punctuation."""
         if not self._lock.acquire(timeout=timeout):
             return None
         try:
-            return self._run(wav_path)
+            return self._run(wav_path, punctuate=False)
         finally:
             self._lock.release()
 
-    def _run(self, wav_path: Path) -> Transcript:
+    def _run(self, wav_path: Path, punctuate: bool = True) -> Transcript:
         res = self._load().generate(input=str(wav_path), sentence_timestamp=True, batch_size_s=300)
-        pauses = None if self.punctuation else self.segmentation
-        return transcript_from_funasr(res[0] if res else {"text": ""}, pauses=pauses)
+        r = res[0] if res else {"text": ""}
+        if self.punctuator is None or not punctuate:       # FunASR's text is unpunctuated: cut at pauses (if configured)
+            return transcript_from_funasr(r, pauses=self.segmentation)
+        cfg = self.segmentation or SegmentationCfg()
+        text = to_simplified(r.get("text") or "")
+        return transcript_from_funasr({**r, "text": punctuate_timed(text, r.get("timestamp") or [], self.punctuator, cfg)})
 
 
 class Hearer(Protocol):

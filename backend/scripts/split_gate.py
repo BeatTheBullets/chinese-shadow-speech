@@ -4,7 +4,7 @@
 
 Sources: the YouTube videos in split_gate_urls.txt (human subtitles are the reference; the app's own subtitle alignment
 times them) and, with --lessons, stored lessons (their stored segment boundaries are the reference). Each source is
-transcribed once with the punctuation model on; candidate "punctuation" is today's rectify_transcript, candidate
+transcribed once with the sherpa-onnx punctuation model (settings.models.punctuation must be "sherpa"); candidate "punctuation" is today's rectify_transcript, candidate
 "pauses" is pause_ranges over the same characters with punctuation removed. --data-dir (default: the settings' data dir)
 is only read, and the lessons database is opened read-only; downloads and transcripts are cached under this checkout's
 data/cache/split-gate/. --int8 transcribes with the 8-bit recogniser on the CPU (transcripts cached as asr-int8.json). Prints and writes a markdown report ending in PASS or FAIL."""
@@ -22,6 +22,7 @@ from shadow.ingest import audio
 from shadow.ingest.asr import ParaformerASR
 from shadow.ingest.pauses import pause_ranges
 from shadow.ingest.pipeline import _subtitle_transcript
+from shadow.ingest.punct import make_punctuator
 from shadow.ingest.rectify import rectify_transcript
 from shadow.ingest.splitcheck import SplitReport, gate_passes, match, piece_ends, reference_breaks, split_report
 from shadow.ingest.text import is_punct
@@ -160,7 +161,8 @@ def main() -> None:
 
     sources = lesson_sources(data_dir, a.lessons) if a.lessons else []
     device = "cpu" if a.int8 else settings.resolved_device()
-    asr = ParaformerASR(settings.models.asr, device, punctuation=True, int8=a.int8)
+    asr = ParaformerASR(settings.models.asr, device, punctuator=make_punctuator(settings.models),
+                       segmentation=settings.segmentation, int8=a.int8)
     videos = [s for u in urls() if (s := video_source(u, asr, a.int8)) is not None]
     sources = videos + sources
     if not sources:
