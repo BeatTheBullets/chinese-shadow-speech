@@ -12,6 +12,7 @@ describe('<SoundsPanel>', () => {
     const onDrill = vi.fn()
     render(<SoundsPanel stats={stats} onDrill={onDrill} />)
     expect(screen.getByText('ch said as c')).toBeInTheDocument()
+    expect(screen.getByText('hard')).toBeInTheDocument()
     expect(screen.getByText('2 of 10')).toBeInTheDocument()
     expect(screen.getByText('20%')).toBeInTheDocument()
     expect(screen.getByRole('img', { name: /ch said as c.*per week/ })).toBeInTheDocument()
