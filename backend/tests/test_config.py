@@ -12,6 +12,16 @@ def test_loads_defaults_from_toml(tmp_path: Path):
     assert s.models.aligner == "auto"
 
 
+def test_shadow_config_env_wins(monkeypatch, tmp_path: Path):
+    toml = tmp_path / "chosen" / "config.toml"
+    toml.parent.mkdir()
+    toml.write_text("[server]\nport = 9123\n")
+    monkeypatch.setenv("SHADOW_CONFIG", str(toml))
+    s = load_settings()
+    assert s.server.port == 9123
+    assert s.data_dir == toml.parent / "data"
+
+
 def test_data_dir_defaults_next_to_config(tmp_path: Path):
     toml = tmp_path / "config.toml"
     toml.write_text("")

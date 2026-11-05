@@ -1,4 +1,5 @@
 from __future__ import annotations
+import os
 import tomllib
 from pathlib import Path
 from pydantic import BaseModel, Field
@@ -127,7 +128,9 @@ class Settings(BaseModel):
 
 
 def load_settings(path: Path | None = None) -> Settings:
-    path = path or Path(__file__).resolve().parents[2] / "config.toml"
+    if path is None:
+        env = os.environ.get("SHADOW_CONFIG")
+        path = Path(env) if env else Path(__file__).resolve().parents[2] / "config.toml"
     raw = tomllib.loads(path.read_text()) if path.exists() else {}
     s = Settings.model_validate(raw)
     if "data_dir" not in raw:
