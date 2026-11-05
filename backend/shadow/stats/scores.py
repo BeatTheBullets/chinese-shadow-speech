@@ -144,8 +144,12 @@ def weakest_tones(rows: list[SylRow], k: int = 3) -> list[dict]:
     tones, pairs = tone_groups(rows)
     cands = [{"kind": "tone", "key": str(g["tone"]), "label": f"Tone {g['tone']}", "mean": g["mean"], "n": g["n"]}
              for g in tones if g["tone"] != 0 and g["n"] >= MIN_WEAK]
+    # Neutral is left out on both sides of a pair, as the drill focus ranking already does: the tone scorer reads
+    # neutral syllables as near-zero, so a pair ending in 0 would sit at the top of the widget for good and crowd
+    # out the real tones. The matrix on the details page still shows them.
     cands += [{"kind": "pair", "key": f"{g['prev_tone']}-{g['tone']}", "label": f"{g['prev_tone']} → {g['tone']}",
-               "mean": g["mean"], "n": g["n"]} for g in pairs if g["prev_tone"] != 0 and g["n"] >= MIN_WEAK]
+               "mean": g["mean"], "n": g["n"]}
+              for g in pairs if g["prev_tone"] != 0 and g["tone"] != 0 and g["n"] >= MIN_WEAK]
     cands.sort(key=lambda c: (c["mean"], -c["n"], c["key"]))
     return cands[:k]
 

@@ -91,9 +91,23 @@ def test_tone_groups_and_weakest_tones():
     assert {t["tone"] for t in tones} == {0, 1, 3}
     assert any(p["prev_tone"] == 0 and p["tone"] == 1 for p in pairs)
     weak = weakest_tones(rows)
-    assert [(w["kind"], w["key"], w["label"]) for w in weak] == [("pair", "1-0", "1 → 0"), ("tone", "1", "Tone 1")]
+    # A pair ending in neutral (1-0) is left out, so the one qualifying real group is all that is ranked.
+    assert [(w["kind"], w["key"], w["label"]) for w in weak] == [("tone", "1", "Tone 1")]
     assert all(w["key"] != "0" for w in weak)
     assert all(w["key"] != "2-3" for w in weak)
+
+
+def test_weakest_tones_leaves_neutral_pairs_out():
+    """The tone scorer reads neutral syllables as near-zero, so a pair ending in 0 would own the widget forever
+    (the drill focus ranking already leaves them out)."""
+    rows = [row(tone=0, prev=2, score=0.03)] * 40        # the worst mean by far, but neutral: never ranked
+    rows += [row(tone=2, prev=2, score=0.52)] * 20
+    rows += [row(tone=1, prev=4, score=0.80)] * 20
+    weak = weakest_tones(rows)
+    assert [w["key"] for w in weak] == ["2", "2-2", "1"]
+    assert all(not w["key"].endswith("-0") for w in weak)
+    # The rows themselves still carry neutral, so the details page's matrix is unchanged.
+    assert any(p["prev_tone"] == 2 and p["tone"] == 0 for p in tone_groups(rows)[1])
 
 
 def test_sound_directions_and_weakest_sounds():
