@@ -1,14 +1,22 @@
+import os
+import shutil
+import uuid
 import pytest
 from pathlib import Path
 
 
 @pytest.fixture
-def data_dir(tmp_path: Path) -> Path:
-    d = tmp_path / "data"
+def data_dir(tmp_path: Path):
+    # SHADOW_TEST_TMP lets CI put data dirs under a path with a space and a non-ASCII letter.
+    base = os.environ.get("SHADOW_TEST_TMP")
+    root = Path(base) / f"shadow-{uuid.uuid4().hex[:12]}" if base else tmp_path
+    d = root / "data"
     (d / "lessons").mkdir(parents=True)
     (d / "attempts").mkdir()
     (d / "cache").mkdir()
-    return d
+    yield d
+    if base:
+        shutil.rmtree(root, ignore_errors=True)
 
 
 from fastapi.testclient import TestClient
