@@ -11,7 +11,7 @@ export default function UpdateBanner() {
   useEffect(() => {
     let live = true
     api.app.update().then((r) => {
-      if (live && r.newer && r.latest && r.url && read() !== r.latest) setInfo({ latest: r.latest, url: r.url })
+      if (live && r.newer && r.latest && r.url?.startsWith('https://') && read() !== r.latest) setInfo({ latest: r.latest, url: r.url })
     }).catch(() => { /* no banner when the check fails */ })
     return () => { live = false }
   }, [])

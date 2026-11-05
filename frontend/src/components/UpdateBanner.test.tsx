@@ -34,6 +34,14 @@ describe('UpdateBanner', () => {
     expect(a.getAttribute('target')).toBe('_blank')
   })
 
+  it('renders no link for a url that is not https', async () => {
+    h.update.mockResolvedValue(info({ url: 'javascript:alert(1)' }))
+    const { container } = render(<UpdateBanner />)
+    await waitFor(() => expect(h.update).toHaveBeenCalled())
+    expect(container.querySelector('a')).toBeNull()
+    expect(container.textContent).toBe('')
+  })
+
   it('dismiss hides it for that version only', async () => {
     h.update.mockResolvedValue(info())
     const { unmount } = render(<UpdateBanner />)

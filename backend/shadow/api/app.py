@@ -17,16 +17,17 @@ _cache: tuple[float, dict] | None = None      # (monotonic time of the fetch, re
 _lock = threading.Lock()
 
 
-def current_version() -> str:
+def current_version() -> str | None:
+    """None when the package metadata is missing: no banner then, rather than one for every release."""
     try:
         return version("shadow")
     except PackageNotFoundError:
-        return "0.0.0"
+        return None
 
 
 def fetch_release(url: str) -> dict:
     """The releases API's JSON. Sends only a generic User-Agent, nothing about the user."""
-    req = urllib.request.Request(url, headers={"User-Agent": f"chinese-shadow-speech/{current_version()}",
+    req = urllib.request.Request(url, headers={"User-Agent": f"chinese-shadow-speech/{current_version() or "unknown"}",
                                                "Accept": "application/vnd.github+json"})
     with urllib.request.urlopen(req, timeout=TIMEOUT_S) as r:        # noqa: S310 (https URL from config)
         return json.load(r)
@@ -53,9 +54,9 @@ def _latest(url: str) -> dict:
         try:
             data = fetch_release(url)
             tag = str(data.get("tag_name") or "").strip().removeprefix("v")
-            if parse_version(tag) is not None:
-                html_url = data.get("html_url")
-                result = {"latest": tag, "url": html_url if isinstance(html_url, str) else None}
+            html_url = data.get("html_url")
+            if parse_version(tag) is not None and isinstance(html_url, str) and html_url.startswith("https://"):
+                result = {"latest": tag, "url": html_url}
         except Exception as e:  # noqa: BLE001
             log.info("update check failed: %s", e)
         _cache = (time.monotonic(), result)

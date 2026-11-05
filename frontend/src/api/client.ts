@@ -125,7 +125,7 @@ export const api = {
     },
   },
   app: {
-    update: () => req<{ current: string; latest: string | null; url: string | null; newer: boolean }>('/app/update'),
+    update: () => req<{ current: string | null; latest: string | null; url: string | null; newer: boolean }>('/app/update'),
   },
   review: {
     unexported: () => req<UnexportedItem[]>('/review/unexported'),
