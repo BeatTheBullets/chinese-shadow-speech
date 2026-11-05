@@ -84,13 +84,16 @@ jobs:
         run: |
           npx eslint .
           npx tsc -b
+      - name: Install Inno Setup
+        if: hashFiles('packaging/windows/build.ps1') != ''
+        run: choco install innosetup --version=6.4.3 --no-progress -y
       - name: Build installer
         if: hashFiles('packaging/windows/build.ps1') != ''
-        run: ./packaging/windows/build.ps1
+        run: ./packaging/windows/build.ps1   # version defaults to backend/pyproject.toml; writes dist/chinese-shadow-speech-X.Y.Z-setup.exe
       - name: Upload installer
         if: hashFiles('packaging/windows/build.ps1') != ''
         uses: actions/upload-artifact@v4
         with:
           name: windows-installer
-          path: packaging/windows/dist/*
+          path: dist/chinese-shadow-speech-*-setup.exe
           if-no-files-found: warn

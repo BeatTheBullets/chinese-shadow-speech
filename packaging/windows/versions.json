@@ -1,0 +1,34 @@
+{
+  "python": {
+    "version": "3.12.16+20261026",
+    "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.12.16%2B20261026-x86_64-pc-windows-msvc-install_only.tar.gz",
+    "file": "cpython-3.12.16-20261026-x86_64-pc-windows-msvc-install_only.tar.gz",
+    "sha256": "590dfcbe3a34c07301e6332e13e2188b98655cd072b08afa45a7998dc4c22bc5",
+    "license": "PSF-2.0 (CPython) plus bundled third-party licences",
+    "extract": "python/ (whole tree, becomes {app}\\python)"
+  },
+  "uv": {
+    "version": "0.12.23",
+    "url": "https://github.com/astral-sh/uv/releases/download/0.12.23/uv-x86_64-pc-windows-msvc.zip",
+    "file": "uv-0.12.23-x86_64-pc-windows-msvc.zip",
+    "sha256": "75d05de6762778c31ee183398de7dd15093fad0ed90b1f236d8205ea5ec00c90",
+    "license": "MIT OR Apache-2.0",
+    "extract": ["uv.exe"]
+  },
+  "ffmpeg": {
+    "version": "n8.1.3-34-ga35157abb9 (BtbN autobuild-2026-11-04-12-51, win64 lgpl, static)",
+    "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-11-04-12-51/ffmpeg-n8.1.3-34-ga35157abb9-win64-lgpl-8.1.zip",
+    "file": "ffmpeg-n8.1.3-34-ga35157abb9-win64-lgpl-8.1.zip",
+    "sha256": "c966229f0b033a1cf93b3fb139a804358a4ec27a53b8a6213fe08301868a7668",
+    "license": "LGPL-3.0-or-later (no --enable-gpl build)",
+    "extract": ["bin/ffmpeg.exe", "bin/ffprobe.exe", "LICENSE.txt"]
+  },
+  "deno": {
+    "version": "2.9.8",
+    "url": "https://github.com/denoland/deno/releases/download/v2.9.8/deno-x86_64-pc-windows-msvc.zip",
+    "file": "deno-2.9.8-x86_64-pc-windows-msvc.zip",
+    "sha256": "cba84b26e0df5ae7f74fc66b86a95b866872a86292ebd84fa1e959927edd93bf",
+    "license": "MIT",
+    "extract": ["deno.exe"]
+  }
+}

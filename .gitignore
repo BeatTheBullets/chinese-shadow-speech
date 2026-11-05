@@ -10,3 +10,5 @@ frontend/dist/
 
 .claude/worktrees/
 .cache/
+build/
+dist/
