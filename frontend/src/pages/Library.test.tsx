@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Job, Lesson } from '../api/types'
 
 const h = vi.hoisted(() => ({
-  api: { lessons: { list: vi.fn(), remove: vi.fn(), patch: vi.fn(), youtube: vi.fn(), rebuild: vi.fn() }, jobs: { events: vi.fn() } },
+  api: { lessons: { list: vi.fn(), remove: vi.fn(), patch: vi.fn(), youtube: vi.fn(), rebuild: vi.fn() }, jobs: { events: vi.fn() }, app: { update: vi.fn().mockResolvedValue({ current: '1.0.0', latest: null, url: null, newer: false }) } },
 }))
 vi.mock('../api/client', async (importOriginal) => ({ ...(await importOriginal<typeof import('../api/client')>()), api: h.api }))
 import Library from './Library'
@@ -17,6 +17,7 @@ const lesson = (id: number, over: Partial<Lesson> = {}): Lesson => ({
 
 describe('Library tile actions', () => {
   beforeEach(() => {
+    h.api.app.update.mockResolvedValue({ current: '1.0.0', latest: null, url: null, newer: false })
     h.api.lessons.list.mockReset(); h.api.lessons.remove.mockReset().mockResolvedValue(undefined); h.api.lessons.patch.mockReset().mockResolvedValue({})
   })
   afterEach(() => { cleanup(); vi.restoreAllMocks() })
@@ -93,6 +94,7 @@ describe('Library tile actions', () => {
 
 describe('Library YouTube hand-off', () => {
   beforeEach(() => {
+    h.api.app.update.mockResolvedValue({ current: '1.0.0', latest: null, url: null, newer: false })
     h.api.lessons.list.mockReset().mockResolvedValue([lesson(1)])
     h.api.lessons.youtube.mockReset().mockResolvedValue({ job_id: 'j1', lesson_id: 2 })
     h.api.jobs.events.mockReset().mockReturnValue(() => {})

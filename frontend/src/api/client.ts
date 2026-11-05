@@ -124,6 +124,9 @@ export const api = {
       remove: () => req<void>('/settings/youtube-cookies', { method: 'DELETE' }),
     },
   },
+  app: {
+    update: () => req<{ current: string; latest: string | null; url: string | null; newer: boolean }>('/app/update'),
+  },
   review: {
     unexported: () => req<UnexportedItem[]>('/review/unexported'),
   },

@@ -7,6 +7,7 @@ import { canRebuild, deleteConfirmText, groupBySpeaker, needsPolling, rebuildCon
 import { useSettings } from '../store/settings'
 import { runAnkiImport } from '../anki/runImport'
 import Shell from '../components/Shell'
+import UpdateBanner from '../components/UpdateBanner'
 import Button from '../ui/Button'
 import Card from '../ui/Card'
 
@@ -124,6 +125,7 @@ export default function Library() {
   return (
     <Shell>
       <div className="max-w-6xl mx-auto p-6 space-y-6">
+        <UpdateBanner />
         <div className="flex flex-wrap gap-3 items-center border border-dashed border-line rounded-xl bg-panel p-4"
           onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); onFiles(e.dataTransfer.files) }}>
           <label className="flex-1 min-w-[12rem] text-fgdim text-sm cursor-pointer hover:text-fg">Drop audio/video (+ .srt) here, or click to choose

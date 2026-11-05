@@ -99,6 +99,10 @@ class SoundsCfg(BaseModel):
     b_only_threshold: float = 11.6518  # raw model-B score alone; used when model A has no reading for the syllable
 
 
+class AppCfg(BaseModel):
+    releases_api: str = "https://api.github.com/repos/BeatTheBullets/chinese-shadow-speech/releases/latest"
+
+
 class Settings(BaseModel):
     server: ServerCfg = Field(default_factory=ServerCfg)
     models: ModelsCfg = Field(default_factory=ModelsCfg)
@@ -109,6 +113,7 @@ class Settings(BaseModel):
     anki: AnkiCfg = Field(default_factory=AnkiCfg)
     drill: DrillCfg = Field(default_factory=DrillCfg)
     sounds: SoundsCfg = Field(default_factory=SoundsCfg)
+    app: AppCfg = Field(default_factory=AppCfg)
     data_dir: Path = Path("data")
 
     def resolved_device(self) -> str:

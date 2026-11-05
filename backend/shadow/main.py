@@ -18,7 +18,7 @@ from sqlalchemy import Engine
 from sqlmodel import Session, select
 from shadow.store.db import make_engine, init_db
 from shadow.store.models import Lesson, Segment
-from shadow.api import anki, attempts, drill, health, jobs, lessons, review, segments, sessions, settings as settings_api, stats, voice
+from shadow.api import anki, app as app_api, attempts, drill, health, jobs, lessons, review, segments, sessions, settings as settings_api, stats, voice
 
 log = logging.getLogger(__name__)
 
@@ -88,7 +88,7 @@ def create_app(settings: Settings | None = None, deps: Deps | None = None) -> Fa
     app.state.jobs = JobManager()
     app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
                        allow_methods=["*"], allow_headers=["*"])
-    for r in (health.router, jobs.router, lessons.router, review.router, segments.router, anki.router, attempts.router, sessions.router, stats.router, stats.lesson_router, voice.router, drill.router, settings_api.router):
+    for r in (health.router, jobs.router, lessons.router, review.router, segments.router, anki.router, attempts.router, sessions.router, stats.router, stats.lesson_router, voice.router, drill.router, settings_api.router, app_api.router):
         app.include_router(r)
     _mount_spa(app)
     return app
