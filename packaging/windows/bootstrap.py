@@ -5,7 +5,10 @@ from __future__ import annotations
 import datetime
 import hashlib
 import json
+import logging
+import logging.handlers
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -22,6 +25,11 @@ from typing import Callable
 PREFERRED_PORT = 47231
 MODELS_GB = 4                 # shown to the user
 NEEDED_GB = 8                 # free space required before downloading
+LAUNCH_WAIT = 180             # seconds to wait for the launcher's /health
+YTDLP_TIMEOUT = 60            # seconds before the daily yt-dlp update is killed
+NO_INTERNET = "No internet connection \u2014 connect and press Retry"
+_NETWORK = re.compile(r"dns|resolve|getaddrinfo|connection|connect error|timed out|timeout|unreachable|network|"
+                      r"error sending request|ssl|certificate|name or service", re.I)
 WIN = sys.platform == "win32"
 HERE = Path(__file__).resolve().parent
 
@@ -31,12 +39,23 @@ def home_dir() -> Path:
     return Path(base) / "chinese-shadow-speech"
 
 
+_loggers: dict[str, logging.Logger] = {}
+
+
 def log(home: Path, msg: str) -> None:
+    """Append to <home>/logs/bootstrap.log (one rotating handler per home; never raises, never prints)."""
     try:
-        path = Path(home) / "logs" / "bootstrap.log"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as f:
-            f.write(f"{datetime.datetime.now().isoformat(timespec='seconds')} {msg}\n")
+        key = str(home)
+        lg = _loggers.get(key)
+        if lg is None:
+            path = Path(home) / "logs" / "bootstrap.log"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            lg = logging.Logger(f"bootstrap:{key}")
+            h = logging.handlers.RotatingFileHandler(path, maxBytes=200_000, backupCount=1, encoding="utf-8")
+            h.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
+            lg.addHandler(h)
+            _loggers[key] = lg
+        lg.warning(msg)
     except Exception:  # noqa: BLE001 - logging must never break the app (and stdout may be None under pythonw)
         pass
 
@@ -172,25 +191,54 @@ def free_gb(path: Path) -> float:
     return shutil.disk_usage(path).free / 1e9
 
 
+def _online() -> bool:
+    for host in ("pypi.org", "github.com"):
+        try:
+            socket.create_connection((host, 443), timeout=3).close()
+            return True
+        except OSError:
+            continue
+    return False
+
+
 def _run(cmd: list[str], env: dict[str, str], on_line: Callable[[str], None] | None = None,
-         cwd: str | None = None) -> int:
-    """Run a command with no window, feeding its output lines to on_line; return the exit code."""
+         cwd: str | None = None, timeout: float | None = None) -> int:
+    """Run a command with no window, feeding its output lines to on_line; return the exit code.
+    With a timeout the process is killed when it expires."""
     p = subprocess.Popen(cmd, env=env, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                          stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
                          creationflags=_flags())
-    assert p.stdout is not None
-    for line in p.stdout:
-        if on_line:
-            on_line(line.rstrip("\n"))
-    return p.wait()
+    timer = threading.Timer(timeout, p.kill) if timeout else None
+    if timer:
+        timer.start()
+    try:
+        assert p.stdout is not None
+        for line in p.stdout:
+            if on_line:
+                on_line(line.rstrip("\n"))
+        return p.wait()
+    finally:
+        if timer:
+            timer.cancel()
 
 
-def run_setup(home: Path, app_dir: Path, report: Callable[[dict], None]) -> bool:
+def _failure_text(detail: str, lines: list[str]) -> str:
+    """The message for a failed step: a plain one when it looks like the network (output pattern or a failed probe)."""
+    if _NETWORK.search(" ".join(lines + [detail])) or not _online():
+        return NO_INTERNET
+    return detail
+
+
+def run_setup(home: Path, app_dir: Path, report: Callable[[dict], None], lock: SetupLock | None = None) -> bool:
+    """One setup attempt. Pass the SetupLock the caller already holds (main does, across Retry); without one this
+    takes and releases its own."""
     home, app_dir = Path(home), Path(app_dir)
-    lock = SetupLock(home)
-    if not lock.acquire():
-        report({"error": "Setup is already running"})
-        return False
+    own = lock is None
+    if own:
+        lock = SetupLock(home)
+        if not lock.acquire():
+            report({"error": "Setup is already running"})
+            return False
     try:
         return _setup(home, app_dir, report)
     except Exception as e:  # noqa: BLE001
@@ -198,7 +246,8 @@ def run_setup(home: Path, app_dir: Path, report: Callable[[dict], None]) -> bool
         report({"error": f"{type(e).__name__}: {e}"})
         return False
     finally:
-        lock.release()
+        if own:
+            lock.release()
 
 
 def _setup(home: Path, app_dir: Path, report: Callable[[dict], None]) -> bool:
@@ -208,19 +257,21 @@ def _setup(home: Path, app_dir: Path, report: Callable[[dict], None]) -> bool:
         report({"error": f"Not enough disk space: {free:.0f} GB free, about {NEEDED_GB} GB needed"})
         return False
     size = f"about {MODELS_GB} GB"
-    base = {**os.environ, "UV_PROJECT_ENVIRONMENT": str(home / "venv"), "UV_CACHE_DIR": str(home / "uv-cache")}
+    base = {**os.environ, "PYTHONUTF8": "1", "UV_HTTP_TIMEOUT": "10", "UV_PROJECT_ENVIRONMENT": str(home / "venv"),
+            "UV_CACHE_DIR": str(home / "uv-cache")}
     tail: list[str] = []
 
     def keep(line: str) -> None:
         log(home, line)
         tail.append(line)
-        del tail[:-5]
+        del tail[:-20]
 
     report({"stage": "Setting up Python", "done": 0, "total": 1})
     sync = [str(app_dir / "uv.exe"), "sync", "--frozen", "--no-dev", "--extra", "models", "--extra", "desktop",
             "--python", str(app_dir / "python" / "python.exe")]
     if _run(sync, base, keep, cwd=str(app_dir / "backend")) != 0:
-        report({"error": "Setting up Python failed: " + (tail[-1] if tail else "see bootstrap.log")})
+        report({"error": _failure_text("Setting up Python failed: " + (tail[-1] if tail else "see bootstrap.log"),
+                                       tail)})
         return False
 
     report({"stage": f"Downloading speech models ({size})", "size": size, "done": 0, "total": 1})
@@ -241,10 +292,11 @@ def _setup(home: Path, app_dir: Path, report: Callable[[dict], None]) -> bool:
                     "done": msg.get("done", 0), "total": msg.get("total", 1)})
 
     config = ensure_laptop_config(home)
-    env = {**base, **model_env(home), "SHADOW_CONFIG": str(config)}
+    env = {**base, **model_env(home), "SHADOW_CONFIG": str(config), "PYTHONPYCACHEPREFIX": str(home / "pycache")}
     code = _run([str(venv_python(home)), "-m", "shadow.laptop", "prepare"], env, relay)
     if code != 0 or failure:
-        report({"error": failure[-1] if failure else f"Preparing models failed (exit {code})"})
+        report({"error": _failure_text(failure[-1] if failure else f"Preparing models failed (exit {code})",
+                                       tail + failure)})
         return False
 
     marker = ready_marker(home, lock_hash(app_dir))
@@ -265,9 +317,10 @@ def update_ytdlp(home: Path, app_dir: Path) -> None:
     if marker.exists():
         return
     try:
-        env = {**os.environ, "UV_CACHE_DIR": str(home / "uv-cache")}
-        _run([str(Path(app_dir) / "uv.exe"), "pip", "install", "-U", "yt-dlp", "--python", str(venv_python(home))],
-             env, lambda line: log(home, line))
+        env = {**os.environ, "PYTHONUTF8": "1", "UV_HTTP_TIMEOUT": "10", "UV_CACHE_DIR": str(home / "uv-cache")}
+        _run([str(Path(app_dir) / "uv.exe"), "pip", "install", "--upgrade-package", "yt-dlp",
+              "--upgrade-package", "yt-dlp-ejs", "yt-dlp[default]", "--python", str(venv_python(home))],
+             env, lambda line: log(home, line), timeout=YTDLP_TIMEOUT)
     except Exception as e:  # noqa: BLE001
         log(home, f"yt-dlp update failed: {e}")
     try:
@@ -334,23 +387,56 @@ def setup_port_file(home: Path) -> Path:
     return Path(home) / "run" / "setup-port"
 
 
-def start_launcher(home: Path, app_dir: Path, port: int) -> None:
+def start_launcher(home: Path, app_dir: Path, port: int, no_browser: bool = False) -> subprocess.Popen:
     config = ensure_laptop_config(home)
-    env = {**os.environ, **model_env(home), "SHADOW_CONFIG": str(config),
+    env = {**os.environ, **model_env(home), "PYTHONUTF8": "1", "PYTHONPYCACHEPREFIX": str(home / "pycache"),
+           "SHADOW_CONFIG": str(config),
            "SHADOW_FRONTEND_DIST": str(app_dir / "frontend" / "dist"),
            "SHADOW_ICON": str(app_dir / "icon.ico"),
            "PATH": str(app_dir / "tools") + os.pathsep + os.environ.get("PATH", "")}
     flags = 0
     if WIN:
         flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
-    subprocess.Popen([str(venv_python(home, gui=True)), "-m", "shadow.launcher", "--port", str(port),
-                      "--home", str(home)], env=env, cwd=str(home), stdin=subprocess.DEVNULL,
+    cmd = [str(venv_python(home, gui=True)), "-m", "shadow.launcher", "--port", str(port), "--home", str(home)]
+    if no_browser:
+        cmd.append("--no-browser")
+    return subprocess.Popen(cmd, env=env, cwd=str(home), stdin=subprocess.DEVNULL,
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=flags, close_fds=True)
 
 
 def default_app_dir() -> Path:
     env = os.environ.get("SHADOW_APP_DIR")
     return Path(env) if env else Path(sys.executable).resolve().parent.parent
+
+
+def wait_running(home: Path, seconds: float) -> int | None:
+    end = time.time() + seconds
+    while True:
+        port = running_port(home)
+        if port:
+            return port
+        if time.time() >= end:
+            return None
+        time.sleep(0.5)
+
+
+def _second_instance(home: Path) -> int:
+    """Another bootstrap holds the lock (setting up, or starting the app): show the progress page if there is one,
+    else wait (bounded) for the app and open it."""
+    end = time.time() + LAUNCH_WAIT
+    while time.time() < end:
+        try:
+            open_browser(f"http://127.0.0.1:{int(setup_port_file(home).read_text().strip())}/")
+            return 0
+        except (OSError, ValueError):
+            pass
+        port = running_port(home)
+        if port:
+            open_browser(f"http://127.0.0.1:{port}/")
+            return 0
+        time.sleep(0.5)
+    log(home, "another instance holds the lock but never became ready")
+    return 1
 
 
 def main() -> int:
@@ -361,34 +447,66 @@ def main() -> int:
     if port:
         open_browser(f"http://127.0.0.1:{port}/")
         return 0
-    if setup_running(home):
-        try:
-            open_browser(f"http://127.0.0.1:{int(setup_port_file(home).read_text().strip())}/")
-        except (OSError, ValueError):
-            log(home, "setup is running but its port is unknown")
-        return 0
+    lock = SetupLock(home)
+    if not lock.acquire():
+        return _second_instance(home)
+    try:                                           # held until the app answers, so a double-click cannot start a second
+        return _first_instance(home, app_dir, lock)
+    finally:
+        lock.release()
 
+
+def _first_instance(home: Path, app_dir: Path, lock: SetupLock) -> int:
     port = choose_port()
-    if setup_needed(home, lock_hash(app_dir)):
-        progress = Progress()
+    progress = Progress()
+    servers: list[ThreadingHTTPServer] = []
+
+    def serve() -> None:
         server = make_progress_server(progress, port)
+        servers.append(server)
         threading.Thread(target=server.serve_forever, daemon=True).start()
         setup_port_file(home).parent.mkdir(parents=True, exist_ok=True)
         setup_port_file(home).write_text(str(port), encoding="utf-8")
-        open_browser(f"http://127.0.0.1:{port}/")
-        while not run_setup(home, app_dir, progress.report):
-            progress.retry.clear()
-            progress.retry.wait()                  # the Retry button; the page shows the error meanwhile
-        progress.report({"stage": "Starting", "done": 1, "total": 1})
-        server.shutdown()
-        server.server_close()
+
+    def stop() -> None:
+        while servers:
+            server = servers.pop()
+            server.shutdown()
+            server.server_close()
         try:
             setup_port_file(home).unlink()
         except OSError:
             pass
+
+    def wait_retry() -> None:
+        progress.retry.clear()
+        progress.retry.wait()                      # the Retry button; the page shows the error meanwhile
+
+    shown = setup_needed(home, lock_hash(app_dir))
+    if shown:
+        serve()
+        open_browser(f"http://127.0.0.1:{port}/")
+        while not run_setup(home, app_dir, progress.report, lock):
+            wait_retry()
+        progress.report({"stage": "Starting", "done": 1, "total": 1})
     update_ytdlp(home, app_dir)
-    start_launcher(home, app_dir, port)            # it opens the browser itself once the server answers
-    return 0
+    stop()                                         # the app takes over this port
+    while True:
+        proc = start_launcher(home, app_dir, port, no_browser=shown)   # else it opens the browser itself
+        if wait_running(home, LAUNCH_WAIT):
+            return 0
+        log(home, "the launcher did not answer in time")
+        try:
+            proc.kill()
+        except Exception:  # noqa: BLE001
+            pass
+        if not shown:
+            return 1
+        progress.report({"error": f"The app could not start \u2014 see {home / 'logs'}"})
+        serve()
+        wait_retry()
+        stop()
+        progress.report({"stage": "Starting", "done": 1, "total": 1})
 
 
 if __name__ == "__main__":

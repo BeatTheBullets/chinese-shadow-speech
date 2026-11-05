@@ -17,10 +17,12 @@ SPEC.loader.exec_module(bs)
 @pytest.fixture(autouse=True)
 def plenty_of_disk(monkeypatch):
     monkeypatch.setattr(bs, "free_gb", lambda p: 100.0)
+    monkeypatch.setattr(bs, "_online", lambda: True)
+    monkeypatch.setattr(bs, "LAUNCH_WAIT", 1)
 
 
 def fake_runner(calls, sync_ok=True, prepare_lines=None):
-    def run(cmd, env, on_line=None, cwd=None):
+    def run(cmd, env, on_line=None, cwd=None, timeout=None):
         calls.append(cmd)
         if "sync" in cmd:
             return 0 if sync_ok else 1
@@ -153,7 +155,7 @@ def test_ytdlp_update_once_a_day(tmp_path, monkeypatch):
     home = tmp_path / "home"
     bs.update_ytdlp(home, tmp_path)
     bs.update_ytdlp(home, tmp_path)
-    assert len(calls) == 1 and "yt-dlp" in calls[0]
+    assert len(calls) == 1 and "yt-dlp[default]" in calls[0] and "yt-dlp-ejs" in calls[0]
     for m in (home / "run").glob("ytdlp-*"):
         m.unlink()
     monkeypatch.setattr(bs, "_run", lambda *a, **k: (_ for _ in ()).throw(OSError("offline")))
@@ -183,3 +185,114 @@ def test_mapping_matches_shadow_laptop(tmp_path):
     home = tmp_path / "Jöhn Doe" / "h"
     assert bs.model_env(home) == laptop.model_env(home)
     assert bs.laptop_config_text(home) == laptop.laptop_config_text(home)
+
+
+def test_network_failure_gets_plain_message(tmp_path, monkeypatch):
+    reports = []
+
+    def run(cmd, env, on_line=None, cwd=None, timeout=None):
+        on_line("error: Failed to fetch: dns error: failed to lookup address information")
+        return 1
+    monkeypatch.setattr(bs, "_run", run)
+    assert bs.run_setup(tmp_path / "home", app_dir(tmp_path), reports.append) is False
+    assert reports[-1] == {"error": bs.NO_INTERNET}
+
+
+def test_port_file_under_umlaut_path(tmp_path):
+    home = tmp_path / "Jöhn Doe" / "h"
+    (home / "run").mkdir(parents=True)
+    srv = serve_health()
+    try:
+        (home / "run" / "port").write_text(str(srv.server_address[1]), encoding="utf-8")
+        assert bs.running_port(home) == srv.server_address[1]
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_start_launcher_env_and_flags(tmp_path, monkeypatch):
+    seen = {}
+
+    class P:
+        def __init__(self, cmd, **kw):
+            seen["cmd"], seen["kw"] = cmd, kw
+    monkeypatch.setattr(bs.subprocess, "Popen", P)
+    home, app = tmp_path / "Jöhn" / "h", tmp_path / "app"
+    bs.start_launcher(home, app, 4242, no_browser=True)
+    env = seen["kw"]["env"]
+    assert env["SHADOW_ICON"] == str(app / "icon.ico")
+    assert env["SHADOW_FRONTEND_DIST"] == str(app / "frontend" / "dist")
+    assert env["PATH"].startswith(str(app / "tools"))
+    assert env["PYTHONUTF8"] == "1" and env["PYTHONPYCACHEPREFIX"] == str(home / "pycache")
+    assert env["SHADOW_CONFIG"] == str(home / "config.toml")
+    assert seen["cmd"][-3:] == ["--home", str(home), "--no-browser"]
+    assert "--port" in seen["cmd"] and "4242" in seen["cmd"]
+
+
+def patch_main(tmp_path, monkeypatch):
+    home = tmp_path / "Jöhn Doe" / "home"
+    monkeypatch.setattr(bs, "home_dir", lambda: home)
+    monkeypatch.setattr(bs, "default_app_dir", lambda: app_dir(tmp_path))
+    monkeypatch.setattr(bs, "open_browser", lambda url: None)
+    monkeypatch.setattr(bs, "update_ytdlp", lambda *a: None)
+    return home
+
+
+def test_main_first_run_retry_keeps_lock_then_launches(tmp_path, monkeypatch):
+    import time
+    import urllib.request
+    home = patch_main(tmp_path, monkeypatch)
+    port = bs.choose_port(0)
+    monkeypatch.setattr(bs, "choose_port", lambda *a: port)
+    sync_results = iter([False, True])
+    state = {"launched": None}
+
+    def run(cmd, env, on_line=None, cwd=None, timeout=None):
+        if "sync" in cmd:
+            return 0 if next(sync_results) else 1
+        on_line('{"step": "recogniser", "done": 1, "total": 1}')
+        return 0
+    monkeypatch.setattr(bs, "_run", run)
+
+    def launcher(h, a, p, no_browser=False):
+        state["launched"] = (p, no_browser)
+        return type("P", (), {"kill": lambda self: None})()
+    monkeypatch.setattr(bs, "start_launcher", launcher)
+    monkeypatch.setattr(bs, "running_port", lambda h: 4321 if state["launched"] else None)
+
+    result = []
+    t = threading.Thread(target=lambda: result.append(bs.main()))
+    t.start()
+    base = f"http://127.0.0.1:{port}"
+    for _ in range(100):
+        try:
+            if "error" in json.load(urllib.request.urlopen(base + "/status")):
+                break
+        except OSError:
+            pass
+        time.sleep(0.05)
+    else:
+        pytest.fail("no error status")
+    assert bs.setup_running(home)                   # still locked while waiting for Retry
+    urllib.request.urlopen(urllib.request.Request(base + "/retry", method="POST"))
+    t.join(10)
+    assert result == [0]
+    assert state["launched"] == (port, True)
+    assert not bs.setup_running(home)
+
+
+def test_second_instance_during_start_waits_for_app(tmp_path, monkeypatch):
+    home = patch_main(tmp_path, monkeypatch)
+    opened, answers = [], iter([None, None, None, 4321])
+    monkeypatch.setattr(bs, "open_browser", opened.append)
+    monkeypatch.setattr(bs, "running_port", lambda h: next(answers, 4321))
+    monkeypatch.setattr(bs, "start_launcher", lambda *a, **k: pytest.fail("second launcher"))
+    monkeypatch.setattr(bs.time, "sleep", lambda s: None)
+    monkeypatch.setattr(bs, "LAUNCH_WAIT", 60)
+    lock = bs.SetupLock(home)
+    assert lock.acquire()
+    try:
+        assert bs.main() == 0
+    finally:
+        lock.release()
+    assert opened == ["http://127.0.0.1:4321/"]

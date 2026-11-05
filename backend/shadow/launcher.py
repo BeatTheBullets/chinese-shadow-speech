@@ -139,6 +139,7 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="shadow.launcher")
     ap.add_argument("--port", type=int, required=True)
     ap.add_argument("--home", type=Path, required=True)
+    ap.add_argument("--no-browser", action="store_true", help="do not open the browser (the bootstrap's tab is open)")
     args = ap.parse_args(argv)
     home: Path = args.home
     setup_logging(home)
@@ -160,7 +161,8 @@ def main(argv: list[str] | None = None) -> int:
         if handle.wait_ready(180) and not handle.server.should_exit:
             write_port_file(home, args.port)
             log.info("server ready on %s", url)
-            webbrowser.open(url)
+            if not args.no_browser:
+                webbrowser.open(url)
         else:
             log.error("server did not become ready")
 
