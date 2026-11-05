@@ -35,6 +35,8 @@ async def put_youtube_cookies(request: Request, file: UploadFile):
     data = await file.read(MAX_COOKIES_BYTES + 1)
     if len(data) > MAX_COOKIES_BYTES or not _is_cookies_file(data):
         raise HTTPException(400, NOT_COOKIES)
+    # yt-dlp's cookie jar checks the magic header on the very first line: store without a BOM or leading blank lines.
+    data = data.decode("utf-8-sig").lstrip("\r\n \t").encode("utf-8")
     path = _path(request)
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".youtube-cookies-", suffix=".tmp")     # mkstemp: owner-only
@@ -42,6 +44,10 @@ async def put_youtube_cookies(request: Request, file: UploadFile):
         with os.fdopen(fd, "wb") as f:
             f.write(data)
         os.replace(tmp, path)
+    except OSError as e:                # on Windows another process (yt-dlp, antivirus) may hold the file
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise HTTPException(409, "The cookies file is in use — try again in a moment.") from e
     except BaseException:
         with contextlib.suppress(OSError):
             os.unlink(tmp)

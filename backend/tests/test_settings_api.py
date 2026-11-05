@@ -36,3 +36,27 @@ def test_rejects_a_file_that_is_not_a_cookies_file_and_keeps_the_old_one(client)
     assert _put(client, b"hello\n").status_code == 400
     assert _put(client, b"\xff\xfe\x00binary").status_code == 400
     assert path.read_bytes() == NETSCAPE
+
+
+def test_stores_a_normalised_copy_that_yt_dlp_can_load(client):
+    from yt_dlp.cookies import YoutubeDLCookieJar
+    path = client.app.state.files.data_dir / "youtube-cookies.txt"
+    body = b"\xef\xbb\xbf\r\n\r\n# Netscape HTTP Cookie File\r\n.youtube.com\tTRUE\t/\tTRUE\t0\tSID\tsecret\r\n"
+    assert _put(client, body).status_code == 200
+    stored = path.read_bytes()
+    assert stored.startswith(b"# Netscape") and not stored.startswith(b"\xef\xbb\xbf")
+    jar = YoutubeDLCookieJar(str(path))
+    jar.load(ignore_discard=True, ignore_expires=True)
+    assert [c.name for c in jar] == ["SID"]
+
+
+def test_a_file_held_by_another_process_gives_a_readable_409(client, monkeypatch):
+    path = client.app.state.files.data_dir / "youtube-cookies.txt"
+
+    def locked(*_a, **_k):
+        raise PermissionError("in use")
+    monkeypatch.setattr("shadow.api.settings.os.replace", locked)
+    r = _put(client, NETSCAPE)
+    assert r.status_code == 409 and "in use" in r.json()["detail"]
+    assert not path.exists()
+    assert [p.name for p in path.parent.iterdir() if p.name.endswith(".tmp")] == []
