@@ -1,0 +1,399 @@
+"""First-run bootstrap for the Windows package (standard library only: it runs under the shipped standalone Python before
+any venv exists). Creates the app's environment with uv, prepares the models while a progress page is shown in the browser,
+updates yt-dlp once a day, then starts the launcher."""
+from __future__ import annotations
+import datetime
+import hashlib
+import json
+import os
+import shutil
+import socket
+import subprocess
+import sys
+import threading
+import time
+import traceback
+import urllib.request
+import webbrowser
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from typing import Callable
+
+PREFERRED_PORT = 47231
+MODELS_GB = 4                 # shown to the user
+NEEDED_GB = 8                 # free space required before downloading
+WIN = sys.platform == "win32"
+HERE = Path(__file__).resolve().parent
+
+
+def home_dir() -> Path:
+    base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+    return Path(base) / "chinese-shadow-speech"
+
+
+def log(home: Path, msg: str) -> None:
+    try:
+        path = Path(home) / "logs" / "bootstrap.log"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as f:
+            f.write(f"{datetime.datetime.now().isoformat(timespec='seconds')} {msg}\n")
+    except Exception:  # noqa: BLE001 - logging must never break the app (and stdout may be None under pythonw)
+        pass
+
+
+def lock_hash(app_dir: Path) -> str:
+    try:
+        return hashlib.sha256((Path(app_dir) / "backend" / "uv.lock").read_bytes()).hexdigest()[:16]
+    except OSError:
+        return "nolock"
+
+
+def venv_python(home: Path, gui: bool = False) -> Path:
+    scripts = Path(home) / "venv" / ("Scripts" if WIN else "bin")
+    return scripts / (("pythonw.exe" if gui else "python.exe") if WIN else "python")
+
+
+def model_env(home: Path) -> dict[str, str]:      # keep in sync with shadow.laptop.model_env (a test compares them)
+    models = Path(home) / "models"
+    return {"HF_HOME": str(models / "hf"), "MODELSCOPE_CACHE": str(models / "modelscope"),
+            "TORCH_HOME": str(models / "torch"), "SHADOW_MODELS_DIR": str(models / "shadow")}
+
+
+def laptop_config_text(home: Path) -> str:        # keep in sync with shadow.laptop.laptop_config_text
+    data = json.dumps((Path(home) / "data").as_posix(), ensure_ascii=False)
+    return (f'data_dir = {data}\n\n'
+            '[models]\ndevice = "cpu"\nint8 = true\npunctuation = "sherpa"\n')
+
+
+def ensure_laptop_config(home: Path) -> Path:
+    path = Path(home) / "config.toml"
+    if not path.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(laptop_config_text(home), encoding="utf-8")
+    return path
+
+
+def _flags() -> int:
+    return subprocess.CREATE_NO_WINDOW if WIN else 0
+
+
+# ---------------------------------------------------------------- ports
+
+def _health_ok(port: int) -> bool:
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=1.5) as r:
+            return r.status == 200
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def running_port(home: Path) -> int | None:
+    try:
+        port = int((Path(home) / "run" / "port").read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return None
+    return port if _health_ok(port) else None
+
+
+def choose_port(preferred: int = PREFERRED_PORT) -> int:
+    for port in (preferred, 0):
+        s = socket.socket()
+        try:
+            s.bind(("127.0.0.1", port))
+            return s.getsockname()[1]
+        except OSError:
+            continue
+        finally:
+            s.close()
+    raise OSError("no free port")
+
+
+# ---------------------------------------------------------------- setup
+
+def ready_marker(home: Path, lock: str) -> Path:
+    return Path(home) / "venv" / f".ready-{lock}"
+
+
+def setup_needed(home: Path, lock: str) -> bool:
+    return not ready_marker(home, lock).exists()
+
+
+class SetupLock:
+    """A cross-process lock on <home>/run/setup.lock (msvcrt on Windows, flock elsewhere); it dies with the process."""
+
+    def __init__(self, home: Path):
+        self.path = Path(home) / "run" / "setup.lock"
+        self.f = None
+
+    def acquire(self) -> bool:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        f = open(self.path, "a+b")
+        try:
+            if WIN:
+                import msvcrt
+                f.seek(0)
+                msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            f.close()
+            return False
+        self.f = f
+        return True
+
+    def release(self) -> None:
+        f, self.f = self.f, None
+        if f is None:
+            return
+        try:
+            if WIN:
+                import msvcrt
+                f.seek(0)
+                msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+        except OSError:
+            pass
+        finally:
+            f.close()
+
+
+def setup_running(home: Path) -> bool:
+    lock = SetupLock(home)
+    if lock.acquire():
+        lock.release()
+        return False
+    return True
+
+
+def free_gb(path: Path) -> float:
+    return shutil.disk_usage(path).free / 1e9
+
+
+def _run(cmd: list[str], env: dict[str, str], on_line: Callable[[str], None] | None = None,
+         cwd: str | None = None) -> int:
+    """Run a command with no window, feeding its output lines to on_line; return the exit code."""
+    p = subprocess.Popen(cmd, env=env, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                         stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
+                         creationflags=_flags())
+    assert p.stdout is not None
+    for line in p.stdout:
+        if on_line:
+            on_line(line.rstrip("\n"))
+    return p.wait()
+
+
+def run_setup(home: Path, app_dir: Path, report: Callable[[dict], None]) -> bool:
+    home, app_dir = Path(home), Path(app_dir)
+    lock = SetupLock(home)
+    if not lock.acquire():
+        report({"error": "Setup is already running"})
+        return False
+    try:
+        return _setup(home, app_dir, report)
+    except Exception as e:  # noqa: BLE001
+        log(home, traceback.format_exc())
+        report({"error": f"{type(e).__name__}: {e}"})
+        return False
+    finally:
+        lock.release()
+
+
+def _setup(home: Path, app_dir: Path, report: Callable[[dict], None]) -> bool:
+    home.mkdir(parents=True, exist_ok=True)
+    free = free_gb(home)
+    if free < NEEDED_GB:
+        report({"error": f"Not enough disk space: {free:.0f} GB free, about {NEEDED_GB} GB needed"})
+        return False
+    size = f"about {MODELS_GB} GB"
+    base = {**os.environ, "UV_PROJECT_ENVIRONMENT": str(home / "venv"), "UV_CACHE_DIR": str(home / "uv-cache")}
+    tail: list[str] = []
+
+    def keep(line: str) -> None:
+        log(home, line)
+        tail.append(line)
+        del tail[:-5]
+
+    report({"stage": "Setting up Python", "done": 0, "total": 1})
+    sync = [str(app_dir / "uv.exe"), "sync", "--frozen", "--no-dev", "--extra", "models", "--extra", "desktop",
+            "--python", str(app_dir / "python" / "python.exe")]
+    if _run(sync, base, keep, cwd=str(app_dir / "backend")) != 0:
+        report({"error": "Setting up Python failed: " + (tail[-1] if tail else "see bootstrap.log")})
+        return False
+
+    report({"stage": f"Downloading speech models ({size})", "size": size, "done": 0, "total": 1})
+    failure: list[str] = []
+
+    def relay(line: str) -> None:
+        try:
+            msg = json.loads(line)
+        except ValueError:
+            keep(line)
+            return
+        if not isinstance(msg, dict):
+            return
+        if "error" in msg:
+            failure.append(str(msg["error"]))
+        elif "step" in msg:
+            report({"stage": "Preparing models", "detail": msg["step"], "size": size,
+                    "done": msg.get("done", 0), "total": msg.get("total", 1)})
+
+    config = ensure_laptop_config(home)
+    env = {**base, **model_env(home), "SHADOW_CONFIG": str(config)}
+    code = _run([str(venv_python(home)), "-m", "shadow.laptop", "prepare"], env, relay)
+    if code != 0 or failure:
+        report({"error": failure[-1] if failure else f"Preparing models failed (exit {code})"})
+        return False
+
+    marker = ready_marker(home, lock_hash(app_dir))
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    for old in marker.parent.glob(".ready-*"):
+        try:
+            old.unlink()
+        except OSError:
+            pass
+    marker.write_text("ok", encoding="utf-8")
+    return True
+
+
+def update_ytdlp(home: Path, app_dir: Path) -> None:
+    """Once a day, upgrade yt-dlp inside the venv; any failure is ignored (the old version keeps working)."""
+    home = Path(home)
+    marker = home / "run" / f"ytdlp-{datetime.date.today().isoformat()}"
+    if marker.exists():
+        return
+    try:
+        env = {**os.environ, "UV_CACHE_DIR": str(home / "uv-cache")}
+        _run([str(Path(app_dir) / "uv.exe"), "pip", "install", "-U", "yt-dlp", "--python", str(venv_python(home))],
+             env, lambda line: log(home, line))
+    except Exception as e:  # noqa: BLE001
+        log(home, f"yt-dlp update failed: {e}")
+    try:
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        for old in marker.parent.glob("ytdlp-*"):
+            old.unlink()
+        marker.write_text("1", encoding="utf-8")
+    except OSError:
+        pass
+
+
+# ---------------------------------------------------------------- progress page
+
+class Progress:
+    def __init__(self):
+        self.status: dict = {"stage": "Starting", "done": 0, "total": 1}
+        self.retry = threading.Event()
+
+    def report(self, msg: dict) -> None:
+        self.status = msg
+
+
+def make_progress_server(progress: Progress, port: int) -> ThreadingHTTPServer:
+    html = (HERE / "progress.html").read_bytes()
+
+    class Handler(BaseHTTPRequestHandler):
+        def _send(self, code: int, body: bytes, ctype: str) -> None:
+            self.send_response(code)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_GET(self):  # noqa: N802
+            if self.path in ("/", "/index.html"):
+                self._send(200, html, "text/html; charset=utf-8")
+            elif self.path == "/status":
+                self._send(200, json.dumps(progress.status).encode(), "application/json")
+            else:
+                self._send(404, b"not found", "text/plain")
+
+        def do_POST(self):  # noqa: N802
+            if self.path == "/retry":
+                progress.retry.set()
+                self._send(200, b"{}", "application/json")
+            else:
+                self._send(404, b"not found", "text/plain")
+
+        def log_message(self, *args):  # silent (stderr may be None under pythonw)
+            pass
+
+    return ThreadingHTTPServer(("127.0.0.1", port), Handler)
+
+
+def open_browser(url: str) -> None:
+    try:
+        webbrowser.open(url)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def setup_port_file(home: Path) -> Path:
+    return Path(home) / "run" / "setup-port"
+
+
+def start_launcher(home: Path, app_dir: Path, port: int) -> None:
+    config = ensure_laptop_config(home)
+    env = {**os.environ, **model_env(home), "SHADOW_CONFIG": str(config),
+           "SHADOW_FRONTEND_DIST": str(app_dir / "frontend" / "dist"),
+           "SHADOW_ICON": str(app_dir / "icon.ico"),
+           "PATH": str(app_dir / "tools") + os.pathsep + os.environ.get("PATH", "")}
+    flags = 0
+    if WIN:
+        flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
+    subprocess.Popen([str(venv_python(home, gui=True)), "-m", "shadow.launcher", "--port", str(port),
+                      "--home", str(home)], env=env, cwd=str(home), stdin=subprocess.DEVNULL,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=flags, close_fds=True)
+
+
+def default_app_dir() -> Path:
+    env = os.environ.get("SHADOW_APP_DIR")
+    return Path(env) if env else Path(sys.executable).resolve().parent.parent
+
+
+def main() -> int:
+    home = home_dir()
+    app_dir = default_app_dir()
+    log(home, "bootstrap start")
+    port = running_port(home)
+    if port:
+        open_browser(f"http://127.0.0.1:{port}/")
+        return 0
+    if setup_running(home):
+        try:
+            open_browser(f"http://127.0.0.1:{int(setup_port_file(home).read_text().strip())}/")
+        except (OSError, ValueError):
+            log(home, "setup is running but its port is unknown")
+        return 0
+
+    port = choose_port()
+    if setup_needed(home, lock_hash(app_dir)):
+        progress = Progress()
+        server = make_progress_server(progress, port)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        setup_port_file(home).parent.mkdir(parents=True, exist_ok=True)
+        setup_port_file(home).write_text(str(port), encoding="utf-8")
+        open_browser(f"http://127.0.0.1:{port}/")
+        while not run_setup(home, app_dir, progress.report):
+            progress.retry.clear()
+            progress.retry.wait()                  # the Retry button; the page shows the error meanwhile
+        progress.report({"stage": "Starting", "done": 1, "total": 1})
+        server.shutdown()
+        server.server_close()
+        try:
+            setup_port_file(home).unlink()
+        except OSError:
+            pass
+    update_ytdlp(home, app_dir)
+    start_launcher(home, app_dir, port)            # it opens the browser itself once the server answers
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except Exception:  # noqa: BLE001
+        log(home_dir(), traceback.format_exc())
+        sys.exit(1)

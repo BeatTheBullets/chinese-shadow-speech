@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Setting up Chinese Shadow Speech</title>
+<style>
+body{font-family:system-ui,"Segoe UI",sans-serif;background:#f6f4ef;color:#222;margin:0;display:flex;min-height:100vh;align-items:center;justify-content:center}
+main{background:#fff;border:1px solid #d8d4ca;border-radius:8px;padding:32px 36px;width:min(520px,90vw)}
+h1{font-size:1.3rem;margin:0 0 6px}p{margin:6px 0;line-height:1.45}.muted{color:#555;font-size:.92rem}
+.bar{height:12px;background:#e6e2d8;border-radius:6px;overflow:hidden;margin:18px 0 8px}
+.fill{height:100%;width:0;background:#8c2f2f;transition:width .4s}
+.err{color:#8c1d1d;font-weight:600}button{font:inherit;padding:8px 18px;margin-top:12px;cursor:pointer}
+</style></head><body><main>
+<h1>Setting up Chinese Shadow Speech</h1>
+<p class="muted">This only happens the first time. Keep this window open; it can take a while.</p>
+<p id="stage">Starting</p><p id="detail" class="muted"></p>
+<div class="bar"><div class="fill" id="fill"></div></div>
+<p id="size" class="muted"></p>
+<div id="error" hidden><p class="err" id="msg"></p><button id="retry">Retry</button></div>
+</main><script>
+const $=id=>document.getElementById(id);
+async function tick(){
+  try{
+    const h=await fetch('/health',{cache:'no-store'});
+    if(h.ok){location.href='/';return}   // the real app answers on this port now
+  }catch(e){}
+  try{
+    const s=await (await fetch('/status',{cache:'no-store'})).json();
+    $('error').hidden=!s.error;
+    if(s.error){$('msg').textContent=s.error}
+    else{
+      $('stage').textContent=s.stage||'Starting';
+      $('detail').textContent=s.detail||'';
+      $('size').textContent=s.size?('Download size: '+s.size):'';
+      const f=s.total?Math.min(1,(s.done||0)/s.total):0;
+      $('fill').style.width=(5+95*f)+'%';
+    }
+  }catch(e){}
+}
+$('retry').onclick=async()=>{await fetch('/retry',{method:'POST'});$('error').hidden=true};
+setInterval(tick,1000);tick();
+</script></body></html>
