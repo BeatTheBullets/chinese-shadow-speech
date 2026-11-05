@@ -208,3 +208,15 @@ def test_fake_downloader(tmp_path):
     assert f.fetched == [("zh", False), ("zh", True)]
     with pytest.raises(ValueError):
         FakeDownloader(_info(), audio, error=ValueError("x")).probe("u")
+
+
+def test_cookies_path_prefers_the_configured_file_then_the_stored_one(tmp_path):
+    stored = tmp_path / "youtube-cookies.txt"
+    d = YtDlpDownloader(data_dir=tmp_path)
+    assert "cookiefile" not in d._opts()                                  # nothing stored yet
+    stored.write_text("# Netscape HTTP Cookie File\n")
+    assert d._opts()["cookiefile"] == str(stored)                         # resolved per call, no restart
+    configured = tmp_path / "mine.txt"
+    assert YtDlpDownloader(str(configured), data_dir=tmp_path)._opts()["cookiefile"] == str(configured)
+    stored.unlink()
+    assert "cookiefile" not in d._opts()

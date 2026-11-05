@@ -22,6 +22,7 @@ MANUAL_LANGS = ("zh-Hans", "zh-CN", "zh-Hant", "zh-TW", "zh-HK", "zh")
 AUTO_ORIG_LANGS = ("zh-Hans-orig", "zh-orig")
 SUBTITLE_EXTS = ("vtt", "srt")              # what parse_subtitles reads
 
+COOKIES_NAME = "youtube-cookies.txt"        # the file added in Settings, inside the data dir
 COOKIES_HINT = "this video needs a cookies file — see Settings"
 DENO_HINT = "install Deno (https://deno.com) — yt-dlp needs it for YouTube"
 UPDATE_HINT = "update yt-dlp: `cd backend && uv lock --upgrade-package yt-dlp && uv sync --extra dev --extra models`"
@@ -155,16 +156,27 @@ class _Warnings:
 class YtDlpDownloader:
     """yt-dlp's Python API. Only the chosen Chinese subtitle track is ever fetched."""
 
-    def __init__(self, cookies_file: str = ""):
+    def __init__(self, cookies_file: str = "", data_dir: Path | None = None):
         self.cookies_file = cookies_file
+        self.data_dir = data_dir
         self._subs: dict[str, dict[str, Any]] = {}       # video id -> subtitle maps from probe(), until fetched
 
     def _opts(self, **extra: Any) -> dict[str, Any]:
         opts: dict[str, Any] = {"quiet": True, "noprogress": True, "noplaylist": True, "color": "no_color",
                                 "cachedir": False, **extra}
-        if self.cookies_file:
-            opts["cookiefile"] = str(Path(self.cookies_file).expanduser())
+        cookies = self._cookies_path()
+        if cookies is not None:
+            opts["cookiefile"] = str(cookies)
         return opts
+
+    def _cookies_path(self) -> Path | None:
+        """The configured cookies file, else the one added in Settings if it exists now (checked per call, so adding
+        or removing it needs no restart)."""
+        if self.cookies_file:
+            return Path(self.cookies_file).expanduser()
+        if self.data_dir is not None and (self.data_dir / COOKIES_NAME).is_file():
+            return self.data_dir / COOKIES_NAME
+        return None
 
     @contextmanager
     def _ydl(self, **extra: Any) -> Iterator[tuple[Any, _Warnings]]:

@@ -43,9 +43,9 @@ Videos longer than `[youtube] max_minutes` (default 90) are refused. Chinese sub
 them (manual first, then auto-generated); otherwise the ASR text is used.
 
 Cookies: age-restricted videos and YouTube's "confirm you're not a bot" check need your browser's YouTube cookies.
-While signed in to YouTube, export them with a cookies.txt browser extension (Netscape format), save the file
-somewhere private (e.g. `~/shadow-cookies.txt`), set `[youtube] cookies_file = "/home/<you>/shadow-cookies.txt"` in
-config.toml and restart the backend. Cookies expire; export them again when the error comes back.
+While signed in to YouTube, export them with a cookies.txt browser extension (Netscape format),
+and add it in Settings, YouTube (no restart needed). Developers can instead set `[youtube] cookies_file` in
+config.toml, which wins over the Settings file. Cookies expire; export them again when the error comes back.
 
 Deno: recent yt-dlp versions need a JavaScript runtime for YouTube. If a download fails mentioning a JS runtime or
 Deno, install it (`curl -fsSL https://deno.land/install.sh | sh`) and make sure `deno` is on the PATH of the shell that

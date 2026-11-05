@@ -2,16 +2,19 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useSettings } from '../store/settings'
 
-const h = vi.hoisted(() => ({ setup: vi.fn(), voice: { get: vi.fn(), reset: vi.fn() } }))
+const h = vi.hoisted(() => ({ setup: vi.fn(), voice: { get: vi.fn(), reset: vi.fn() }, cookies: { get: vi.fn(), put: vi.fn(), remove: vi.fn() } }))
 vi.mock('../anki/listening', async (importOriginal) => ({ ...(await importOriginal<typeof import('../anki/listening')>()), setupListeningDeck: h.setup }))
-vi.mock('../api/client', async (importOriginal) => { const m = await importOriginal<typeof import('../api/client')>(); return { ...m, api: { ...m.api, voiceProfile: h.voice } } })
+vi.mock('../api/client', async (importOriginal) => { const m = await importOriginal<typeof import('../api/client')>(); return { ...m, api: { ...m.api, voiceProfile: h.voice, settings: { youtubeCookies: h.cookies } } } })
 import Settings from './Settings'
 
 const exportNote = { deckName: 'chinese-shadow-speech', modelName: 'Shadow Listening',
   fields: { sentence: 'Sentence', audio: 'Audio', pinyin: 'Pinyin', translation: 'Translation', source: 'Source', link: 'Link' } }
 
 describe('<Settings>', () => {
-  beforeEach(() => h.voice.get.mockResolvedValue({ baseline_hz: null, spread_st: null, voiced_s: 0, updated_at: null }))
+  beforeEach(() => {
+    h.voice.get.mockResolvedValue({ baseline_hz: null, spread_st: null, voiced_s: 0, updated_at: null })
+    h.cookies.get.mockResolvedValue({ present: false })
+  })
   afterEach(() => { cleanup(); vi.restoreAllMocks(); h.setup.mockReset(); useSettings.setState({ exportNote: null }) })
 
   it('offers the bookmarklet for this origin', () => {
@@ -86,5 +89,30 @@ describe('<Settings>', () => {
     h.voice.reset.mockRejectedValue(new TypeError('Failed to fetch'))
     fireEvent.click(screen.getByRole('button', { name: 'Reset voice profile' }))
     expect(await screen.findByText('Could not reset the voice profile: Failed to fetch')).toBeInTheDocument()
+  })
+
+  it('shows whether YouTube cookies were added, adds a file with the picker and removes it', async () => {
+    const { ApiError } = await import('../api/client')
+    h.cookies.put.mockResolvedValue({ present: true }); h.cookies.remove.mockResolvedValue(undefined)
+    render(<Settings />)
+    expect(await screen.findByText('Cookies: none')).toBeInTheDocument()
+    expect(screen.queryByText(/config\.toml/)).toBeNull()
+    expect(screen.getByText(/Some videos need you to be signed in to YouTube/)).toBeInTheDocument()
+    const file = new File(['# Netscape HTTP Cookie File\n'], 'cookies.txt', { type: 'text/plain' })
+    fireEvent.change(screen.getByLabelText('Cookies file'), { target: { files: [file] } })
+    expect(await screen.findByText('Cookies: added')).toBeInTheDocument()
+    expect(h.cookies.put).toHaveBeenCalledWith(file)
+    fireEvent.click(screen.getByRole('button', { name: 'Remove cookies' }))
+    expect(await screen.findByText('Cookies: none')).toBeInTheDocument()
+    expect(h.cookies.remove).toHaveBeenCalled()
+    h.cookies.put.mockRejectedValue(new ApiError(400, 'Bad Request', '', 'That is not a cookies.txt file'))
+    fireEvent.change(screen.getByLabelText('Cookies file'), { target: { files: [file] } })
+    expect(await screen.findByText('Could not add the cookies: That is not a cookies.txt file')).toBeInTheDocument()
+  })
+
+  it('shows Cookies: added when the backend already has them', async () => {
+    h.cookies.get.mockResolvedValue({ present: true })
+    render(<Settings />)
+    expect(await screen.findByText('Cookies: added')).toBeInTheDocument()
   })
 })

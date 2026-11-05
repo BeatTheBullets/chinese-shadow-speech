@@ -77,7 +77,7 @@ def build_deps(settings: Settings) -> Deps:
             sounds_error = "sounds need the MMS aligner"
     return Deps(asr=asr, hearer=AsrHearer(asr), sounds=sounds, sounds_error=sounds_error,
                 aligner=aligner, files=files, settings=settings,
-                downloader=YtDlpDownloader(settings.youtube.cookies_file),
+                downloader=YtDlpDownloader(settings.youtube.cookies_file, files.data_dir),
                 tone_model=load_tone_model(settings.scoring.tone_model),
                 embedder=Wav2Vec2Embedder(settings.models.tone_embedder, settings.models.tone_embedder_revision,
                                           settings.models.tone_layer, device))

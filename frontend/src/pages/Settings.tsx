@@ -29,6 +29,25 @@ export default function Settings() {
     }
   }
 
+  const [cookies, setCookies] = useState<boolean | null>(null)
+  const [cookiesStatus, setCookiesStatus] = useState('')
+  const cookiesInput = useRef<HTMLInputElement>(null)
+  useEffect(() => { api.settings.youtubeCookies.get().then((r) => setCookies(r.present)).catch(() => setCookies(null)) }, [])
+  async function addCookies(file: File | undefined) {
+    if (!file) return
+    setCookiesStatus('')
+    try {
+      setCookies((await api.settings.youtubeCookies.put(file)).present)
+    } catch (e) { setCookiesStatus(`Could not add the cookies: ${e instanceof ApiError ? e.detail : (e as Error).message}`) }
+    if (cookiesInput.current) cookiesInput.current.value = ''
+  }
+  async function removeCookies() {
+    setCookiesStatus('')
+    try {
+      await api.settings.youtubeCookies.remove(); setCookies(false)
+    } catch (e) { setCookiesStatus(`Could not remove the cookies: ${e instanceof ApiError ? e.detail : (e as Error).message}`) }
+  }
+
   const bookmarklet = useRef<HTMLAnchorElement>(null)
   // Set outside JSX: React warns about javascript: URLs in href props.
   useEffect(() => { bookmarklet.current?.setAttribute('href', bookmarkletCode(window.location.origin)) }, [])
@@ -131,8 +150,15 @@ export default function Settings() {
         <h2 className="text-fg font-semibold">YouTube</h2>
         <p className="text-sm text-fgdim">Drag this link to the Brave bookmarks bar. On a YouTube video, click it to send the video here.</p>
         <a ref={bookmarklet} className="btn hover:border-accent" onClick={(e) => e.preventDefault()}>→ chinese-shadow-speech</a>
-        <p className="text-sm text-fgdim">Videos behind an age or "not a bot" check need your YouTube cookies: export them to a
-          cookies.txt file and set <code>[youtube] cookies_file</code> in config.toml (see docs/running.md, YouTube).</p>
+        <p className="text-sm text-fgdim">Some videos need you to be signed in to YouTube. Export your YouTube cookies to a cookies.txt file with a browser extension and add the file here.</p>
+        <p className="text-sm text-fg">{cookies ? 'Cookies: added' : 'Cookies: none'}</p>
+        <div className="flex gap-2">
+          <input ref={cookiesInput} type="file" accept=".txt,text/plain" aria-label="Cookies file" className="hidden"
+            onChange={(e) => void addCookies(e.target.files?.[0])} />
+          <Button label={cookies ? 'Replace cookies file' : 'Add cookies file'} onClick={() => cookiesInput.current?.click()} />
+          {cookies && <Button label="Remove cookies" onClick={() => void removeCookies()} />}
+        </div>
+        {cookiesStatus && <p role="alert" className="text-sm text-warn">{cookiesStatus}</p>}
       </section>
     </div>
   )

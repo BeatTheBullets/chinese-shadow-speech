@@ -113,6 +113,17 @@ export const api = {
     get: () => req<VoiceProfile>('/voice-profile'),
     reset: () => req<void>('/voice-profile', { method: 'DELETE' }),
   },
+  settings: {
+    youtubeCookies: {
+      get: () => req<{ present: boolean }>('/settings/youtube-cookies'),
+      put: (file: File) => {
+        const fd = new FormData()
+        fd.append('file', file)
+        return req<{ present: boolean }>('/settings/youtube-cookies', { method: 'PUT', body: fd })
+      },
+      remove: () => req<void>('/settings/youtube-cookies', { method: 'DELETE' }),
+    },
+  },
   review: {
     unexported: () => req<UnexportedItem[]>('/review/unexported'),
   },
