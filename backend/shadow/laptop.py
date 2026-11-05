@@ -8,8 +8,8 @@ from typing import Callable
 
 
 def laptop_config_text(home: Path) -> str:
-    data = (Path(home) / "data").as_posix()
-    return (f'data_dir = "{data}"\n\n'          # a top-level key: it must come before the tables
+    data = json.dumps((Path(home) / "data").as_posix(), ensure_ascii=False)   # a TOML basic string
+    return (f'data_dir = {data}\n\n'          # a top-level key: it must come before the tables
             '[models]\ndevice = "cpu"\nint8 = true\npunctuation = "sherpa"\n')
 
 
@@ -18,7 +18,7 @@ def ensure_laptop_config(home: Path) -> Path:
     path = Path(home) / "config.toml"
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(laptop_config_text(home))
+        path.write_text(laptop_config_text(home), encoding="utf-8")
     return path
 
 

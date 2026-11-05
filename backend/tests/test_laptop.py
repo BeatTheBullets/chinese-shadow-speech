@@ -21,6 +21,12 @@ def test_ensure_laptop_config_never_overwrites(tmp_path: Path):
     assert p.read_text() == "# mine\n"
 
 
+def test_laptop_config_round_trips_awkward_home(tmp_path: Path):
+    home = tmp_path / 'Jöhn "Doe" 张'
+    p = ensure_laptop_config(home)
+    assert load_settings(p).data_dir == home / "data"
+
+
 def test_model_env_points_under_home(tmp_path: Path):
     env = model_env(tmp_path)
     assert set(env) == {"HF_HOME", "MODELSCOPE_CACHE", "TORCH_HOME", "SHADOW_MODELS_DIR"}

@@ -131,7 +131,11 @@ def load_settings(path: Path | None = None) -> Settings:
     if path is None:
         env = os.environ.get("SHADOW_CONFIG")
         path = Path(env) if env else Path(__file__).resolve().parents[2] / "config.toml"
-    raw = tomllib.loads(path.read_text()) if path.exists() else {}
+    if path.exists():
+        with open(path, "rb") as f:
+            raw = tomllib.load(f)
+    else:
+        raw = {}
     s = Settings.model_validate(raw)
     if "data_dir" not in raw:
         s.data_dir = path.parent / "data"
