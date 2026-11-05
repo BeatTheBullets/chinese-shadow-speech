@@ -57,3 +57,84 @@ def test_quit_stops_server(tmp_path: Path):
 def test_wait_ready_false_when_server_never_starts():
     h = launcher.ServerHandle(_app(), _free_port())
     assert h.wait_ready(0.3) is False
+
+
+def test_ensure_streams_replaces_none(monkeypatch):
+    import sys
+    monkeypatch.setattr(sys, "stdout", None)
+    monkeypatch.setattr(sys, "stderr", None)
+    launcher.ensure_streams()
+    print("x", file=sys.stderr)
+    sys.stdout.write("y")
+    from tqdm import tqdm
+    for _ in tqdm(range(2)):
+        pass
+
+
+def test_stop_returns_with_open_sse_stream():
+    import asyncio
+    import threading
+    import time
+    from contextlib import asynccontextmanager
+    from sse_starlette.sse import EventSourceResponse
+    done = []
+
+    @asynccontextmanager
+    async def ls(app):
+        yield
+        done.append("shutdown")
+
+    app = FastAPI(lifespan=ls)
+
+    @app.get("/health")
+    def health():
+        return {}
+
+    @app.get("/ev")
+    async def ev():
+        async def gen():
+            while True:
+                yield {"data": "x"}
+                await asyncio.sleep(0.2)
+        return EventSourceResponse(gen())
+
+    port = _free_port()
+    h = launcher.ServerHandle(app, port)
+    h.start()
+    assert h.wait_ready(10)
+
+    def client():
+        try:
+            with httpx.stream("GET", f"http://127.0.0.1:{port}/ev", timeout=None) as r:
+                for _ in r.iter_lines():
+                    pass
+        except Exception:
+            pass
+    threading.Thread(target=client, daemon=True).start()
+    time.sleep(1)
+    t0 = time.monotonic()
+    h.stop()
+    assert time.monotonic() - t0 < 8
+    assert not h.thread.is_alive()
+    assert done == ["shutdown"]
+
+
+def test_wait_ready_false_fast_when_port_taken():
+    import time
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        s.listen()
+        port = s.getsockname()[1]
+        h = launcher.ServerHandle(_app(), port)
+        h.start()
+        t0 = time.monotonic()
+        assert h.wait_ready(60) is False
+        assert time.monotonic() - t0 < 10
+
+
+def test_icon_falls_back_on_corrupt_ico(tmp_path, monkeypatch):
+    bad = tmp_path / "icon.ico"
+    bad.write_bytes(b"not an icon")
+    monkeypatch.setenv("SHADOW_ICON", str(bad))
+    img = launcher.load_icon_image()
+    assert img.size == (64, 64)

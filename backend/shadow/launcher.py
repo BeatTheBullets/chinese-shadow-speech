@@ -23,7 +23,8 @@ class ServerHandle:
     def __init__(self, app, port: int):
         import uvicorn
         self.port = port
-        self.server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_config=None, access_log=False))
+        self.server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_config=None, access_log=False,
+                                                          timeout_graceful_shutdown=5))
         self.thread = threading.Thread(target=self.server.run, name="uvicorn", daemon=True)
 
     def start(self) -> None:
@@ -51,6 +52,11 @@ class ServerHandle:
     def stop(self, timeout: float = 30) -> None:
         """Graceful: uvicorn runs the app's lifespan shutdown before the thread ends."""
         self.server.should_exit = True
+        try:                                   # off the main thread uvicorn installs no signal handlers: tell SSE streams to end
+            from sse_starlette.sse import AppStatus
+            AppStatus.should_exit = True
+        except Exception:  # noqa: BLE001
+            pass
         if self.thread.ident is not None:
             self.thread.join(timeout)
 
@@ -84,6 +90,14 @@ def make_quit(handle: ServerHandle, home: Path, stop_icon: Callable[[], None]) -
     return quit_
 
 
+def ensure_streams() -> None:
+    """Under pythonw sys.stdout/stderr are None; tqdm and print would raise. Give them a null writer."""
+    import sys
+    for name in ("stdout", "stderr"):
+        if getattr(sys, name) is None:
+            setattr(sys, name, open(os.devnull, "w", encoding="utf-8"))
+
+
 def setup_logging(home: Path) -> None:
     root = logging.getLogger()
     root.setLevel(logging.INFO)
@@ -103,7 +117,7 @@ def icon_path() -> Path | None:
     env = os.environ.get("SHADOW_ICON")
     candidates = [Path(env)] if env else []
     root = Path(__file__).resolve().parents[2]            # <app>/backend/shadow/launcher.py -> <app>
-    candidates += [root / "packaging" / "windows" / "icon.ico", root.parent / "packaging" / "windows" / "icon.ico"]
+    candidates += [root / "icon.ico", root / "packaging" / "windows" / "icon.ico", root.parent / "packaging" / "windows" / "icon.ico"]
     return next((c for c in candidates if c.is_file()), None)
 
 
@@ -112,19 +126,23 @@ def load_icon_image():
     path = icon_path()
     if path is not None:
         try:
-            return Image.open(path)
+            img = Image.open(path)
+            img.load()
+            return img
         except Exception:  # noqa: BLE001
             log.warning("icon %s unreadable, using a plain square", path, exc_info=True)
     return Image.new("RGB", (64, 64), (176, 48, 48))
 
 
 def main(argv: list[str] | None = None) -> int:
+    ensure_streams()
     ap = argparse.ArgumentParser(prog="shadow.launcher")
     ap.add_argument("--port", type=int, required=True)
     ap.add_argument("--home", type=Path, required=True)
     args = ap.parse_args(argv)
     home: Path = args.home
     setup_logging(home)
+    remove_port_file(home)                                # a stale file from a crashed run
     from shadow.laptop import model_env
     for k, v in model_env(home).items():
         os.environ.setdefault(k, v)                       # explicit env wins; set before the app imports torch etc.
@@ -139,7 +157,7 @@ def main(argv: list[str] | None = None) -> int:
     url = f"http://127.0.0.1:{args.port}/"
 
     def after_ready() -> None:
-        if handle.wait_ready(180):
+        if handle.wait_ready(180) and not handle.server.should_exit:
             write_port_file(home, args.port)
             log.info("server ready on %s", url)
             webbrowser.open(url)
@@ -148,22 +166,39 @@ def main(argv: list[str] | None = None) -> int:
 
     threading.Thread(target=after_ready, name="ready", daemon=True).start()
 
+    user_quit = threading.Event()
+
+    def headless() -> None:
+        try:
+            while handle.alive():
+                time.sleep(0.5)
+        except KeyboardInterrupt:
+            user_quit.set()
+        finally:
+            handle.stop()
+            remove_port_file(home)
+
+    def result() -> int:
+        if user_quit.is_set():
+            return 0
+        log.error("server stopped without a quit request")
+        return 1
+
     try:
         import pystray
         image = load_icon_image()
     except Exception as e:  # noqa: BLE001
         log.warning("tray unavailable (%s: %s); running headless", type(e).__name__, e)
-        try:
-            while handle.alive():
-                time.sleep(0.5)
-        except KeyboardInterrupt:
-            pass
-        finally:
-            make_quit(handle, home, lambda: None)()
-        return 0
+        headless()
+        return result()
 
     holder: dict = {}
-    quit_ = make_quit(handle, home, lambda: holder["icon"].stop())
+    stop_all = make_quit(handle, home, lambda: holder["icon"].stop())
+
+    def quit_() -> None:
+        user_quit.set()
+        stop_all()
+
     menu = pystray.Menu(
         pystray.MenuItem("Open", lambda icon, item: webbrowser.open(url), default=True),
         pystray.MenuItem("Quit", lambda icon, item: threading.Thread(target=quit_, daemon=True).start()))
@@ -173,16 +208,19 @@ def main(argv: list[str] | None = None) -> int:
     def watch() -> None:                                   # the server died on its own: do not leave a dead tray icon
         while handle.alive():
             time.sleep(1)
-        if not handle.server.should_exit:
-            log.error("server stopped unexpectedly")
         remove_port_file(home)
         icon.stop()
 
     threading.Thread(target=watch, name="watch", daemon=True).start()
-    icon.run()
+    try:
+        icon.run()
+    except Exception:  # noqa: BLE001
+        log.exception("tray failed; running headless")
+        headless()
+        return result()
     handle.stop()
     remove_port_file(home)
-    return 0
+    return result()
 
 
 if __name__ == "__main__":
