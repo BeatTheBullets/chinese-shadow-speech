@@ -11,6 +11,7 @@
 param([string]$Version = '')
 
 $ErrorActionPreference = 'Stop'
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 $ProgressPreference = 'SilentlyContinue'   # Invoke-WebRequest is very slow with the progress bar in Windows PowerShell 5.1
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
@@ -84,7 +85,7 @@ $tgz = Get-Pinned $pins.python
 $pyTmp = Join-Path $Build 'python-extract'
 if (Test-Path $pyTmp) { Remove-Item -Recurse -Force $pyTmp }
 New-Item -ItemType Directory -Force -Path $pyTmp | Out-Null
-& tar.exe -xzf $tgz -C $pyTmp
+& "$env:SystemRoot\System32\tar.exe" -xzf $tgz -C $pyTmp
 Check-Exit 'tar (python)'
 if (-not (Test-Path (Join-Path $pyTmp 'python\python.exe')) -or -not (Test-Path (Join-Path $pyTmp 'python\pythonw.exe'))) {
     Fail 'python archive lacks python.exe/pythonw.exe'

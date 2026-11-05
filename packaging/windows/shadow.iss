@@ -74,18 +74,23 @@ Filename: "{app}\python\pythonw.exe"; Parameters: """{app}\bootstrap.py"""; Work
 Type: filesandordirs; Name: "{localappdata}\chinese-shadow-speech\venv"
 Type: filesandordirs; Name: "{localappdata}\chinese-shadow-speech\uv-cache"
 Type: filesandordirs; Name: "{localappdata}\chinese-shadow-speech\pycache"
+; runtime files (e.g. __pycache__) are not in the install log and would otherwise keep {app} from being removed
+Type: filesandordirs; Name: "{app}\python"
+Type: filesandordirs; Name: "{app}\backend"
 
 [Code]
 const
-  StopScript =
-    'param([string]$App, [string]$Venv)' + #13#10 +
+  { $App, $Venv and $Kill are defined by the text StopAppScript() prepends }
+  StopBody =
     '$names = ''python.exe'', ''pythonw.exe'', ''uv.exe'', ''ffmpeg.exe'', ''ffprobe.exe'', ''deno.exe''' + #13#10 +
     '$roots = @(($App.TrimEnd(''\'') + ''\''), ($Venv.TrimEnd(''\'') + ''\''))' + #13#10 +
-    'Get-CimInstance Win32_Process | Where-Object {' + #13#10 +
+    '$found = @(Get-CimInstance Win32_Process | Where-Object {' + #13#10 +
     '  $p = $_.ExecutablePath' + #13#10 +
     '  $p -and ($names -contains $_.Name.ToLower()) -and' + #13#10 +
     '  (@($roots | Where-Object { $p.StartsWith($_, [StringComparison]::OrdinalIgnoreCase) }).Count -gt 0)' + #13#10 +
-    '} | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }' + #13#10;
+    '})' + #13#10 +
+    'if ($Kill) { $found | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } }' + #13#10 +
+    'if ($found.Count -gt 0) { exit 1 } else { exit 0 }' + #13#10;
 
 function HomeDir(): String;
 begin
@@ -96,19 +101,76 @@ end;
   every python/pythonw/uv/ffmpeg/ffprobe/deno process whose executable lives in the install folder or in the app's
   virtualenv (the launcher and server run from there). The installer/uninstaller itself is never matched (not in that
   list of names). Unsaved work is not at risk: the app writes results as it goes. }
-procedure StopApp();
+function PsQuote(S: String): String;
+begin
+  StringChange(S, '''', '''''');
+  Result := '''' + S + '''';
+end;
+
+{ Base64 of the UTF-16LE bytes of S, which is what powershell -EncodedCommand takes. Passing the script this way (not as
+  a .ps1 file) means a Group Policy execution policy cannot block it. }
+function EncodeUtf16Base64(const S: String): String;
+const
+  Tbl = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 var
-  Script: String;
+  Bytes: array of Integer;
+  I, N, B0, B1, B2, C: Integer;
+begin
+  N := Length(S) * 2;
+  SetArrayLength(Bytes, N);
+  for I := 1 to Length(S) do
+  begin
+    C := Ord(S[I]);
+    Bytes[(I - 1) * 2] := C and $FF;
+    Bytes[(I - 1) * 2 + 1] := (C shr 8) and $FF;
+  end;
+  Result := '';
+  I := 0;
+  while I < N do
+  begin
+    B0 := Bytes[I];
+    B1 := 0;
+    B2 := 0;
+    if I + 1 < N then B1 := Bytes[I + 1];
+    if I + 2 < N then B2 := Bytes[I + 2];
+    Result := Result + Tbl[(B0 shr 2) + 1] + Tbl[(((B0 and 3) shl 4) or (B1 shr 4)) + 1];
+    if I + 1 < N then
+      Result := Result + Tbl[(((B1 and 15) shl 2) or (B2 shr 6)) + 1]
+    else
+      Result := Result + '=';
+    if I + 2 < N then
+      Result := Result + Tbl[(B2 and 63) + 1]
+    else
+      Result := Result + '=';
+    I := I + 3;
+  end;
+end;
+
+{ Runs the process scan; Kill = True also stops what it finds. Returns True if app processes were found. }
+function ScanApp(Kill: Boolean): Boolean;
+var
+  Script, KillText: String;
   ResultCode: Integer;
 begin
-  Script := ExpandConstant('{tmp}\stop-app.ps1');
-  if not SaveStringToFile(Script, StopScript, False) then
-    Exit;
-  Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
-    '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + Script + '" "' + ExpandConstant('{app}') + '" "' +
-    HomeDir() + '\venv"',
-    '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  Sleep(500);   { let Windows release the file handles }
+  if Kill then KillText := '$true' else KillText := '$false';
+  Script := '$App = ' + PsQuote(ExpandConstant('{app}')) + #13#10 +
+            '$Venv = ' + PsQuote(HomeDir() + '\venv') + #13#10 +
+            '$Kill = ' + KillText + #13#10 + StopBody;
+  Result := False;
+  if Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+          '-NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand ' + EncodeUtf16Base64(Script),
+          '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+    Result := (ResultCode = 1);
+end;
+
+procedure StopApp();
+begin
+  if ScanApp(False) then
+  begin
+    MsgBox('chinese-shadow-speech is running and will be closed.', mbInformation, MB_OK);
+    ScanApp(True);
+    Sleep(500);   { let Windows release the file handles }
+  end;
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;

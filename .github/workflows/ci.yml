@@ -96,4 +96,5 @@ jobs:
         with:
           name: windows-installer
           path: dist/chinese-shadow-speech-*-setup.exe
-          if-no-files-found: warn
+          if-no-files-found: error
+          retention-days: 7
