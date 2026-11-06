@@ -278,25 +278,32 @@ def _setup(home: Path, app_dir: Path, report: Callable[[dict], None]) -> bool:
     if free < needed:
         report({"error": f"Not enough disk space: {free:.0f} GB free, about {needed} GB needed"})
         return False
-    size = f"about {MODELS_GB} GB"
+    # a re-setup (every new app version) finds the models already there: it must not announce a 4 GB download
+    size = {"size": f"about {MODELS_GB} GB"} if first else {}
+    python_stage = "Setting up Python" if first else "Updating the app"
+    models_stage = f"Downloading speech models ({size['size']})" if first else "Checking speech models"
+    prepare_stage = "Preparing models" if first else "Checking speech models"
     base = {**os.environ, "PYTHONUTF8": "1", "UV_HTTP_TIMEOUT": "10", "UV_PROJECT_ENVIRONMENT": str(home / "venv"),
             "UV_CACHE_DIR": str(home / "uv-cache")}
     tail: list[str] = []
+
+    def stage(name: str, done: int = 0, total: int = 1, **extra) -> None:
+        report({"stage": name, **extra, **size, "done": done, "total": total, "update": not first})
 
     def keep(line: str) -> None:
         log(home, line)
         tail.append(line)
         del tail[:-20]
 
-    report({"stage": "Setting up Python", "done": 0, "total": 1})
+    stage(python_stage)
     sync = [str(app_dir / "uv.exe"), "sync", "--frozen", "--no-dev", "--extra", "models", "--extra", "desktop",
             "--python", str(app_dir / "python" / "python.exe")]
     if _run(sync, base, keep, cwd=str(app_dir / "backend")) != 0:
-        report({"error": _failure_text("Setting up Python failed: " + (tail[-1] if tail else "see bootstrap.log"),
+        report({"error": _failure_text(f"{python_stage} failed: " + (tail[-1] if tail else "see bootstrap.log"),
                                        tail)})
         return False
 
-    report({"stage": f"Downloading speech models ({size})", "size": size, "done": 0, "total": 1})
+    stage(models_stage)
     failure: list[str] = []
 
     def relay(line: str) -> None:
@@ -310,8 +317,7 @@ def _setup(home: Path, app_dir: Path, report: Callable[[dict], None]) -> bool:
         if "error" in msg:
             failure.append(str(msg["error"]))
         elif "step" in msg:
-            report({"stage": "Preparing models", "detail": msg["step"], "size": size,
-                    "done": msg.get("done", 0), "total": msg.get("total", 1)})
+            stage(prepare_stage, msg.get("done", 0), msg.get("total", 1), detail=msg["step"])
 
     config = ensure_laptop_config(home)
     env = {**base, **model_env(home), "SHADOW_CONFIG": str(config), "PYTHONPYCACHEPREFIX": str(home / "pycache")}

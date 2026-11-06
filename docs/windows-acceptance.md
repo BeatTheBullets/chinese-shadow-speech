@@ -47,7 +47,8 @@ Windows 11, AMD Ryzen 5 3600 (6 cores), 16 GB RAM, so the recogniser stayed fp32
 - [x] Echo takes scored: first take 6.7 s (models load), then 3.5–4.8 s each. Server memory 3.9 GB with all five
   models loaded (fp32 recogniser).
 - [x] A newer build installed over the running app: the app was stopped (other programs' Python processes untouched),
-  the lesson was kept, and the app was ready 13 s after starting it from the shortcut.
+  the lesson was kept, and the app was ready 13 s after starting it from the shortcut. Measured before 37c3c49, which
+  reruns setup (an "Updating" progress page) on every new version: re-check after 37c3c49.
 
 ## 3. On the first user's laptop
 
@@ -58,7 +59,8 @@ Windows 11, AMD Ryzen 5 3600 (6 cores), 16 GB RAM, so the recogniser stayed fp32
 - [ ] The laptop stays usable while the app runs (browser, music). Task Manager → the app's `pythonw.exe` memory
   after a few takes: ____ MB.
 - [ ] **Quit** from the tray icon. Start again from the Start menu: the Library opens within about 30 s.
-- [ ] Install a newer build over it: the lessons and takes are still there.
+- [ ] Install a newer build over it: the first start shows "Updating Chinese Shadow Speech" (no 4 GB download) and
+  ends on the Library. Note the time: ____ min. The lessons and takes are still there.
 - [ ] Uninstall (Settings → Apps): it asks whether to delete the data, the default is No, and
   `%LOCALAPPDATA%\chinese-shadow-speech\data` is still there after answering No.
 

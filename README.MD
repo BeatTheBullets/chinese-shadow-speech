@@ -239,11 +239,12 @@ when you leave via ⌂ Library, and on the Flow summary's Done.
    **More info**, then **Run anyway**. It installs for your user only and does not ask for administrator rights.
 3. The app opens a page in your browser that shows its first-run progress. The first start sets up Python and
    downloads the speech models, about 4 GB, so it takes 10 to 20 minutes depending on your connection. Later starts
-   take a few seconds.
+   take a few seconds. The first start after installing a newer version takes a minute or two while the app updates
+   itself (the models are kept, not downloaded again).
 4. When it is ready, the Library opens. Paste a YouTube link to make your first lesson.
 
-**Requirements:** Windows 10 or 11 (64-bit), 8 GB of RAM or more, 8 GB of free disk space for the first start, and an
-internet connection for the first start and for YouTube lessons. No graphics card is needed.
+**Requirements:** Windows 10 or 11 (64-bit), 8 GB of RAM or more, 8 GB of free disk space for the first start (2 GB
+for an update), and an internet connection for the first start and for YouTube lessons. No graphics card is needed.
 
 **Using it:** start it from the Start menu (**Chinese Shadow Speech**). It runs in the background with an icon in the
 notification area (bottom right). Use that icon to open the app again or to **Quit** it. Closing the browser tab

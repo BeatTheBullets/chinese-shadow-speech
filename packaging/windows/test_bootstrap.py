@@ -394,3 +394,30 @@ def test_main_first_run_with_the_progress_tab_closed_lets_the_launcher_open_the_
     monkeypatch.setattr(bs, "running_port", lambda h: 4321 if state["launched"] is not None else None)
     assert bs.main() == 0                           # nobody polled /status: the page will not redirect itself
     assert state["launched"] is False
+
+
+def test_first_setup_stages_announce_the_download(tmp_path, monkeypatch):
+    reports = []
+    monkeypatch.setattr(bs, "_run", fake_runner([]))
+    assert bs.run_setup(tmp_path / "home", app_dir(tmp_path), reports.append) is True
+    assert [r["stage"] for r in reports] == ["Setting up Python", "Downloading speech models (about 4 GB)",
+                                             "Preparing models"]
+    assert all(r["update"] is False for r in reports)
+
+
+def test_re_setup_after_an_update_does_not_claim_a_download(tmp_path, monkeypatch):
+    # setup reruns on every new app version: the models are already there, so no "4 GB" and no "first time"
+    home, app = tmp_path / "home", app_dir(tmp_path)
+    bs.ready_marker(home, "oldlock").parent.mkdir(parents=True)
+    bs.ready_marker(home, "oldlock").write_text("ok")
+    reports = []
+    monkeypatch.setattr(bs, "_run", fake_runner([]))
+    assert bs.run_setup(home, app, reports.append) is True
+    assert [r["stage"] for r in reports] == ["Updating the app", "Checking speech models", "Checking speech models"]
+    assert all(r["update"] is True and "size" not in r for r in reports)
+    assert not any("GB" in str(r) or "Download" in str(r) for r in reports)
+
+
+def test_progress_page_has_update_wording():
+    html = (Path(__file__).parent / "progress.html").read_text(encoding="utf-8")
+    assert "Updating Chinese Shadow Speech" in html and "s.update" in html

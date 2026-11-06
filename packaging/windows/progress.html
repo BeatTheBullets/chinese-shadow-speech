@@ -9,8 +9,8 @@ h1{font-size:1.3rem;margin:0 0 6px}p{margin:6px 0;line-height:1.45}.muted{color:
 .fill{height:100%;width:0;background:#8c2f2f;transition:width .4s}
 .err{color:#8c1d1d;font-weight:600}button{font:inherit;padding:8px 18px;margin-top:12px;cursor:pointer}
 </style></head><body><main>
-<h1>Setting up Chinese Shadow Speech</h1>
-<p class="muted">This only happens the first time. Keep this window open; it can take a while.</p>
+<h1 id="title">Setting up Chinese Shadow Speech</h1>
+<p class="muted" id="intro">This only happens the first time. Keep this window open; it can take a while.</p>
 <p id="stage">Starting</p><p id="detail" class="muted"></p>
 <div class="bar"><div class="fill" id="fill"></div></div>
 <p id="size" class="muted"></p>
@@ -25,6 +25,12 @@ async function tick(){
   try{
     const s=await (await fetch('/status',{cache:'no-store'})).json();
     $('error').hidden=!s.error;
+    if(s.update!==undefined){   // every new app version reruns setup, with the models already downloaded
+      const t=s.update?'Updating Chinese Shadow Speech':'Setting up Chinese Shadow Speech';
+      $('title').textContent=t;document.title=t;
+      $('intro').textContent=s.update?'The app is updating itself after a new version; this takes a minute or two.'
+        :'This only happens the first time. Keep this window open; it can take a while.';
+    }
     if(s.error){$('msg').textContent=s.error}
     else{
       $('stage').textContent=s.stage||'Starting';
