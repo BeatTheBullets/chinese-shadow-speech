@@ -17,7 +17,7 @@ On a laptop with 8 GB of RAM also set these in `[models]`:
   aligner and the sounds model are quantised once and stored in `int8/` under the app's models folder (`SHADOW_MODELS_DIR`),
   so later loads read int8 weights only; the recogniser is quantised at each load.
 - `asr_int8_below_ram_gb = 12`: with `int8 = true` the recogniser is 8-bit only on a machine with less RAM than this
-  (8-bit costs a little accuracy: words-check agreement 93.9 %, CER 3.35 %); on 12 GB or more it stays fp32. The aligner
+  (8-bit costs a little accuracy: words-check agreement with fp32 98.4 %, CER 0.95 %); on 12 GB or more it stays fp32. The aligner
   and the sounds model are 8-bit on the CPU everywhere.
 - `int8_skip = []`: models kept fp32 even with `int8 = true`, from `"asr"`, `"aligner"`, `"sounds"` (more RAM, closest to the GPU results); `"asr"` here forces an fp32 recogniser whatever the RAM.
 - `threads = 0`: CPU threads for the models; 0 is the physical cores minus one. The laptop-fit memory
