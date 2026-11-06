@@ -61,10 +61,19 @@ def log(home: Path, msg: str) -> None:
 
 
 def lock_hash(app_dir: Path) -> str:
+    """Names the ready marker: setup (uv sync, then prepare) runs again whenever uv.lock or pyproject.toml changes,
+    so every new app version rebuilds what it stores, such as the int8 copies whose format the app can change
+    without touching uv.lock, before the app starts and not during the first take."""
+    h = hashlib.sha256()
     try:
-        return hashlib.sha256((Path(app_dir) / "backend" / "uv.lock").read_bytes()).hexdigest()[:16]
+        h.update((Path(app_dir) / "backend" / "uv.lock").read_bytes())
     except OSError:
         return "nolock"
+    try:
+        h.update(b"\0" + (Path(app_dir) / "backend" / "pyproject.toml").read_bytes())
+    except OSError:
+        pass
+    return h.hexdigest()[:16]
 
 
 def venv_python(home: Path, gui: bool = False) -> Path:

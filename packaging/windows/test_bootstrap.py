@@ -38,6 +38,7 @@ def app_dir(tmp_path):
     a = tmp_path / "app"
     (a / "backend").mkdir(parents=True, exist_ok=True)
     (a / "backend" / "uv.lock").write_text("lock")
+    (a / "backend" / "pyproject.toml").write_text('[project]\nname = "shadow"\nversion = "0.2.0"\n', encoding="utf-8")
     return a
 
 
@@ -305,3 +306,16 @@ def test_installer_starts_bootstrap_without_writing_bytecode():
     launches = [line for line in iss.splitlines() if "pythonw.exe" in line and "bootstrap.py" in line]
     assert len(launches) == 3
     assert all('Parameters: "-B ""{app}\\bootstrap.py"""' in line for line in launches)
+
+
+def test_a_new_app_version_reruns_setup_with_the_same_lock(tmp_path, monkeypatch):
+    # stored int8 copies are keyed by the app's quantisation format, which can change without uv.lock changing:
+    # every new version must run prepare again so they are rebuilt here, not during the first take
+    home, app = tmp_path / "home", app_dir(tmp_path)
+    monkeypatch.setattr(bs, "_run", fake_runner([]))
+    assert bs.run_setup(home, app, lambda r: None) is True
+    assert not bs.setup_needed(home, bs.lock_hash(app))
+    pyproject = app / "backend" / "pyproject.toml"
+    pyproject.write_text(pyproject.read_text(encoding="utf-8").replace('version = "0.2.0"', 'version = "0.2.1"'),
+                         encoding="utf-8")
+    assert bs.setup_needed(home, bs.lock_hash(app))

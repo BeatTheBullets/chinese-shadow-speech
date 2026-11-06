@@ -72,3 +72,29 @@ def test_run_prepare_prints_progress_and_reports_failure(capsys):
     assert len(lines) == 5 and '"done": 5' in lines[-1] and '"total": 5' in lines[-1]
     assert run_prepare(fake_deps([], fail="aligner")) != 0
     assert '"error"' in capsys.readouterr().out.strip().splitlines()[-1]
+
+
+class Holder:
+    """A loader that keeps its model in `_model` (or `_punct`), like the real ones, and records what else is loaded."""
+    live: list = []
+
+    def __init__(self, name, attr="_model"):
+        self.name, self.attr = name, attr
+        setattr(self, attr, None)
+
+    def _load(self):
+        Holder.seen[self.name] = sorted(h.name for h in Holder.live if getattr(h, h.attr) is not None)
+        setattr(self, self.attr, object())
+        return getattr(self, self.attr)
+
+
+def test_run_prepare_drops_each_model_before_loading_the_next(capsys):
+    # prepare only fills the caches; holding every model at once made its peak the sum of all loads
+    Holder.seen = {}
+    asr, punct, al, emb, snd = Holder("asr"), Holder("punct", "_punct"), Holder("aligner"), Holder("embedder"), Holder("sounds")
+    Holder.live = [asr, punct, al, emb, snd]
+    asr.punctuator = punct
+    deps = SimpleNamespace(asr=asr, aligner=SimpleNamespace(inner=al), embedder=emb, sounds=SimpleNamespace(chars=snd))
+    assert run_prepare(deps) == 0
+    assert all(v == [] for v in Holder.seen.values()), Holder.seen
+    assert all(getattr(h, h.attr) is None for h in Holder.live)

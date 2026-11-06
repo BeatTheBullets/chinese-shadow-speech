@@ -43,6 +43,19 @@ def prepare_steps(deps) -> list[tuple[str, Callable[[], None]]]:
     return steps
 
 
+def _release(load) -> None:
+    """Drop the model a loader just loaded (prepare only fills the caches), so the next load starts from an empty
+    process: holding every model made prepare's peak the sum of all loads, building the int8 copies included."""
+    owner = getattr(load, "__self__", None)
+    for attr in ("_model", "_punct"):
+        if owner is not None and getattr(owner, attr, None) is not None:
+            setattr(owner, attr, None)
+    import gc
+    from shadow.memory import trim_heap
+    gc.collect()
+    trim_heap()
+
+
 def run_prepare(deps) -> int:
     steps = prepare_steps(deps)
     total = len(steps)
@@ -52,6 +65,7 @@ def run_prepare(deps) -> int:
         except Exception as e:  # noqa: BLE001
             print(json.dumps({"error": f"{name}: {str(e) or type(e).__name__}"}), flush=True)
             return 1
+        _release(load)
         print(json.dumps({"step": name, "done": i, "total": total}), flush=True)
     return 0
 
