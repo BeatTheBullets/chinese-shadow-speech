@@ -24,7 +24,8 @@ from typing import Callable
 
 PREFERRED_PORT = 47231
 MODELS_GB = 4                 # shown to the user
-NEEDED_GB = 8                 # free space required before downloading
+NEEDED_GB = 8                 # free space required before the first setup (models, venv, uv cache)
+UPDATE_NEEDED_GB = 2          # free space required when an update reruns setup (the models are already there)
 LAUNCH_WAIT = 180             # seconds to wait for the launcher's /health
 YTDLP_TIMEOUT = 60            # seconds before the daily yt-dlp update is killed
 NO_INTERNET = "No internet connection \u2014 connect and press Retry"
@@ -146,6 +147,15 @@ def setup_needed(home: Path, lock: str) -> bool:
     return not ready_marker(home, lock).exists()
 
 
+def first_setup(home: Path) -> bool:
+    """True before this home was ever set up: no ready marker of any version and no stored models. Every new app
+    version reruns setup, which then only updates the venv and checks the models."""
+    venv, models = Path(home) / "venv", Path(home) / "models"
+    if venv.is_dir() and any(venv.glob(".ready-*")):
+        return False
+    return not (models.is_dir() and any(p.is_file() for p in models.rglob("*")))
+
+
 class SetupLock:
     """A cross-process lock on <home>/run/setup.lock (msvcrt on Windows, flock elsewhere); it dies with the process."""
 
@@ -261,9 +271,10 @@ def run_setup(home: Path, app_dir: Path, report: Callable[[dict], None], lock: S
 
 def _setup(home: Path, app_dir: Path, report: Callable[[dict], None]) -> bool:
     home.mkdir(parents=True, exist_ok=True)
-    free = free_gb(home)
-    if free < NEEDED_GB:
-        report({"error": f"Not enough disk space: {free:.0f} GB free, about {NEEDED_GB} GB needed"})
+    first = first_setup(home)
+    free, needed = free_gb(home), (NEEDED_GB if first else UPDATE_NEEDED_GB)
+    if free < needed:
+        report({"error": f"Not enough disk space: {free:.0f} GB free, about {needed} GB needed"})
         return False
     size = f"about {MODELS_GB} GB"
     base = {**os.environ, "PYTHONUTF8": "1", "UV_HTTP_TIMEOUT": "10", "UV_PROJECT_ENVIRONMENT": str(home / "venv"),

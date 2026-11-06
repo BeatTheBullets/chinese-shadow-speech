@@ -319,3 +319,30 @@ def test_a_new_app_version_reruns_setup_with_the_same_lock(tmp_path, monkeypatch
     pyproject.write_text(pyproject.read_text(encoding="utf-8").replace('version = "0.2.0"', 'version = "0.2.1"'),
                          encoding="utf-8")
     assert bs.setup_needed(home, bs.lock_hash(app))
+
+
+def test_first_setup_means_no_ready_marker_and_no_models(tmp_path):
+    home = tmp_path / "home"
+    assert bs.first_setup(home)
+    (home / "models" / "hf").mkdir(parents=True)
+    assert bs.first_setup(home)                     # an empty models tree holds nothing to keep
+    (home / "models" / "hf" / "weights.bin").write_bytes(b"x")
+    assert not bs.first_setup(home)
+    other = tmp_path / "other"
+    bs.ready_marker(other, "oldlock").parent.mkdir(parents=True)
+    bs.ready_marker(other, "oldlock").write_text("ok")
+    assert not bs.first_setup(other)                # set up before, by an older version
+
+
+def test_disk_check_on_a_re_setup_needs_only_a_little_space(tmp_path, monkeypatch):
+    # every new app version reruns setup; the models are already there, so asking for 8 GB would block the upgrade
+    home, app = tmp_path / "home", app_dir(tmp_path)
+    bs.ready_marker(home, "oldlock").parent.mkdir(parents=True)
+    bs.ready_marker(home, "oldlock").write_text("ok")
+    monkeypatch.setattr(bs, "free_gb", lambda p: 3.0)
+    monkeypatch.setattr(bs, "_run", fake_runner([]))
+    assert bs.run_setup(home, app, lambda r: None) is True
+    monkeypatch.setattr(bs, "free_gb", lambda p: 1.0)
+    reports = []
+    assert bs.run_setup(home, app, reports.append) is False
+    assert reports[-1] == {"error": f"Not enough disk space: 1 GB free, about {bs.UPDATE_NEEDED_GB} GB needed"}
