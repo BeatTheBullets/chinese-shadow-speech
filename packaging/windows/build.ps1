@@ -139,10 +139,10 @@ try {
     Invoke-Native 'npm ci' { & npm.cmd ci }
     Invoke-Native 'npm run build' { & npm.cmd run build }
 } finally { Pop-Location }
-$dist = Join-Path $Root 'frontend\dist'
-if (-not (Test-Path (Join-Path $dist 'index.html'))) { Fail 'frontend build produced no frontend\dist\index.html' }
+$feDist = Join-Path $Root 'frontend\dist'
+if (-not (Test-Path (Join-Path $feDist 'index.html'))) { Fail 'frontend build produced no frontend\dist\index.html' }
 New-Item -ItemType Directory -Force -Path (Join-Path $Stage 'frontend') | Out-Null
-Copy-Item -Recurse $dist (Join-Path $Stage 'frontend\dist')
+Copy-Item -Recurse $feDist (Join-Path $Stage 'frontend\dist')
 
 # ---- backend source: the committed tree only (git archive HEAD), so no .venv, caches or local data
 $zip = Join-Path $Build 'backend.zip'
