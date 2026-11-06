@@ -28,6 +28,8 @@ NEEDED_GB = 8                 # free space required before the first setup (mode
 UPDATE_NEEDED_GB = 2          # free space required when an update reruns setup (the models are already there)
 LAUNCH_WAIT = 180             # seconds to wait for the launcher's /health
 YTDLP_TIMEOUT = 60            # seconds before the daily yt-dlp update is killed
+PAGE_GONE_AFTER = 75          # seconds without a /status poll before the progress tab counts as closed (a hidden
+                              # tab's timers can slow to once a minute, so a shorter wait would open a second tab)
 NO_INTERNET = "No internet connection \u2014 connect and press Retry"
 _NETWORK = re.compile(r"dns|resolve|getaddrinfo|connection|connect error|timed out|timeout|unreachable|network|"
                       r"error sending request|ssl|certificate|name or service", re.I)
@@ -358,9 +360,19 @@ class Progress:
     def __init__(self):
         self.status: dict = {"stage": "Starting", "done": 0, "total": 1}
         self.retry = threading.Event()
+        self.last_poll: float | None = None
 
     def report(self, msg: dict) -> None:
         self.status = msg
+
+    def polled(self, now: float | None = None) -> None:
+        self.last_poll = time.monotonic() if now is None else now
+
+    def page_open(self, now: float | None = None) -> bool:
+        """Whether the progress tab is still polling: only then does it redirect itself to the app at the end."""
+        if self.last_poll is None:
+            return False
+        return (time.monotonic() if now is None else now) - self.last_poll < PAGE_GONE_AFTER
 
 
 def make_progress_server(progress: Progress, port: int) -> ThreadingHTTPServer:
@@ -379,6 +391,7 @@ def make_progress_server(progress: Progress, port: int) -> ThreadingHTTPServer:
             if self.path in ("/", "/index.html"):
                 self._send(200, html, "text/html; charset=utf-8")
             elif self.path == "/status":
+                progress.polled()
                 self._send(200, json.dumps(progress.status).encode(), "application/json")
             else:
                 self._send(404, b"not found", "text/plain")
@@ -510,9 +523,12 @@ def _first_instance(home: Path, app_dir: Path, lock: SetupLock) -> int:
             wait_retry()
         progress.report({"stage": "Starting", "done": 1, "total": 1})
     update_ytdlp(home, app_dir)
-    stop()                                         # the app takes over this port
     while True:
-        proc = start_launcher(home, app_dir, port, no_browser=shown)   # else it opens the browser itself
+        # a progress tab that still polls redirects itself to the app; else (none shown, or it was closed during
+        # setup) the launcher opens the browser itself
+        page = shown and progress.page_open()
+        stop()                                     # the app takes over this port
+        proc = start_launcher(home, app_dir, port, no_browser=page)
         if wait_running(home, LAUNCH_WAIT):
             return 0
         log(home, "the launcher did not answer in time")
@@ -525,7 +541,6 @@ def _first_instance(home: Path, app_dir: Path, lock: SetupLock) -> int:
         progress.report({"error": f"The app could not start \u2014 see {home / 'logs'}"})
         serve()
         wait_retry()
-        stop()
         progress.report({"stage": "Starting", "done": 1, "total": 1})
 
 

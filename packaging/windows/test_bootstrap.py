@@ -356,3 +356,41 @@ def test_installer_always_uses_its_own_folder():
     lines = [line.strip() for line in setup.splitlines()]
     assert "DisableDirPage=yes" in lines
     assert "DefaultDirName={localappdata}\\Programs\\chinese-shadow-speech" in lines
+
+
+def test_progress_page_counts_as_open_only_while_it_polls():
+    p = bs.Progress()
+    assert not p.page_open(now=1000.0)              # never polled: the tab never loaded, or was closed at once
+    p.polled(now=1000.0)
+    assert p.page_open(now=1001.0)
+    assert p.page_open(now=1000.0 + bs.PAGE_GONE_AFTER - 1)   # a hidden tab's timers can slow to once a minute
+    assert not p.page_open(now=1000.0 + bs.PAGE_GONE_AFTER + 1)
+
+
+def test_status_poll_marks_the_page_open():
+    import urllib.request
+    p = bs.Progress()
+    port = bs.choose_port(0)
+    srv = bs.make_progress_server(p, port)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        assert not p.page_open()
+        urllib.request.urlopen(f"http://127.0.0.1:{port}/status").read()
+        assert p.page_open()
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_main_first_run_with_the_progress_tab_closed_lets_the_launcher_open_the_app(tmp_path, monkeypatch):
+    patch_main(tmp_path, monkeypatch)
+    state = {"launched": None}
+    monkeypatch.setattr(bs, "_run", fake_runner([]))
+
+    def launcher(h, a, p, no_browser=False):
+        state["launched"] = no_browser
+        return type("P", (), {"kill": lambda self: None})()
+    monkeypatch.setattr(bs, "start_launcher", launcher)
+    monkeypatch.setattr(bs, "running_port", lambda h: 4321 if state["launched"] is not None else None)
+    assert bs.main() == 0                           # nobody polled /status: the page will not redirect itself
+    assert state["launched"] is False
