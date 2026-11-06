@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 import torch
 from shadow.config import ModelsCfg, Settings
-from shadow.quant import cpu_threads, int8_wanted, quantize_linear
+from shadow.quant import Int8Linear, cpu_threads, int8_wanted, quantize_linear
 
 
 def test_quantize_linear_swaps_linear_layers_and_keeps_outputs_close():
@@ -11,8 +11,8 @@ def test_quantize_linear_swaps_linear_layers_and_keeps_outputs_close():
     x = torch.randn(4, 64)
     ref = m(x)
     q = quantize_linear(m)
-    assert isinstance(q[0], torch.ao.nn.quantized.dynamic.Linear)
-    assert torch.allclose(q(x), ref, atol=0.05)
+    assert type(q[0]) is Int8Linear and type(q[2]) is Int8Linear
+    assert torch.allclose(q(x), ref, atol=0.02)
 
 
 def test_int8_only_on_cpu():
@@ -38,7 +38,7 @@ def test_mms_aligner_int8_gives_one_span_per_speech_character():
     a = MmsAligner("cpu", int8=True)
     spans = a.align(wav, sr, text)
     assert [s.ch for s in spans] == speech_chars(text)
-    n_q = sum(isinstance(m, torch.ao.nn.quantized.dynamic.Linear) for m in a._model.modules())
+    n_q = sum(isinstance(m, Int8Linear) for m in a._model.modules())
     assert n_q > 0
 
 
@@ -57,8 +57,12 @@ def test_build_deps_on_cpu_survives_missing_torch(monkeypatch, tmp_path):
 
 
 def test_quantize_linear_prints_no_deprecation_warning(recwarn):
-    quantize_linear(torch.nn.Sequential(torch.nn.Linear(8, 8)))
-    assert not [w for w in recwarn if "torch.ao.quantization" in str(w.message)]
+    import warnings
+    warnings.simplefilter("always")
+    q = quantize_linear(torch.nn.Sequential(torch.nn.Linear(8, 8)))
+    q(torch.randn(2, 8))
+    assert not [w for w in recwarn if issubclass(w.category, DeprecationWarning) or "torch.ao" in str(w.message)]
+    assert not [m for m in q.modules() if type(m).__module__.startswith("torch.ao")]
 
 
 def test_int8_skip_keeps_named_models_fp32(tmp_path, monkeypatch):

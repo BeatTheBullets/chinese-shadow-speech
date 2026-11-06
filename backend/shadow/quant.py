@@ -1,10 +1,14 @@
-"""8-bit models for a CPU-only laptop: dynamic int8 quantisation of the Linear layers, and the CPU thread budget."""
+"""8-bit models for a CPU-only laptop: weight-only int8 Linear layers, and the CPU thread budget.
+
+The int8 Linear is our own (Int8Linear), not torch's dynamic qint8: that one's memory depends on the quantised engine,
+and the Windows CPU wheel has only oneDNN, whose packed Linear keeps the int8 weight twice (each int8 model cost about
+2x its weights there, ~700 MB more than Linux across the three models). Int8Linear stores the int8 weight once and
+dequantises it per call, the same on every platform."""
 from __future__ import annotations
 import gc
 import os
 import re
 import logging
-import warnings
 from pathlib import Path
 from shadow.config import Settings
 from shadow.memory import trim_heap
@@ -12,7 +16,7 @@ from shadow.memory import trim_heap
 log = logging.getLogger(__name__)
 
 
-QUANT_FORMAT = 1          # bump on any change to the quantisation recipe or to what is stored: stored models are rebuilt
+QUANT_FORMAT = 2          # bump on any change to the quantisation recipe or to what is stored: stored models are rebuilt
 
 
 def int8_cache_path(key: str) -> Path:
@@ -70,15 +74,14 @@ def cached_int8(key: str, build):
 
 
 def quantize_linear(module):
-    """Dynamic qint8 over every torch.nn.Linear (weights stored as int8, activations quantised on the fly); eval mode.
-    The fp32 weights are freed once the caller drops its reference."""
+    """Every exact torch.nn.Linear becomes an Int8Linear (int8 weights, symmetric per output row; fp32 activations);
+    eval mode. The fp32 weights are freed once the caller drops its reference."""
     import torch
+    int8_linear = _int8_linear_class()
     # Weights read lazily from a checkpoint stay memory-mapped to its file while any tensor refers to them (the sounds
-    # model kept 1.2 GB resident after quantising). So each tensor is copied out of the mapping (the Linear weights one
-    # at a time, emptied again once quantised: one fp32 copy at a time) and the mapping goes.
-    cfg = torch.ao.quantization.default_dynamic_qconfig
-    with warnings.catch_warnings(), torch.no_grad():     # torch 2.11 (pinned) still has it; its torchao pointer is noise
-        warnings.filterwarnings("ignore", message=r"torch\.ao\.quantization is deprecated", category=DeprecationWarning)
+    # model kept 1.2 GB resident after quantising). So every other tensor is copied out of the mapping, each Linear is
+    # read into its own int8 copy and its fp32 weight emptied (one layer at a time), and the mapping goes.
+    with torch.no_grad():
         for m in module.modules():
             if type(m) is not torch.nn.Linear:
                 for t in [*m.parameters(recurse=False), *m.buffers(recurse=False)]:
@@ -91,17 +94,63 @@ def quantize_linear(module):
         for parent in list(module.modules()):
             for name, child in list(parent.named_children()):
                 if type(child) is torch.nn.Linear:     # exactly Linear: MultiheadAttention's out_proj must stay as it is
-                    for t in (child.weight, child.bias):
-                        if t is not None:
-                            t.data = t.data.clone()
-                    child.qconfig = cfg
-                    parent._modules[name] = torch.ao.nn.quantized.dynamic.Linear.from_float(child)
+                    parent._modules[name] = int8_linear.from_float(child)
                     if id(child.weight) not in shared:           # a weight another layer still uses stays until the end
-                        child.weight.data = torch.empty(0)       # the quantised layer keeps the bias tensor, not the weight
-        q = module
+                        child.weight.data = torch.empty(0)       # the int8 layer has its own weight and bias
     gc.collect()
     trim_heap()
-    return q.eval()
+    return module.eval()
+
+
+def _int8_linear_class():
+    """Int8Linear, made on first use so that importing this module does not import torch (an optional dependency)."""
+    cls = globals().get("Int8Linear")
+    if cls is not None:
+        return cls
+    import torch
+
+    class Int8Linear(torch.nn.Module):
+        """A Linear whose weight is stored as int8, symmetric per output row (scale = max|row| / 127), with an fp32
+        scale per row and an fp32 bias. Each call dequantises the weight for that call only. It does not use torch's
+        quantised engines, so its memory and results are the same on every platform."""
+
+        def __init__(self, in_features: int, out_features: int, bias: bool = True):
+            super().__init__()
+            self.in_features, self.out_features = in_features, out_features
+            self.register_buffer("weight", torch.zeros(out_features, in_features, dtype=torch.int8))
+            self.register_buffer("scale", torch.ones(out_features))
+            self.register_buffer("bias", torch.zeros(out_features) if bias else None)
+
+        @classmethod
+        def from_float(cls, linear: torch.nn.Linear) -> "Int8Linear":
+            q = cls(linear.in_features, linear.out_features, bias=linear.bias is not None)
+            with torch.no_grad():
+                w = linear.weight.detach().float()
+                top = w.abs().amax(dim=1)
+                scale = torch.where(top > 0, top / 127, torch.ones_like(top))      # a row of zeros: any scale, not 0
+                q.weight = torch.round(w / scale[:, None]).clamp_(-127, 127).to(torch.int8)
+                q.scale = scale
+                if linear.bias is not None:
+                    q.bias = linear.bias.detach().float().clone()
+            return q
+
+        def forward(self, x):
+            w = self.weight.to(x.dtype)
+            w.mul_(self.scale.to(x.dtype)[:, None])
+            return torch.nn.functional.linear(x, w, None if self.bias is None else self.bias.to(x.dtype))
+
+        def extra_repr(self) -> str:
+            return f"in_features={self.in_features}, out_features={self.out_features}, bias={self.bias is not None}"
+
+    Int8Linear.__module__, Int8Linear.__qualname__ = __name__, "Int8Linear"     # stored copies pickle it by this name
+    globals()["Int8Linear"] = Int8Linear
+    return Int8Linear
+
+
+def __getattr__(name):          # `from shadow.quant import Int8Linear`, and unpickling a stored int8 model
+    if name == "Int8Linear":
+        return _int8_linear_class()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def int8_wanted(settings: Settings) -> bool:
@@ -130,3 +179,4 @@ def cpu_threads(settings: Settings) -> int:
     except Exception:
         pass
     return max(1, (cores or os.cpu_count() or 2) - 1)
+
