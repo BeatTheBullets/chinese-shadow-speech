@@ -346,3 +346,13 @@ def test_disk_check_on_a_re_setup_needs_only_a_little_space(tmp_path, monkeypatc
     reports = []
     assert bs.run_setup(home, app, reports.append) is False
     assert reports[-1] == {"error": f"Not enough disk space: 1 GB free, about {bs.UPDATE_NEEDED_GB} GB needed"}
+
+
+def test_installer_always_uses_its_own_folder():
+    # [InstallDelete]/[UninstallDelete] wipe {app}\python, tools, backend and frontend, and StopApp kills python/uv/
+    # ffmpeg/deno under {app}: neither is safe in a folder the user picked, which may already hold such things
+    iss = (Path(__file__).parent / "shadow.iss").read_text(encoding="utf-8")
+    setup = iss.split("[Setup]", 1)[1].split("\n[", 1)[0]
+    lines = [line.strip() for line in setup.splitlines()]
+    assert "DisableDirPage=yes" in lines
+    assert "DefaultDirName={localappdata}\\Programs\\chinese-shadow-speech" in lines

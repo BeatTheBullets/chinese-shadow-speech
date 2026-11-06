@@ -21,6 +21,9 @@ AppVersion={#AppVersion}
 VersionInfoVersion={#AppVersion}
 AppPublisher=chinese-shadow-speech
 DefaultDirName={localappdata}\Programs\chinese-shadow-speech
+; no folder choice: [InstallDelete]/[UninstallDelete] wipe whole subtrees of {app} and StopApp kills python/uv/ffmpeg/
+; deno processes under it, which is only safe in a folder that belongs to the app alone
+DisableDirPage=yes
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
