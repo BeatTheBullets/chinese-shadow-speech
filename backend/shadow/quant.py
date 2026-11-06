@@ -86,10 +86,10 @@ def quantize_linear(module):
             if type(m) is not torch.nn.Linear:
                 for t in [*m.parameters(recurse=False), *m.buffers(recurse=False)]:
                     t.data = t.data.clone()
-        uses: dict[int, int] = {}
-        for m in module.modules():
-            if type(m) is torch.nn.Linear:
-                uses[id(m.weight)] = uses.get(id(m.weight), 0) + 1
+        uses: dict[int, int] = {}                            # over every module: a Linear weight may be tied to
+        for m in module.modules():                           # an Embedding (an LM head), not only to another Linear
+            for p in m.parameters(recurse=False):
+                uses[id(p)] = uses.get(id(p), 0) + 1
         shared = {i for i, n in uses.items() if n > 1}
         for parent in list(module.modules()):
             for name, child in list(parent.named_children()):

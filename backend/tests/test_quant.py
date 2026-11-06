@@ -84,3 +84,22 @@ def test_recogniser_int8_depends_on_ram(monkeypatch, ram, device, int8, skip, ex
     import shadow.quant as q
     monkeypatch.setattr(q, "total_ram_gb", lambda: ram)
     assert q.asr_int8(Settings(models=ModelsCfg(device=device, int8=int8, int8_skip=skip))) is expected
+
+
+def test_quantize_linear_keeps_a_weight_tied_to_an_embedding():
+    # e.g. a language-model head tied to the input embedding: emptying the Linear's fp32 weight would empty the
+    # Embedding's too, since both hold the same Parameter
+    torch.manual_seed(0)
+    emb = torch.nn.Embedding(10, 8)
+    head = torch.nn.Linear(8, 10, bias=False)
+    head.weight = emb.weight
+    model = torch.nn.Sequential(emb, head)
+    ids = torch.tensor([[1, 2, 3]])
+    with torch.no_grad():
+        want_emb = emb(ids).clone()
+        want = model(ids).clone()
+    quantize_linear(model)
+    with torch.no_grad():
+        assert torch.equal(model[0](ids), want_emb)
+        assert isinstance(model[1], Int8Linear)
+        assert torch.allclose(model(ids), want, atol=0.05)
