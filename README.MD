@@ -324,4 +324,11 @@ Session statistics, and an optional Montreal Forced Aligner if timing still need
 
 ---
 
-*No licence has been chosen yet.*
+## Licence
+
+Chinese Shadow Speech is free software under the [GNU Affero General Public License v3.0 or later](LICENSE).
+You may use, study, share and change it. If you distribute a changed version, or run one as a service other people
+use over a network, you must make its source code available under the same licence.
+
+The speech models it downloads have their own licences, listed in [THIRD_PARTY.md](THIRD_PARTY.md). The MMS
+alignment model is non-commercial (CC-BY-NC 4.0), so the app as distributed is for non-commercial use.

@@ -1,6 +1,7 @@
 [project]
 name = "shadow"
 version = "0.2.0"
+license = "AGPL-3.0-or-later"
 requires-python = ">=3.12,<3.13"
 dependencies = [
   "fastapi>=0.115",

@@ -159,6 +159,7 @@ foreach ($f in 'pyproject.toml', 'uv.lock') {
 
 # ---- launcher files
 foreach ($f in 'bootstrap.py', 'progress.html', 'icon.ico') { Copy-Item (Join-Path $Here $f) (Join-Path $Stage $f) }
+foreach ($f in 'LICENSE', 'THIRD_PARTY.md') { Copy-Item (Join-Path $Root $f) (Join-Path $Stage $f) }
 
 # ---- installer
 $out = Join-Path $Dist "chinese-shadow-speech-$Version-setup.exe"

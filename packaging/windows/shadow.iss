@@ -61,6 +61,8 @@ Source: "{#StageDir}\uv.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#StageDir}\bootstrap.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#StageDir}\progress.html"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#StageDir}\icon.ico"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#StageDir}\LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
+Source: "{#StageDir}\THIRD_PARTY.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\python\pythonw.exe"; Parameters: "-B ""{app}\bootstrap.py"""; WorkingDir: "{app}"; IconFilename: "{app}\icon.ico"
