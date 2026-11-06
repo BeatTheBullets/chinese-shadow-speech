@@ -93,3 +93,22 @@ def test_a_failed_sounds_warm_up_switches_sounds_off():
     ok = SimpleNamespace(sounds=SimpleNamespace(chars=SimpleNamespace(_model=object())), sounds_error=None)
     watch_sounds_warm_up(ok, t)
     assert ok.sounds is not None and ok.sounds_error is None
+
+
+def test_foreign_host_header_is_refused(client):
+    # DNS rebinding: a page on evil.example whose name now resolves to 127.0.0.1 reaches the fixed local port with
+    # its own Host header; only the loopback names (any port) are served
+    assert client.get("/health", headers={"Host": "evil.example"}).status_code == 400
+    assert client.get("/health", headers={"Host": "evil.example:47231"}).status_code == 400
+    for host in ("localhost:8000", "127.0.0.1:47231", "[::1]:47231", "localhost:5173", "127.0.0.1"):
+        assert client.get("/health", headers={"Host": host}).status_code == 200, host
+
+
+def test_allowed_hosts_come_from_the_server_settings(data_dir, fake_transcript):
+    from shadow.deps import fake_deps
+    from shadow.config import ServerCfg
+    assert {"127.0.0.1", "localhost", "::1", "testserver"} <= set(ServerCfg().allowed_hosts)
+    s = Settings(data_dir=data_dir, server=ServerCfg(allowed_hosts=["shadow.lan", "testserver"]))
+    c = TestClient(create_app(s, deps=fake_deps(s, fake_transcript)))
+    assert c.get("/health", headers={"Host": "shadow.lan:8000"}).status_code == 200
+    assert c.get("/health", headers={"Host": "localhost:8000"}).status_code == 400

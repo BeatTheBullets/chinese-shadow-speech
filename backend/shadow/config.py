@@ -8,6 +8,10 @@ from pydantic import BaseModel, Field
 class ServerCfg(BaseModel):
     host: str = "127.0.0.1"
     port: int = 8000
+    # Host header names served (any port; IPv6 in brackets as the header carries them). Anything else gets 400, so a
+    # web page whose own domain is rebound to 127.0.0.1 (DNS rebinding) cannot use the app's fixed local port.
+    # "testserver" is the name FastAPI's TestClient sends. Add a name here to reach the app under another name.
+    allowed_hosts: list[str] = Field(default_factory=lambda: ["127.0.0.1", "localhost", "[::1]", "::1", "testserver"])
 
 
 class ModelsCfg(BaseModel):

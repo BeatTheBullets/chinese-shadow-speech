@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from shadow.config import Settings, load_settings
@@ -88,6 +89,7 @@ def create_app(settings: Settings | None = None, deps: Deps | None = None) -> Fa
     app.state.jobs = JobManager()
     app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
                        allow_methods=["*"], allow_headers=["*"])
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.server.allowed_hosts)   # outermost: runs first
     for r in (health.router, jobs.router, lessons.router, review.router, segments.router, anki.router, attempts.router, sessions.router, stats.router, stats.lesson_router, voice.router, drill.router, settings_api.router, app_api.router):
         app.include_router(r)
     _mount_spa(app)
