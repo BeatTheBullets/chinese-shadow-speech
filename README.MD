@@ -4,8 +4,9 @@
 sentences, aligns every character to the audio, adds pinyin, and gives you two ways to practise
 speaking along: Echo (one sentence at a time) and Flow (a run of sentences, after or along with the speaker). Everything you record is kept. The sentences you have practised go to Anki as listening cards.
 
-It runs locally: a Python backend in WSL2/Linux with GPU speech models, and a React app in the browser (built for
-Brave + Yomitan on Windows).
+It runs on your own computer, and your recordings never leave it: a Python backend with the speech models and a
+React app in the browser. On Windows it installs like a normal program ([Install on Windows](#install-on-windows));
+for development it runs in WSL2/Linux, on a GPU or the CPU.
 
 ![Flow mode: the sentence fills with colour in time with the speaker](docs/screenshots/flow-listen.png)
 
@@ -18,6 +19,7 @@ Brave + Yomitan on Windows).
 - [What it does](#what-it-does)
 - [How a lesson is made](#how-a-lesson-is-made)
 - [Keyboard shortcuts](#keyboard-shortcuts)
+- [Install on Windows](#install-on-windows)
 - [Getting started](#getting-started)
 - [Development](#development)
 - [Roadmap](#roadmap)
@@ -228,6 +230,31 @@ when you leave via ⌂ Library, and on the Flow summary's Done.
 | `?` | Help |
 
 ---
+
+## Install on Windows
+
+1. Download `chinese-shadow-speech-<version>-setup.exe` from the
+   [latest release](https://github.com/BeatTheBullets/chinese-shadow-speech/releases/latest).
+2. Run it. The installer is not code-signed yet, so Windows SmartScreen may say "Windows protected your PC": click
+   **More info**, then **Run anyway**. It installs for your user only and does not ask for administrator rights.
+3. The app opens a page in your browser that shows its first-run progress. The first start sets up Python and
+   downloads the speech models, about 4 GB, so it takes 10 to 20 minutes depending on your connection. Later starts
+   take a few seconds.
+4. When it is ready, the Library opens. Paste a YouTube link to make your first lesson.
+
+**Requirements:** Windows 10 or 11 (64-bit), 8 GB of RAM or more, 8 GB of free disk space for the first start, and an
+internet connection for the first start and for YouTube lessons. No graphics card is needed.
+
+**Using it:** start it from the Start menu (**Chinese Shadow Speech**). It runs in the background with an icon in the
+notification area (bottom right). Use that icon to open the app again or to **Quit** it. Closing the browser tab
+does not stop it.
+
+**Your data** lives in `%LOCALAPPDATA%\chinese-shadow-speech`: lessons and recordings in `data`, speech models in
+`models`, logs in `logs`. Installing a newer version keeps all of it. The app shows a notice in the Library when a
+newer version is released.
+
+**Uninstall** from Windows Settings → Apps → Installed apps → **Chinese Shadow Speech**. It asks whether to delete your
+lessons, recordings and models too. The default is to keep them.
 
 ## Getting started
 
