@@ -104,12 +104,12 @@ end;
   too, so all of them are doubled (a name like O'Brien in the install path would otherwise break the script). }
 function PsQuote(S: String): String;
 begin
-  StringChange(S, , '');
-  StringChange(S, #$2018, #$2018#$2018);
-  StringChange(S, #$2019, #$2019#$2019);
-  StringChange(S, #$201A, #$201A#$201A);
-  StringChange(S, #$201B, #$201B#$201B);
-  Result :=  + S + ;
+  StringChange(S, '''', '''''');
+  StringChange(S, #8216, #8216 + #8216);
+  StringChange(S, #8217, #8217 + #8217);
+  StringChange(S, #8218, #8218 + #8218);
+  StringChange(S, #8219, #8219 + #8219);
+  Result := '''' + S + '''';
 end;
 
 { Base64 of the UTF-16LE bytes of S, which is what powershell -EncodedCommand takes. Passing the script this way (not as
