@@ -28,7 +28,7 @@ Citations requested by the model authors:
 |---|---|---|
 | CPython 3.12 (python-build-standalone) | Python Software Foundation License | https://github.com/astral-sh/python-build-standalone |
 | uv | Apache-2.0 or MIT | https://github.com/astral-sh/uv |
-| FFmpeg and ffprobe (LGPL build) | LGPL-2.1-or-later | https://github.com/BtbN/FFmpeg-Builds, https://ffmpeg.org/ |
+| FFmpeg and ffprobe (LGPL build) | LGPL-3.0-or-later | https://github.com/BtbN/FFmpeg-Builds, https://ffmpeg.org/ |
 | Deno | MIT | https://github.com/denoland/deno |
 
 The exact versions are in `packaging/windows/versions.json`. The installed `tools\THIRD-PARTY.txt` lists them as well.

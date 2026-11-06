@@ -435,3 +435,13 @@ def test_setup_clears_the_ytdlp_marker_so_the_locked_version_is_upgraded_again(t
     calls.clear()
     bs.update_ytdlp(home, app)
     assert len(calls) == 1 and "yt-dlp[default]" in calls[0]
+
+
+def test_third_party_list_names_the_pinned_ffmpeg_licence():
+    # BtbN's "lgpl" builds are configured with --enable-version3; their LICENSE.txt is the LGPL version 3
+    pins = json.loads((Path(__file__).parent / "versions.json").read_text(encoding="utf-8"))
+    spdx = pins["ffmpeg"]["license"].split()[0]
+    assert spdx == "LGPL-3.0-or-later"
+    third = (Path(__file__).parents[2] / "THIRD_PARTY.md").read_text(encoding="utf-8")
+    row = next(line for line in third.splitlines() if line.startswith("| FFmpeg"))
+    assert spdx in row
