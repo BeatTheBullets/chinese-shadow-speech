@@ -1,3 +1,4 @@
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from shadow.config import load_settings
@@ -22,7 +23,10 @@ def test_ensure_laptop_config_never_overwrites(tmp_path: Path):
 
 
 def test_laptop_config_round_trips_awkward_home(tmp_path: Path):
-    home = tmp_path / 'Jöhn "Doe" 张'
+    name = "Jöhn Doe 张"
+    if sys.platform != "win32":  # Windows forbids these in file names; keep them where the TOML escaping is testable
+        name = 'Jöhn "Doe" \\ 张'
+    home = tmp_path / name
     p = ensure_laptop_config(home)
     assert load_settings(p).data_dir == home / "data"
 
