@@ -24,6 +24,15 @@ $Dist = Join-Path $Root 'dist'
 
 function Fail([string]$msg) { throw $msg }
 function Check-Exit([string]$what) { if ($LASTEXITCODE -ne 0) { Fail "$what failed (exit code $LASTEXITCODE)" } }
+# Native programs write progress and warnings to stderr. Under Windows PowerShell 5.1 with $ErrorActionPreference = 'Stop'
+# (and output redirected, as CI does) each such line would become a terminating NativeCommandError, so run them with
+# 'Continue' and judge only by the exit code.
+function Invoke-Native([string]$what, [scriptblock]$cmd) {
+    $saved = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { & $cmd } finally { $ErrorActionPreference = $saved }
+    Check-Exit $what
+}
 
 # ---- version: from -Version, else pyproject.toml; always validated as X.Y.Z
 $pyproject = Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'backend\pyproject.toml')
@@ -85,8 +94,7 @@ $tgz = Get-Pinned $pins.python
 $pyTmp = Join-Path $Build 'python-extract'
 if (Test-Path $pyTmp) { Remove-Item -Recurse -Force $pyTmp }
 New-Item -ItemType Directory -Force -Path $pyTmp | Out-Null
-& "$env:SystemRoot\System32\tar.exe" -xzf $tgz -C $pyTmp
-Check-Exit 'tar (python)'
+Invoke-Native 'tar (python)' { & "$env:SystemRoot\System32\tar.exe" -xzf $tgz -C $pyTmp }
 if (-not (Test-Path (Join-Path $pyTmp 'python\python.exe')) -or -not (Test-Path (Join-Path $pyTmp 'python\pythonw.exe'))) {
     Fail 'python archive lacks python.exe/pythonw.exe'
 }
@@ -128,10 +136,8 @@ Third-party programs shipped with this app (unmodified):
 # ---- frontend
 Push-Location (Join-Path $Root 'frontend')
 try {
-    & npm.cmd ci
-    Check-Exit 'npm ci'
-    & npm.cmd run build
-    Check-Exit 'npm run build'
+    Invoke-Native 'npm ci' { & npm.cmd ci }
+    Invoke-Native 'npm run build' { & npm.cmd run build }
 } finally { Pop-Location }
 $dist = Join-Path $Root 'frontend\dist'
 if (-not (Test-Path (Join-Path $dist 'index.html'))) { Fail 'frontend build produced no frontend\dist\index.html' }
@@ -141,8 +147,7 @@ Copy-Item -Recurse $dist (Join-Path $Stage 'frontend\dist')
 # ---- backend source: the committed tree only (git archive HEAD), so no .venv, caches or local data
 $zip = Join-Path $Build 'backend.zip'
 if (Test-Path $zip) { Remove-Item -Force $zip }
-& git.exe -C $Root archive --format=zip -o $zip HEAD backend
-Check-Exit 'git archive'
+Invoke-Native 'git archive' { & git.exe -C $Root archive --format=zip -o $zip HEAD backend }
 $tmp = Join-Path $Build 'x-backend'
 Expand-Zip $zip $tmp
 Move-Item (Join-Path $tmp 'backend') (Join-Path $Stage 'backend')
@@ -158,8 +163,7 @@ foreach ($f in 'bootstrap.py', 'progress.html', 'icon.ico') { Copy-Item (Join-Pa
 # ---- installer
 $out = Join-Path $Dist "chinese-shadow-speech-$Version-setup.exe"
 if (Test-Path $out) { Remove-Item -Force $out }
-& $iscc "/DAppVersion=$Version" "/DStageDir=$Stage" "/DOutDir=$Dist" "/Qp" (Join-Path $Here 'shadow.iss')
-Check-Exit 'ISCC'
+Invoke-Native 'ISCC' { & $iscc "/DAppVersion=$Version" "/DStageDir=$Stage" "/DOutDir=$Dist" "/Qp" (Join-Path $Here 'shadow.iss') }
 if (-not (Test-Path $out)) { Fail "installer not found at $out" }
 $mb = [math]::Round((Get-Item $out).Length / 1MB, 1)
 Write-Host "Built $out ($mb MB)"
