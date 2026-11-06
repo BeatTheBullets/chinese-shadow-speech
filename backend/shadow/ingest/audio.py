@@ -8,12 +8,20 @@ import numpy as np
 import soundfile as sf
 
 SR = 16000
+_WINDOWS = os.name == "nt"
+
+
+def no_window() -> int:
+    """creationflags for a console program: on Windows the server runs windowless (pythonw), and without
+    CREATE_NO_WINDOW every ffmpeg/ffprobe call would flash a console window."""
+    return 0x08000000 if _WINDOWS else 0                # subprocess.CREATE_NO_WINDOW, only defined on Windows
 
 
 # ffmpeg reads keys from the terminal it inherits (a stray `q` under `make dev` aborts an ingest): every call
 # gets -nostdin (ffmpeg only; ffprobe rejects the flag) and a detached stdin.
 def _run(cmd: list[str]) -> None:
-    subprocess.run(cmd, check=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    subprocess.run(cmd, check=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                   creationflags=no_window())
 
 
 def normalise(src: Path, dst: Path) -> None:
@@ -24,7 +32,7 @@ def normalise(src: Path, dst: Path) -> None:
 def duration_s(path: Path) -> float:
     out = subprocess.run(
         ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", str(path)],
-        check=True, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+        check=True, stdin=subprocess.DEVNULL, capture_output=True, text=True, creationflags=no_window(),
     ).stdout
     return float(json.loads(out)["format"]["duration"])
 

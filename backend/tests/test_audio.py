@@ -80,3 +80,28 @@ def test_mp3_render_replaces_an_existing_file_whole(tmp_path):
     audio.encode_mp3(clip, dst)
     assert dst.stat().st_size > 1000 and abs(audio.duration_s(dst) - 1.0) < 0.1
     assert sorted(p.name for p in tmp_path.iterdir()) == ["0.mp3", "c.wav"]
+
+
+def test_ffmpeg_and_ffprobe_open_no_console_window_on_windows(tmp_path, monkeypatch):
+    """The server runs windowless (pythonw): without CREATE_NO_WINDOW every ffmpeg/ffprobe call flashes a console."""
+    import subprocess
+    flags: list[int] = []
+
+    def fake_run(cmd, *a, **kw):
+        flags.append(kw.get("creationflags", 0))
+        out = '{"format": {"duration": "1.0"}}' if cmd[0] == "ffprobe" else ""
+        Path(cmd[-1]).write_bytes(b"x") if cmd[0] == "ffmpeg" else None
+        return subprocess.CompletedProcess(cmd, 0, stdout=out, stderr="")
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(audio, "_WINDOWS", True)
+    src = tmp_path / "src.wav"
+    audio.normalise(src, tmp_path / "n.wav")
+    audio.duration_s(src)
+    audio.cut(src, tmp_path / "c.wav", 0.5, 1.5)
+    audio.encode_opus(tmp_path / "c.wav", tmp_path / "c.opus")
+    audio.encode_mp3(tmp_path / "c.wav", tmp_path / "c.mp3")
+    assert flags == [0x08000000] * 5                    # subprocess.CREATE_NO_WINDOW (absent from the module off Windows)
+    monkeypatch.setattr(audio, "_WINDOWS", False)
+    flags.clear()
+    audio.duration_s(src)
+    assert flags == [0]
