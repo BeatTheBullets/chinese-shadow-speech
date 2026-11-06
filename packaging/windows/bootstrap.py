@@ -335,6 +335,11 @@ def _setup(home: Path, app_dir: Path, report: Callable[[dict], None]) -> bool:
         except OSError:
             pass
     marker.write_text("ok", encoding="utf-8")
+    for old in (home / "run").glob("ytdlp-*"):    # uv sync put the locked yt-dlp back: update it again today
+        try:
+            old.unlink()
+        except OSError:
+            pass
     return True
 
 

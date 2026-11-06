@@ -421,3 +421,17 @@ def test_re_setup_after_an_update_does_not_claim_a_download(tmp_path, monkeypatc
 def test_progress_page_has_update_wording():
     html = (Path(__file__).parent / "progress.html").read_text(encoding="utf-8")
     assert "Updating Chinese Shadow Speech" in html and "s.update" in html
+
+
+def test_setup_clears_the_ytdlp_marker_so_the_locked_version_is_upgraded_again(tmp_path, monkeypatch):
+    # uv sync --frozen puts the locked (older) yt-dlp back; today's marker would skip the update until tomorrow
+    home, app = tmp_path / "home", app_dir(tmp_path)
+    calls = []
+    monkeypatch.setattr(bs, "_run", fake_runner(calls))
+    bs.update_ytdlp(home, app)
+    assert list((home / "run").glob("ytdlp-*"))
+    assert bs.run_setup(home, app, lambda r: None) is True
+    assert not list((home / "run").glob("ytdlp-*"))
+    calls.clear()
+    bs.update_ytdlp(home, app)
+    assert len(calls) == 1 and "yt-dlp[default]" in calls[0]
