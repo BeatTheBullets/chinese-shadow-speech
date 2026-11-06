@@ -296,3 +296,12 @@ def test_second_instance_during_start_waits_for_app(tmp_path, monkeypatch):
     finally:
         lock.release()
     assert opened == ["http://127.0.0.1:4321/"]
+
+
+def test_installer_starts_bootstrap_without_writing_bytecode():
+    # the shipped Python already carries its stdlib .pyc files (they are in the install log); -B keeps the bootstrap,
+    # which runs before PYTHONPYCACHEPREFIX applies, from adding unlogged ones to the install folder
+    iss = (Path(__file__).parent / "shadow.iss").read_text(encoding="utf-8")
+    launches = [line for line in iss.splitlines() if "pythonw.exe" in line and "bootstrap.py" in line]
+    assert len(launches) == 3
+    assert all('Parameters: "-B ""{app}\\bootstrap.py"""' in line for line in launches)
