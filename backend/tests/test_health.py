@@ -58,9 +58,13 @@ def test_spa_catch_all_never_serves_files_outside_dist(data_dir, tmp_path, monke
     (dist / "index.html").write_text("<html>spa</html>")
     (tmp_path / "config.toml").write_text("SECRET=1")
     c = _spa_client(data_dir, dist, monkeypatch)
+    secret = tmp_path / "config.toml"
+    from urllib.parse import quote
+    abs_posix = quote(secret.as_posix().lstrip("/"), safe="/:")  # "/C:/..." on Windows, "/tmp/..." elsewhere
     for path in ("/..%2fconfig.toml", "/..%2f..%2fconfig.toml", "/../config.toml",
                  "/../../config.toml", "/%2e%2e/config.toml", "/..%5cconfig.toml",
-                 "//" + str(tmp_path / "config.toml").lstrip("/")):
+                 "/..%5c..%5cconfig.toml", "/%2e%2e%5cconfig.toml",
+                 "/" + abs_posix, "/" + quote(str(secret), safe=""), "/" + quote(str(secret), safe=":\\")):
         r = c.get(path)
         assert "SECRET" not in r.text, path
         assert r.text == "<html>spa</html>", path
