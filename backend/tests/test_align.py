@@ -147,3 +147,78 @@ def test_locked_aligner_forwards_sound_calls_under_its_lock():
     assert la.letter_ids("a") == [1]
     assert la.blank == 7 and la.inner is inner
     assert inner.locked == [True, True]
+
+
+def _mms_without_model(calls: list):
+    """An MmsAligner whose model pass is a stub returning a fixed emission; the aligner and tokenizer are
+    torchaudio's own (they need no weights)."""
+    import torch
+    import torchaudio
+    m = MmsAligner("cpu")
+    bundle = torchaudio.pipelines.MMS_FA
+    m._tok, m._al = bundle.get_tokenizer(), bundle.get_aligner()
+
+    def emissions(wav, sr):
+        calls.append(len(wav))
+        return torch.randn(50, len(m._letters()), generator=torch.Generator().manual_seed(0)).log_softmax(-1), 0.02
+    m.emissions = emissions
+    return m
+
+
+def test_mms_align_emissions_returns_the_spans_of_align_and_the_one_emission_it_computed():
+    import numpy as np
+    calls = []
+    m = _mms_without_model(calls)
+    wav = np.zeros(16000, np.float32)
+    spans, em = m.align_emissions(wav, 16000, "你好")
+    assert calls == [16000]                                   # one model pass
+    assert spans == m.align(wav, 16000, "你好")
+    assert em.frame_s == 0.02 and em.source is m and tuple(em.logp.shape) == (50, len(m._letters()))
+
+
+def test_mms_align_emissions_of_nothing_to_say_runs_no_model():
+    import numpy as np
+    calls = []
+    assert _mms_without_model(calls).align_emissions(np.zeros(10, np.float32), 16000, "。") == ([], None)
+    assert calls == []
+
+
+def test_locked_aligner_tags_the_emissions_as_its_own_under_its_lock():
+    import numpy as np
+    from shadow.ingest.align import LetterEmissions, LockedAligner, Span
+
+    class Inner:
+        def align_emissions(self, wav, sr, text):
+            assert la._lock.locked()
+            return [Span("我", 0.0, 0.1, 1.0)], LetterEmissions("E", 0.02, self)
+
+    la = LockedAligner(Inner())
+    spans, em = la.align_emissions(np.zeros(1), 16000, "我")
+    assert spans == [Span("我", 0.0, 0.1, 1.0)]
+    assert (em.logp, em.frame_s) == ("E", 0.02) and em.source is la       # the detector holds the locked wrapper
+
+
+def test_aligners_without_letter_emissions_keep_none():
+    import numpy as np
+    from shadow.ingest.align import LockedAligner, align_keeping_emissions
+    wav = np.zeros(1600, np.float32)
+    assert align_keeping_emissions(FakeAligner(), wav, 16000, "我们") == (FakeAligner().align(wav, 16000, "我们"), None)
+    assert LockedAligner(FakeAligner()).align_emissions(wav, 16000, "我们")[1] is None
+
+
+def test_concurrent_takes_each_get_their_own_emissions():
+    import threading
+    import numpy as np
+    from shadow.ingest.align import LetterEmissions, LockedAligner
+
+    class Inner:
+        def align_emissions(self, wav, sr, text):
+            return [], LetterEmissions(float(wav[0]), 0.02, self)
+
+    la, got = LockedAligner(Inner()), {}
+
+    def run(v):
+        got[v] = la.align_emissions(np.full(10, v, np.float32), 16000, "我")[1].logp
+    ts = [threading.Thread(target=run, args=(float(v),)) for v in range(8)]
+    [t.start() for t in ts]; [t.join() for t in ts]
+    assert got == {float(v): float(v) for v in range(8)}

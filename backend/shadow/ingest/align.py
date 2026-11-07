@@ -1,8 +1,8 @@
 from __future__ import annotations
 import logging
 import threading
-from dataclasses import dataclass
-from typing import Protocol
+from dataclasses import dataclass, replace
+from typing import Any, Protocol
 import numpy as np
 from pypinyin import lazy_pinyin, Style
 from shadow.ingest.text import is_punct
@@ -22,6 +22,23 @@ class Aligner(Protocol):
     def align(self, wav: np.ndarray, sr: int, text: str) -> list[Span]: ...
 
 
+@dataclass(frozen=True)
+class LetterEmissions:
+    """The MMS letter log-probs an alignment computed on one take (T x letters, an inference-mode tensor), seconds
+    per frame, and the letter model that computed them: the sound check reuses them only from its own model."""
+    logp: Any
+    frame_s: float
+    source: object
+
+
+def align_keeping_emissions(aligner: Aligner, wav: np.ndarray, sr: int,
+                            text: str) -> tuple[list[Span], LetterEmissions | None]:
+    """`aligner.align`, keeping the letter emissions it computed (None from an aligner without them), so the sound
+    check on the same take need not run the model again."""
+    f = getattr(aligner, "align_emissions", None)
+    return f(wav, sr, text) if f is not None else (aligner.align(wav, sr, text), None)
+
+
 class LockedAligner:
     """One aligner shared by ingest jobs and attempt scoring (Phase 2 spec §1 step 3): calls run one at a time."""
     def __init__(self, inner: Aligner):
@@ -35,6 +52,12 @@ class LockedAligner:
     def align(self, wav: np.ndarray, sr: int, text: str) -> list[Span]:
         with self._lock:
             return self.inner.align(wav, sr, text)
+
+    def align_emissions(self, wav: np.ndarray, sr: int, text: str) -> tuple[list[Span], LetterEmissions | None]:
+        with self._lock:
+            spans, em = align_keeping_emissions(self.inner, wav, sr, text)
+        # the sound detector holds this wrapper as its letter model, so the emissions are this wrapper's
+        return spans, None if em is None else replace(em, source=self)
 
     # Wrong-sound detection (Phase 3a) reads the MMS letter posteriors; same model, same lock.
     @property
@@ -154,9 +177,12 @@ class MmsAligner:
         return emission[0], x.size(1) / emission.size(1) / self._bundle.sample_rate
 
     def align(self, wav: np.ndarray, sr: int, text: str) -> list[Span]:
+        return self.align_emissions(wav, sr, text)[0]
+
+    def align_emissions(self, wav: np.ndarray, sr: int, text: str) -> tuple[list[Span], LetterEmissions | None]:
         chars = speech_chars(text)
         if not chars:
-            return []
+            return [], None
         words = romanise_for_mms(text)
         emission, ratio = self.emissions(wav, sr)
         token_spans = self._al(emission, self._tok(words))
@@ -164,7 +190,7 @@ class MmsAligner:
         for ch, spans in zip(chars, token_spans, strict=True):
             out.append(Span(ch, spans[0].start * ratio, spans[-1].end * ratio,
                             float(sum(s.score for s in spans) / len(spans))))
-        return out
+        return out, LetterEmissions(emission, ratio, self)
 
 
 class Qwen3Aligner:

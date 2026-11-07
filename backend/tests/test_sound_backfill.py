@@ -46,6 +46,28 @@ def test_backfill_skips_unscored_attempts(client, tmp_path):
         assert att.score_json.get("sounds_checked") is None
 
 
+def test_backfill_reuses_the_letter_emissions_of_its_alignment(client, tmp_path):
+    from shadow.ingest.align import FakeAligner, LetterEmissions
+    from shadow.scoring.sounds.backfill import plan_backfill
+
+    class EmittingAligner(FakeAligner):
+        def align_emissions(self, wav, sr, text):
+            self.em = LetterEmissions("E", 0.02, self)
+            return self.align(wav, sr, text), self.em
+
+    class Spy(FakeSounds):
+        def check(self, **kw):
+            self.kw = kw
+            return super().check(**kw)
+    lid, seg = _first_segment(client, tmp_path)
+    aid = _post(client, make_tone_wav(tmp_path / "t.wav", 2.6), seg["id"]).json()["id"]
+    deps = client.app.state.deps
+    deps.aligner, deps.sounds = EmittingAligner(), Spy()
+    with Session(client.app.state.engine) as db:
+        assert plan_backfill(deps, db, db.get(Attempt, aid)) is not None
+    assert deps.sounds.kw["letter_emissions"] is deps.aligner.em
+
+
 def test_one_failing_take_does_not_block_the_rest(client, tmp_path):
     from shadow.scoring.sounds.backfill import backfill_all
     lid, seg = _first_segment(client, tmp_path)

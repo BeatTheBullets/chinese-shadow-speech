@@ -10,6 +10,7 @@ from typing import Protocol
 import numpy as np
 
 from shadow.config import SoundsCfg
+from shadow.ingest.align import LetterEmissions
 from .charctc import CharModel
 from .contrasts import heard_pinyin, inventory, partners
 from .decide import decide
@@ -28,7 +29,8 @@ class LetterModel(Protocol):
 
 class Sounds(Protocol):
     def check(self, *, take: np.ndarray, sr: int, usr_win: list[tuple[float, float]], ref_wav: np.ndarray,
-              ref_sr: int, ref_key: str, syllables: list[dict], statuses: list[str]) -> list[dict | None]: ...
+              ref_sr: int, ref_key: str, syllables: list[dict], statuses: list[str],
+              letter_emissions: LetterEmissions | None = None) -> list[dict | None]: ...
 
 
 class SoundDetector:
@@ -38,8 +40,11 @@ class SoundDetector:
         self._lock = threading.Lock()         # guards only the cache; the models lock themselves
 
     def check(self, *, take: np.ndarray, sr: int, usr_win: list[tuple[float, float]], ref_wav: np.ndarray,
-              ref_sr: int, ref_key: str, syllables: list[dict], statuses: list[str]) -> list[dict | None]:
-        """Per syllable: None (not checked) or {status, heard, heard_pinyin, z, rule}; heard only on a slip."""
+              ref_sr: int, ref_key: str, syllables: list[dict], statuses: list[str],
+              letter_emissions: LetterEmissions | None = None) -> list[dict | None]:
+        """Per syllable: None (not checked) or {status, heard, heard_pinyin, z, rule}; heard only on a slip.
+        `letter_emissions`: what aligning this same take computed, reused instead of a second letter-model pass when
+        they come from this detector's letter model."""
         import torch
         syl = [s["pinyin_toneless"].lower() for s in syllables]
         inv = inventory()
@@ -65,7 +70,10 @@ class SoundDetector:
                      for j, u, r in zip(judged, usr, ref)]
             bad_a: list[float | None] = [None] * len(syl)
             if any(b is not None for b in bad_b):
-                logp, frame_s = self.letters.emissions(take, sr)
+                if letter_emissions is not None and letter_emissions.source is self.letters:
+                    logp, frame_s = letter_emissions.logp, letter_emissions.frame_s
+                else:
+                    logp, frame_s = self.letters.emissions(take, sr)
                 ids = self.letters.letter_ids
                 for i, b in enumerate(bad_b):
                     if b is None:
@@ -108,7 +116,8 @@ class FakeSounds:
         self.results, self.error = results, error
 
     def check(self, *, take: np.ndarray, sr: int, usr_win: list[tuple[float, float]], ref_wav: np.ndarray,
-              ref_sr: int, ref_key: str, syllables: list[dict], statuses: list[str]) -> list[dict | None]:
+              ref_sr: int, ref_key: str, syllables: list[dict], statuses: list[str],
+              letter_emissions: LetterEmissions | None = None) -> list[dict | None]:
         if self.error:
             raise RuntimeError("sound check failed")
         return list(self.results) if self.results is not None else [None] * len(syllables)

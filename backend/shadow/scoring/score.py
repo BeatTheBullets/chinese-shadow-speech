@@ -5,7 +5,7 @@ from typing import Callable
 import logging
 import numpy as np
 from shadow.config import ScoringCfg
-from shadow.ingest.align import Aligner
+from shadow.ingest.align import Aligner, LetterEmissions, align_keeping_emissions
 from shadow.scoring.embed import Embedder, pool
 from shadow.scoring.features import FEATURE_VERSION, SylPitch, feature_matrix, syllable_pitch
 from shadow.scoring.gate import align_gate, clipped_ratio, level_dbfs, pre_gate, text_similarity
@@ -25,6 +25,8 @@ class RefData:
     baseline: Baseline                    # the speaker over the whole lesson (spec §2)
     wav: np.ndarray                       # the reference clip's samples, for its embeddings
     sr: int
+    # its embeddings pooled over given windows, as computed from `wav` (a cache); None: the embedder runs on `wav`
+    pooled: Callable[[list[tuple[float, float]]], np.ndarray] | None = None
 
 
 @dataclass
@@ -61,13 +63,14 @@ def _r(x: float | None, nd: int = 3) -> float | None:
 
 
 def check_sounds(sounds: Sounds, *, take: np.ndarray, sr: int, usr_win: list[tuple[float, float]], ref_wav: np.ndarray,
-                 ref_sr: int, ref_key: str, syllables: list[dict], statuses: list[str]):
+                 ref_sr: int, ref_key: str, syllables: list[dict], statuses: list[str],
+                 letter_emissions: LetterEmissions | None = None):
     """Run the sound check and shape its results, shared by scoring and the back-fill so both write the same fields.
     Returns (checked, off, [(result, (sound_status, heard_syllable, seg_score))]) or None when the check failed: a
     sound failure never fails a take, whose tone result is already final and stays identical without sounds."""
     try:
         found = sounds.check(take=take, sr=sr, usr_win=usr_win, ref_wav=ref_wav, ref_sr=ref_sr, ref_key=ref_key,
-                             syllables=syllables, statuses=statuses)
+                             syllables=syllables, statuses=statuses, letter_emissions=letter_emissions)
         if len(found) != len(syllables):
             raise ValueError(f"the sound check returned {len(found)} results for {len(syllables)} syllables")
         # everything is computed before anything is applied, so a malformed result leaves no half-applied state
@@ -101,7 +104,7 @@ def score_take(*, ref: RefData, syllables: list[dict], text: str, wav: np.ndarra
         # The reference's timing does not fit the sentence (a stale or broken lesson): not the learner's fault, so
         # its own warning, which is not a drop gate (the take is kept), and no need to align the take.
         return failed_result(syllables, ["ref_align_failed"], quality, model.version, heard_text)
-    spans = aligner.align(trimmed, sr, text)
+    spans, letter_emissions = align_keeping_emissions(aligner, trimmed, sr, text)
     if len(spans) != len(syllables):
         return failed_result(syllables, ["align_failed"], quality, model.version, heard_text)
     ref_win = windows(ref.spans, len(ref.wav) / ref.sr)
@@ -119,7 +122,7 @@ def score_take(*, ref: RefData, syllables: list[dict], text: str, wav: np.ndarra
     norm_u = normalise(pitch.f0, base, cfg.normalise_span)
     syl_r = [syllable_pitch(norm_r, ref.pitch.t0, a, b, cfg.min_voiced_frames) for a, b in ref_win]
     syl_u = [syllable_pitch(norm_u, pitch.t0, a, b, cfg.min_voiced_frames) for a, b in usr_win]
-    emb_r = pool(embedder.frames(ref.wav, ref.sr), ref_win)
+    emb_r = ref.pooled(ref_win) if ref.pooled is not None else pool(embedder.frames(ref.wav, ref.sr), ref_win)
     emb_u = pool(embedder.frames(trimmed, sr), usr_win)
     P_r, P_u = model.proba(feature_matrix(syl_r, emb_r)), model.proba(feature_matrix(syl_u, emb_u))
 
@@ -152,7 +155,8 @@ def score_take(*, ref: RefData, syllables: list[dict], text: str, wav: np.ndarra
     sounds_off = sounds_checked = None
     if sounds is not None:
         got = check_sounds(sounds, take=trimmed, sr=sr, usr_win=usr_win, ref_wav=ref.wav, ref_sr=ref.sr, ref_key=ref_key,
-                           syllables=syllables, statuses=[x["status"] for x in out_syl])
+                           syllables=syllables, statuses=[x["status"] for x in out_syl],
+                           letter_emissions=letter_emissions)
         if got is not None:
             sounds_checked, sounds_off, applied = got
             for js, row, (f, t) in zip(out_syl, rows, applied):

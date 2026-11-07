@@ -241,6 +241,51 @@ def test_sounds_get_the_trimmed_take_and_its_windows():
     assert spy.kw["statuses"] == ["ok"] * 4
 
 
+def test_given_reference_embeddings_skip_the_reference_model_pass_and_score_the_same():
+    from dataclasses import replace
+    from shadow.scoring.embed import pool
+
+    class Counting(FakeEmbedder):
+        calls = 0
+        def frames(self, wav, sr):
+            self.calls += 1
+            return super().frames(wav, sr)
+    take, ref = voice([(220, 220), (300, 150), (300, 150), (220, 220)]), ref_data()
+    asked = []
+
+    def pooled(win):
+        asked.append(win)
+        return pool(FakeEmbedder().frames(ref.wav, ref.sr), win)
+    kw = dict(syllables=SYLS, text=TEXT, wav=take, sr=SR, aligner=FakeAligner(), model=FakeToneModel(tone=1, p=0.9),
+              profile=None, profile_voiced_s=0.0, cfg=CFG)
+    plain, cached = Counting(), Counting()
+    a = score_take(ref=ref, embedder=plain, **kw)
+    b = score_take(ref=replace(ref, pooled=pooled), embedder=cached, **kw)
+    assert plain.calls == 2 and cached.calls == 1                       # the take only
+    assert len(asked) == 1 and len(asked[0]) == 4
+    assert a.json == b.json and a.rows == b.rows
+
+
+def test_sounds_reuse_the_letter_emissions_of_the_alignment():
+    from shadow.ingest.align import LetterEmissions
+
+    class EmittingAligner(FakeAligner):
+        def align_emissions(self, wav, sr, text):
+            self.em = LetterEmissions(f"emissions of {len(wav)} samples", 0.02, self)
+            return self.align(wav, sr, text), self.em
+
+    class Spy:
+        def check(self, **kw):
+            self.kw = kw
+            return [None] * len(kw["syllables"])
+    aligner, spy = EmittingAligner(), Spy()
+    run(voice(REF_CONTOURS, lead_s=0.4), aligner=aligner, sounds=spy, ref_key="k")
+    assert spy.kw["letter_emissions"] is aligner.em
+    assert aligner.em.logp == f"emissions of {len(spy.kw['take'])} samples"      # of the take the check is given
+    run(voice(REF_CONTOURS), sounds=spy, ref_key="k")                             # an aligner without emissions
+    assert spy.kw["letter_emissions"] is None
+
+
 def test_a_malformed_sound_result_keeps_tone_score():
     from shadow.scoring.sounds.detector import FakeSounds
     take = voice(REF_CONTOURS)

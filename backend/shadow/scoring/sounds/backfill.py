@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy.orm.attributes import flag_modified
 from sqlmodel import Session, select
 from shadow.ingest import audio
+from shadow.ingest.align import align_keeping_emissions
 from shadow.scoring.pitch import trim_silence
 from shadow.scoring.reference import reference_audio, segment_syllables, sound_ref_key
 from shadow.scoring.score import check_sounds
@@ -38,13 +39,14 @@ def plan_backfill(deps: Deps, db: Session, attempt: Attempt) -> tuple[dict, list
         return None
     wav, sr = audio.read_wav(Path(attempt.audio_path))
     trimmed, _ = trim_silence(wav, sr)
-    spans = deps.aligner.align(trimmed, sr, seg.text)
+    spans, letter_emissions = align_keeping_emissions(deps.aligner, trimmed, sr, seg.text)
     if len(spans) != len(syllables):
         return None
     usr_win = windows([(s.start, s.end) for s in spans], len(trimmed) / sr)
     ref_wav, ref_sr = reference_audio(seg)
     got = check_sounds(deps.sounds, take=trimmed, sr=sr, usr_win=usr_win, ref_wav=ref_wav, ref_sr=ref_sr,
-                       ref_key=sound_ref_key(seg, syllables), syllables=syllables, statuses=[s["status"] for s in stored])
+                       ref_key=sound_ref_key(seg, syllables), syllables=syllables, statuses=[s["status"] for s in stored],
+                       letter_emissions=letter_emissions)
     if got is None:
         return None
     checked, off, applied = got

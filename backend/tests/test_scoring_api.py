@@ -42,6 +42,21 @@ def test_lesson_baseline_is_cached_on_the_lesson(client, tmp_path):
         assert abs(pitch["baseline_hz"] - 220) < 5 and pitch["frames"] > 100
 
 
+def test_the_reference_is_embedded_once_per_clip_not_per_take(client, tmp_path):
+    from shadow.scoring.embed import FakeEmbedder
+
+    class Counting(FakeEmbedder):
+        calls = 0
+        def frames(self, wav, sr):
+            self.calls += 1
+            return super().frames(wav, sr)
+    client.app.state.deps.embedder = emb = Counting()
+    lid, seg = _first_segment(client, tmp_path)
+    scores = [_post(client, make_tone_wav(tmp_path / "t.wav", 2.6), seg["id"]).json()["score_json"] for _ in range(3)]
+    assert emb.calls == 4                                     # the reference once, then each take
+    assert all(s["overall"] is not None for s in scores)
+
+
 def test_gated_take_has_no_rows_and_null_overall(client, tmp_path):
     lid, seg = _first_segment(client, tmp_path)
     silent = tmp_path / "s.wav"
