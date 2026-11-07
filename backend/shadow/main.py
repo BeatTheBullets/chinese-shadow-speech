@@ -4,7 +4,7 @@ import threading
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import FileResponse
@@ -131,6 +131,8 @@ def _mount_spa(app: FastAPI) -> None:
 
     @app.get("/{full_path:path}", include_in_schema=False)
     def spa(full_path: str):
+        if full_path == "api" or full_path.startswith("api/"):      # an unknown API route stays a 404, not the page
+            raise HTTPException(status_code=404)
         candidate = (dist / full_path).resolve()
         if full_path and candidate.is_relative_to(dist) and candidate.is_file():
             return FileResponse(candidate)

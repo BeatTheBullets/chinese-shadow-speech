@@ -112,3 +112,12 @@ def test_allowed_hosts_come_from_the_server_settings(data_dir, fake_transcript):
     c = TestClient(create_app(s, deps=fake_deps(s, fake_transcript)))
     assert c.get("/health", headers={"Host": "shadow.lan:8000"}).status_code == 200
     assert c.get("/health", headers={"Host": "localhost:8000"}).status_code == 400
+
+
+def test_spa_catch_all_leaves_unknown_api_paths_as_404(data_dir, tmp_path, monkeypatch):
+    # a mistyped or removed API route must not come back as the app's HTML page with 200
+    dist = tmp_path / "dist"; dist.mkdir(); (dist / "index.html").write_text("<html>spa</html>")
+    c = _spa_client(data_dir, dist, monkeypatch)
+    for p in ("/api/stats/syllables", "/api/nope", "/api"):
+        assert c.get(p).status_code == 404, p
+    assert c.get("/library").status_code == 200
