@@ -34,7 +34,12 @@ jobs:
           if ($project -ne $version) { throw "tag $tag does not match backend/pyproject.toml version $project" }
           "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - name: Install Inno Setup
-        run: choco install innosetup --version=6.4.3 --no-progress -y
+        # windows-latest already ships Inno Setup 6 (build.ps1 finds it in Program Files (x86)); installing a pinned,
+        # older version on top fails ("a newer version is already installed"), so install only when it is missing.
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          if ((Get-Command ISCC.exe -ErrorAction SilentlyContinue) -or (Test-Path $iscc)) { Write-Host 'Inno Setup 6 is preinstalled' }
+          else { choco install innosetup --no-progress -y }
       - name: Build installer
         run: ./packaging/windows/build.ps1 -Version $env:VERSION
       - name: Attach to the release
