@@ -13,9 +13,10 @@ Verify the GPU is seen: `curl -s localhost:8000/health` -> `"device": "cuda"`.
 ## CPU only
 Set `[models] device = "cpu"` in config.toml; the aligner is MMS_FA on every device (`aligner = "qwen3_fa"` selects Qwen3 explicitly).
 On a laptop with 8 GB of RAM also set these in `[models]`:
-- `int8 = true`: the recogniser, aligner and sounds model run as 8-bit models (about half the RAM, slower per take). The
-  aligner and the sounds model are quantised once and stored in `int8/` under the app's models folder (`SHADOW_MODELS_DIR`),
-  so later loads read int8 weights only; the recogniser is quantised at each load.
+- `int8 = true`: the recogniser, aligner and sounds model run as 8-bit models (about half the RAM, slower per take). Each
+  is quantised once and stored in `int8/` under the app's models folder (`SHADOW_MODELS_DIR`), so later loads read
+  int8 weights only. For the recogniser FunASR still builds its (freshly initialised) fp32 module, without reading the
+  0.9 GB checkpoint, and the stored int8 module replaces it.
 - `asr_int8_below_ram_gb = 12`: with `int8 = true` the recogniser is 8-bit only on a machine with less RAM than this
   (8-bit costs a little accuracy: words-check agreement with fp32 98.4 %, CER 0.95 %); on 12 GB or more it stays fp32. The aligner
   and the sounds model are 8-bit on the CPU everywhere.

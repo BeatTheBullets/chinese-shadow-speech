@@ -1,5 +1,6 @@
 from __future__ import annotations
 import contextlib
+import gc
 import logging
 import math
 import os
@@ -207,6 +208,34 @@ def _no_checkpoint_copy():
         lpm.copy = real
 
 
+@contextlib.contextmanager
+def _skip_checkpoint(model_dir: str):
+    """While FunASR builds the recogniser, its own checkpoint (`model_dir`/model.pt, 0.9 GB) is not read: the caller
+    replaces the freshly built module with the stored int8 one right after. Other checkpoints (the VAD's) load as
+    usual. A no-op if FunASR's builder looks different: the checkpoint is then read and replaced, slower but the same."""
+    try:
+        import importlib
+        from shadow.hf import guarded_import
+        am = guarded_import(lambda: importlib.import_module("funasr.auto.auto_model"))
+        real = am.load_pretrained_model
+    except Exception:
+        yield
+        return
+    own = os.path.normcase(os.path.abspath(model_dir))
+
+    def load(*args, **kwargs):
+        path = kwargs.get("path", args[0] if args else None)
+        if path is not None and os.path.normcase(os.path.dirname(os.path.abspath(str(path)))) == own:
+            log.info("skipped reading %s: the stored int8 recogniser replaces it", path)
+            return None
+        return real(*args, **kwargs)
+    am.load_pretrained_model = load
+    try:
+        yield
+    finally:
+        am.load_pretrained_model = real
+
+
 _MS_NAMES = {"fsmn-vad": "iic/speech_fsmn_vad_zh-cn-16k-common-pytorch"}   # FunASR's name_maps_ms entry
 _MS_FILES = ("configuration.json", "config.yaml", "model.pt")
 
@@ -253,13 +282,39 @@ class ParaformerASR:
                 if self.device == "cpu":            # FunASR sets torch's threads to ncpu (default 4): keep ours
                     import torch
                     kwargs["ncpu"] = torch.get_num_threads()
-                with _no_checkpoint_copy():
-                    model = AutoModel(**kwargs)
                 if self.int8:
-                    from shadow.quant import quantize_linear
-                    model.model = quantize_linear(model.model)
+                    model = self._int8_model(AutoModel, kwargs)
+                else:
+                    with _no_checkpoint_copy():
+                        model = AutoModel(**kwargs)
                 self._model = model
         return self._model
+
+    def _int8_model(self, AutoModel, kwargs: dict[str, Any]):
+        """The 8-bit recogniser, its quantised module stored like the aligner's (`cached_int8`). With the stored copy
+        on disk, FunASR builds the recogniser without reading the fp32 checkpoint and the stored module replaces the
+        freshly built one: no fp32 load and no quantising at each start. Without it (the first load, or a new FunASR
+        or torch), the checkpoint is read and quantised as before, and the result is stored."""
+        import funasr
+        from shadow.quant import cached_int8, int8_cache_path, quantize_linear
+        key = f"{self.model_id}-funasr{getattr(funasr, '__version__', 'unknown')}"
+        full = None
+
+        def build():
+            nonlocal full
+            with _no_checkpoint_copy():
+                full = AutoModel(**kwargs)
+            return quantize_linear(full.model)
+        shell = None
+        if int8_cache_path(key).exists():
+            with _skip_checkpoint(kwargs["model"]):
+                shell = AutoModel(**kwargs)
+            shell.model = None                # its freshly initialised fp32 weights go before the int8 ones are read
+            gc.collect()
+        inner = cached_int8(key, build)       # reads the stored module, or (none, or unreadable) calls build()
+        model = full if full is not None else shell
+        model.model = inner
+        return model
 
     def warm(self) -> None:
         """Blocking load under the lock, like the embedder's; a failure is logged and the next call tries again."""
