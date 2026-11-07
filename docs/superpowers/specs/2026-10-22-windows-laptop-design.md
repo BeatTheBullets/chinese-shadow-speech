@@ -6,13 +6,12 @@ Date: 2026-10-22. Status: agreed in conversation with the user; written for the 
 
 Today the app runs only on the user's machine: a WSL2 Linux backend with an NVIDIA GPU (8 GB VRAM), a browser on
 Windows, a dozen terminal commands to start it. The goal is a version an ordinary person can install and use on an
-ordinary Windows laptop. The first such person is a non-technical first user, on her own laptop (Huawei MateBook 14,
-model KLVD-WFH9 — most likely an Intel Core i5-1135G7 with 16 GB and integrated graphics; not confirmed). the user
-wants the app aimed at **average laptops**, not just hers.
+ordinary Windows laptop. The first such person is a non-technical first user, on their own average laptop (8 GB of
+RAM, integrated graphics). The app is aimed at **average laptops**, not just that one.
 
-What she should experience: download one installer, click through Windows' SmartScreen warning once ("More info →
-Run anyway"), run it, and from then on click a Start-menu icon and land in the **Library** in her browser, where she
-pastes a YouTube link and practises as the user does.
+What they should experience: download one installer, click through Windows' SmartScreen warning once ("More info →
+Run anyway"), run it, and from then on click a Start-menu icon and land in the **Library** in their browser, where they
+paste a YouTube link and practise as the developer does.
 
 This is the first of four projects; the others (Bilibili links, podcast feeds, a Microsoft Store edition) come later
 and are out of scope here (§9 notes what this design must not make harder for them).
@@ -26,21 +25,21 @@ and are out of scope here (§9 notes what this design must not make harder for t
   running and offers Open and Quit.
 - First launch sets itself up (Python, packages, models) behind a progress page in the browser; later launches start
   in seconds.
-- Her lessons and recordings survive app updates and reinstalls.
+- Their lessons and recordings survive app updates and reinstalls.
 - the user's own setup (WSL2, CUDA, `make dev`, `make test`) keeps working.
 
 **Non-goals (this project)**
 - Microsoft Store / MSIX, code signing, Bilibili, podcast feeds, macOS/Linux installers, mobile.
-- Anki on her machine (AnkiConnect stays optional and unconfigured; nothing may break without it).
+- Anki on their machine (AnkiConnect stays optional and unconfigured; nothing may break without it).
 - An NVIDIA/CUDA build for Windows. CPU only.
-- A native app window (pywebview/Tauri/Electron). Her normal browser is the UI.
+- A native app window (pywebview/Tauri/Electron). Their normal browser is the UI.
 
 **Anti-goals (failure even if it "works")**
 - Sentence splitting that is worse than today's (the user: "we need to be sure the sentence splitting doesn't
   suffer").
 - Tone, sounds or words-check results that silently get worse because models were shrunk.
-- A console window, a Python prompt, or any step that asks her to type a command.
-- Losing her recordings on update or reinstall.
+- A console window, a Python prompt, or any step that asks them to type a command.
+- Losing their recordings on update or reinstall.
 
 ## 3. The target machine and the measured problem
 
@@ -82,7 +81,7 @@ before starting the threads).
    MMS letter GOP as model A and char-CTC as model B; its thresholds — 79 % caught at 3.9 % false alarms on the user's
    check set — are calibrated on the pair. Merging them is off the table.)
 5. Direct download first; the Store comes later as a separate project.
-6. Unsigned installer is fine for her (SmartScreen "Run anyway" once).
+6. Unsigned installer is fine for the first user (SmartScreen "Run anyway" once).
 
 ## 5. Design
 
@@ -215,7 +214,7 @@ Known work, not exhaustive:
   `localhost`, never a LAN address.
 - **First run** (my call on mechanism): the installer ships `uv.exe`, the app source, the built frontend, the
   lockfile, `ffmpeg`, `ffprobe` and `deno`. On first launch, uv installs Python 3.12 and the locked packages (CPU
-  PyTorch), then the app downloads the models (and stores the int8 versions, §5.3). She sees this as a **progress
+  PyTorch), then the app downloads the models (and stores the int8 versions, §5.3). They see this as a **progress
   page in the browser** from the first click, with plain stages ("Setting up Python", "Downloading speech models
   (about N GB)", "Preparing models"), an honest size/time estimate, and a clear message plus retry on failure (no
   internet, disk full). The progress page cannot depend on the full environment existing yet; it is served by
@@ -241,10 +240,10 @@ Known work, not exhaustive:
 - **yt-dlp** updates itself (YouTube breaks it often): at most once a day, at startup, upgrade the `yt-dlp` package
   inside the app's environment; a failed upgrade never blocks the app.
 - **The app** checks for a newer release at startup and shows a small banner in the Library ("A new version is
-  available — download"). She installs it by running the new installer. No silent self-update. Releases get a
+  available — download"). They install it by running the new installer. No silent self-update. Releases get a
   version scheme (today `pyproject.toml` says 0.1.0 and there are no releases).
 - The banner uses the new style components (the `style` branch has merged into main).
-- **YouTube sign-in checks** (my call): when yt-dlp hits a bot or age check, she sees a plain message saying the video
+- **YouTube sign-in checks** (my call): when yt-dlp hits a bot or age check, they see a plain message saying the video
   needs a signed-in YouTube session, and Settings gets a file picker for a `cookies.txt` (no typing, no editing
   `config.toml`). Reading cookies straight from the browser is not used (unreliable on Windows while the browser is
   open). From a home connection these checks are rarer than from servers.
@@ -257,9 +256,9 @@ Known work, not exhaustive:
    5-minute lesson, then score 8 takes, then score takes on that lesson while a second lesson builds; no OOM, peaks
    within budget. Report time per lesson and per take.
 4. **Windows:** the same benchmark on a Windows machine (the user's Windows side or a CI runner) within budget.
-5. **Her laptop:** install from the downloaded installer, first-run setup completes, Library opens, she pastes a
-   YouTube link, the lesson builds, she records takes in Echo and Flow and sees scores; quit from the tray; restart
-   is quick; install a newer build over it and her lessons are still there.
+5. **The first user's laptop:** install from the downloaded installer, first-run setup completes, Library opens, they paste a
+   YouTube link, the lesson builds, they record takes in Echo and Flow and sees scores; quit from the tray; restart
+   is quick; install a newer build over it and their lessons are still there.
 6. the user's WSL/GPU setup still works and `make test` passes.
 
 ## 7. Order of work
@@ -269,7 +268,7 @@ Known work, not exhaustive:
 3. Windows-native backend (paths, tools, PyTorch source, file handling, data location), Windows CI.
 4. Launcher, tray, first-run progress page.
 5. Installer, update check, yt-dlp self-update.
-6. Acceptance on her laptop.
+6. Acceptance on the first user's laptop.
 
 Work happens in its own git worktree/branch. Frontend pieces: the first-run progress page (served outside the React
 app), the update banner and the cookies-file picker in Settings.
@@ -285,7 +284,7 @@ app), the update banner and the cookies-file picker in Settings.
 
 ## 9. Context for later projects (not built here)
 
-- **Bilibili links** via yt-dlp (needs her login cookies; same legal grey zone as YouTube).
+- **Bilibili links** via yt-dlp (needs the user's login cookies; same legal grey zone as YouTube).
 - **Podcast RSS feeds** — the source that is safe for the Store.
 - **Microsoft Store**: MSIX (Microsoft signs it free), private audience, YouTube included; if rejected or pulled,
   resubmit without YouTube/Bilibili and keep the full version as direct download. The Store build must bundle Python

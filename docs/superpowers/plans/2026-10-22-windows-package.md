@@ -34,7 +34,7 @@ Depends on `2026-10-22-laptop-fit.md` being done (the laptop config sets `int8 =
 - yt-dlp self-update at most once a day at startup; a failure never blocks the app.
 - Update banner when GitHub's latest release is newer than the running version; no silent self-update.
 - The bundled ffmpeg is an **LGPL** build.
-- George's Linux/WSL GPU setup and `make test` keep working; the lockfile resolves CUDA torch on Linux, CPU torch on
+- The developer's Linux/WSL GPU setup and `make test` keep working; the lockfile resolves CUDA torch on Linux, CPU torch on
   Windows.
 - Never write personal names, email addresses or home-directory paths into files or commit messages.
 
