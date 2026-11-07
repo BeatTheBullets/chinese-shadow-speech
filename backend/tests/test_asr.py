@@ -340,6 +340,7 @@ def test_paraformer_never_loads_ct_punc(monkeypatch, punctuator):
             seen.update(kw)
 
     monkeypatch.setitem(sys.modules, "funasr", types.SimpleNamespace(AutoModel=FakeAutoModel))
+    monkeypatch.setattr("shadow.ingest.asr._local_snapshot", lambda name: name)   # nothing cached
     ParaformerASR("m", "cpu", punctuator=None if punctuator is None else _Marks())._load()
     assert "punc_model" not in seen
     assert seen["model"] == "m" and seen["vad_model"] == "fsmn-vad"

@@ -2,6 +2,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import math
+import os
 import threading
 import types
 from fractions import Fraction
@@ -206,6 +207,28 @@ def _no_checkpoint_copy():
         lpm.copy = real
 
 
+_MS_NAMES = {"fsmn-vad": "iic/speech_fsmn_vad_zh-cn-16k-common-pytorch"}   # FunASR's name_maps_ms entry
+_MS_FILES = ("configuration.json", "config.yaml", "model.pt")
+
+
+def _local_snapshot(name: str) -> str:
+    """The cached ModelScope snapshot directory of `name` (a model id or a FunASR short name), or `name` itself when
+    it is not (completely) on disk. Given an id, FunASR asks ModelScope for the file list before every load, so
+    without the network a cached model fails to load ("not registered"); given a directory it reads it directly.
+    "master" is the revision FunASR downloads. Not cached, or a lookup error: `name`, and FunASR downloads as before."""
+    try:
+        from shadow.hf import guarded_import
+
+        def _import():
+            from modelscope.hub.snapshot_download import snapshot_download
+            return snapshot_download
+        snapshot_download = guarded_import(_import)
+        d = snapshot_download(_MS_NAMES.get(name, name), revision="master", local_files_only=True)
+    except Exception:  # noqa: BLE001 - modelscope's "not cached" is a plain Exception
+        return name
+    return str(d) if all(os.path.isfile(os.path.join(d, f)) for f in _MS_FILES) else name
+
+
 class ParaformerASR:
     """One recogniser shared by ingest jobs and attempt scoring: calls run one at a time."""
     def __init__(self, model_id: str, device: str, punctuator: Punctuator | None = None,
@@ -224,7 +247,8 @@ class ParaformerASR:
                 return AutoModel
             AutoModel = guarded_import(_import_funasr)
             with model_load_lock:
-                kwargs: dict[str, Any] = {"model": self.model_id, "vad_model": "fsmn-vad", "device": self.device,
+                kwargs: dict[str, Any] = {"model": _local_snapshot(self.model_id),
+                                          "vad_model": _local_snapshot("fsmn-vad"), "device": self.device,
                                           "disable_update": True}
                 with _no_checkpoint_copy():
                     model = AutoModel(**kwargs)

@@ -34,3 +34,14 @@ def wav2vec2_classes() -> tuple[type, type, type]:
             _classes = _import()
         return _classes
     return guarded_import(load)
+
+
+def local_first(fn, *args, **kwargs):
+    """`fn(*args, **kwargs)` (a `from_pretrained`) from the local cache only; the network only when the files are not
+    there (first run, prepare). Without this every load asks the Hub for the files first, which fails offline even
+    with every file on disk, and slows each launch. "Not cached" is an OSError (huggingface_hub's
+    LocalEntryNotFoundError subclasses it; transformers raises OSError); any other error propagates."""
+    try:
+        return fn(*args, **kwargs, local_files_only=True)
+    except OSError:
+        return fn(*args, **kwargs)

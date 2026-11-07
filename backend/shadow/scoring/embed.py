@@ -35,10 +35,11 @@ class Wav2Vec2Embedder:
 
     def _load(self):
         if self._model is None:
-            from shadow.hf import model_load_lock, wav2vec2_classes
+            from shadow.hf import local_first, model_load_lock, wav2vec2_classes
             Wav2Vec2Model = wav2vec2_classes()[0]
             with model_load_lock:
-                self._model = Wav2Vec2Model.from_pretrained(self.name, revision=self.revision).to(self.device).eval()
+                model = local_first(Wav2Vec2Model.from_pretrained, self.name, revision=self.revision)
+                self._model = model.to(self.device).eval()
         return self._model
 
     def warm(self) -> None:
