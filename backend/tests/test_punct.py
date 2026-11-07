@@ -96,6 +96,7 @@ def test_download_unpacks_after_a_good_checksum(monkeypatch, tmp_path):
     p = _punctuator(tmp_path / "cache", hashlib.sha256(data).hexdigest())
     path = p._model_path()
     assert path.name == "model.int8.onnx" and path.read_bytes() == b"onnx"
+    assert p.model_file == path                      # what prepare lists in its manifest
     monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: pytest.fail("downloaded twice"))
     assert p._model_path() == path
 

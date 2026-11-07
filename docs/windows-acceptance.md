@@ -65,8 +65,11 @@ Windows 11, AMD Ryzen 5 3600 (6 cores), 16 GB RAM, so the recogniser stayed fp32
 - [ ] The laptop stays usable while the app runs (browser, music). Task Manager → the app's `pythonw.exe` memory
   after a few takes: ____ MB.
 - [ ] **Quit** from the tray icon. Start again from the Start menu: the Library opens within about 30 s.
-- [ ] Install a newer build over it: the first start shows "Updating Chinese Shadow Speech" (no 4 GB download) and
+- [ ] Install a newer build over it: the first start shows "Updating Chinese Shadow Speech" (no 5 GB download) and
   ends on the Library. Note the time: ____ min. The lessons and takes are still there.
+- [ ] Quit, delete `%LOCALAPPDATA%\chinese-shadow-speech\models\shadow\int8`, start again: the progress page
+  appears and sets the models up again before the Library opens (no int8 build during the first take). Then quit,
+  delete the whole `models` folder and start: the page shows "Downloading speech models (about 5 GB)".
 - [ ] Uninstall (Settings → Apps): it asks whether to delete the data, the default is No, and
   `%LOCALAPPDATA%\chinese-shadow-speech\data` is still there after answering No.
 

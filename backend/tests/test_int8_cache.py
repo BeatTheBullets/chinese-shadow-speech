@@ -158,3 +158,27 @@ def test_the_new_recipe_removes_the_first_recipes_copy(monkeypatch, tmp_path):
     cached_int8("m-transformers4.57.0", lambda: quantize_linear(tiny()))
     assert f"-q{q.QUANT_FORMAT}-" in q.int8_cache_path("m-transformers4.57.0").name
     assert q.int8_cache_path("m-transformers4.57.0").exists() and not old.exists()
+
+
+def test_cached_int8_records_the_copy_it_stored_and_the_copy_it_read(tmp_path, monkeypatch):
+    # prepare lists these in its manifest, so the bootstrap can tell when one went missing
+    import shadow.quant as q
+    monkeypatch.setenv("SHADOW_MODELS_DIR", str(tmp_path))
+    monkeypatch.setattr(q, "_stored", set())
+    cached_int8("rec-a", lambda: quantize_linear(tiny()))
+    assert q.stored_int8_paths() == [q.int8_cache_path("rec-a")]
+    monkeypatch.setattr(q, "_stored", set())
+    cached_int8("rec-a", lambda: pytest.fail("rebuilt"))
+    assert q.stored_int8_paths() == [q.int8_cache_path("rec-a")]
+
+
+def test_cached_int8_does_not_record_a_copy_it_could_not_store(tmp_path, monkeypatch):
+    import shadow.quant as q
+    monkeypatch.setenv("SHADOW_MODELS_DIR", str(tmp_path))
+    monkeypatch.setattr(q, "_stored", set())
+
+    def no_space(*a, **k):
+        raise OSError("disk full")
+    monkeypatch.setattr(torch, "save", no_space)
+    cached_int8("rec-b", lambda: quantize_linear(tiny()))
+    assert q.stored_int8_paths() == []

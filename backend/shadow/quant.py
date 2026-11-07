@@ -17,6 +17,12 @@ log = logging.getLogger(__name__)
 
 
 QUANT_FORMAT = 2          # bump on any change to the quantisation recipe or to what is stored: stored models are rebuilt
+                          # (the Windows bootstrap reads this line with a regex: keep it `QUANT_FORMAT = <int>`)
+_stored: set[Path] = set()  # the stored int8 copies this process read or wrote; prepare lists them in its manifest
+
+
+def stored_int8_paths() -> list[Path]:
+    return sorted(_stored)
 
 
 def int8_cache_path(key: str) -> Path:
@@ -52,7 +58,9 @@ def cached_int8(key: str, build):
     root = path.parent
     if path.exists():
         try:
-            return torch.load(path, map_location="cpu", weights_only=False).eval()
+            model = torch.load(path, map_location="cpu", weights_only=False).eval()
+            _stored.add(path)
+            return model
         except Exception:
             log.exception("the stored int8 model %s is unreadable; rebuilding it", path.name)
     model = build()
@@ -66,6 +74,7 @@ def cached_int8(key: str, build):
         root.mkdir(parents=True, exist_ok=True)
         torch.save(model, tmp)
         os.replace(tmp, path)
+        _stored.add(path)
         remove_stale_int8(key, path)
     except Exception:
         log.exception("could not store the int8 model %s", path.name)

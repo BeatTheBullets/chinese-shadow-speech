@@ -36,6 +36,7 @@ class SherpaPunctuator:
     def __init__(self, model: str, url: str, sha256: str, cache_dir: Path, threads: int = 2):
         self.model, self.url, self.sha256, self.cache_dir, self.threads = model, url, sha256, Path(cache_dir), threads
         self._punct = None
+        self.model_file: Path | None = None     # the model file the last load used; prepare lists it in its manifest
         self._lock = threading.Lock()
 
     def _model_path(self) -> Path:
@@ -44,7 +45,8 @@ class SherpaPunctuator:
         into place: a killed run leaves only temporary leftovers, and two processes cannot trample each other."""
         final = self.cache_dir / self.model
         if (final / COMPLETE).exists():
-            return next(final.rglob(MODEL_FILE))
+            self.model_file = next(final.rglob(MODEL_FILE))
+            return self.model_file
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         digest = hashlib.sha256()
         log.info("downloading the punctuation model %s", self.url)
@@ -78,7 +80,8 @@ class SherpaPunctuator:
         finally:
             tgz.unlink(missing_ok=True)
             shutil.rmtree(tmp, ignore_errors=True)               # gone after a rename; ours to discard otherwise
-        return next(final.rglob(MODEL_FILE))
+        self.model_file = next(final.rglob(MODEL_FILE))
+        return self.model_file
 
     def _load(self):
         if self._punct is None:
