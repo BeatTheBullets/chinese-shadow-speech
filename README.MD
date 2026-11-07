@@ -1,7 +1,8 @@
-<h1 align="center">chinese-shadow-speech</h1>
+<h1 align="center">Chinese Shadow Speech</h1>
 
 <p align="center">
-  <b>Practise speaking Mandarin by shadowing real Chinese videos, with feedback on every tone and sound.</b><br>
+  <b>A Mandarin Chinese shadowing app: practise speaking by shadowing real Chinese videos, with feedback on every
+  tone and sound.</b><br>
   Runs on your own computer. Free and open source.
 </p>
 
@@ -16,6 +17,9 @@
 Paste a YouTube link, and a few minutes later the video is a lesson: cut into short sentences, with pinyin, every
 character aligned to the audio. Then you listen and repeat, sentence by sentence or a whole passage at a time, and the
 app tells you which tones and sounds you got right.
+
+It's for learners who want to work on their pronunciation, tones and speaking, from beginner (HSK 1) up.
+Shadowing (跟读, or 影子跟读) means repeating a native speaker right after them; this app checks every syllable you say.
 
 ## What you can do
 

@@ -1,7 +1,7 @@
 # Mandarin Shadowing Tool — Design Spec v2
 
-Date: 2026-10-03. Supersedes `shadowing-tool-spec.md` (kept for reference).
-Incorporates the decisions recorded in `spec-review.md` and the Anki /
+Date: 2026-10-03. Supersedes `docs/early-design/shadowing-tool-spec.md` (kept for reference).
+Incorporates the decisions recorded in `docs/early-design/spec-review.md` and the Anki /
 asbplayer / Yomitan integration discussion.
 
 Build brief for Claude Code. Self-hosted, single-user, web-based Mandarin
