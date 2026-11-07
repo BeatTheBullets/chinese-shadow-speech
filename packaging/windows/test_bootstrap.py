@@ -445,3 +445,17 @@ def test_third_party_list_names_the_pinned_ffmpeg_licence():
     third = (Path(__file__).parents[2] / "THIRD_PARTY.md").read_text(encoding="utf-8")
     row = next(line for line in third.splitlines() if line.startswith("| FFmpeg"))
     assert spdx in row
+
+
+def test_health_check_ignores_proxy_settings(monkeypatch):
+    # with a dead proxy in the environment the check of our own 127.0.0.1 app must still succeed; otherwise the
+    # bootstrap decides the launcher never answered and stops a running app
+    for k in ("HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"):
+        monkeypatch.setenv(k, "http://127.0.0.1:9")
+    for k in ("NO_PROXY", "no_proxy"):
+        monkeypatch.delenv(k, raising=False)
+    srv = serve_health()
+    try:
+        assert bs._health_ok(srv.server_address[1]) is True
+    finally:
+        srv.shutdown()

@@ -138,3 +138,18 @@ def test_icon_falls_back_on_corrupt_ico(tmp_path, monkeypatch):
     monkeypatch.setenv("SHADOW_ICON", str(bad))
     img = launcher.load_icon_image()
     assert img.size == (64, 64)
+
+
+def test_wait_ready_ignores_proxy_settings(monkeypatch):
+    # a proxy in the environment (or the Windows system proxy) must not swallow the check of our own 127.0.0.1 server
+    for k in ("HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"):
+        monkeypatch.setenv(k, "http://127.0.0.1:9")
+    for k in ("NO_PROXY", "no_proxy"):
+        monkeypatch.delenv(k, raising=False)
+    port = _free_port()
+    h = launcher.ServerHandle(_app(), port)
+    h.start()
+    try:
+        assert h.wait_ready(10) is True
+    finally:
+        h.stop()

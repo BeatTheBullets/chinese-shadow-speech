@@ -16,6 +16,10 @@ from typing import Callable
 log = logging.getLogger("shadow.launcher")
 TOOLTIP = "chinese-shadow-speech"
 
+# Our own 127.0.0.1 server is checked without any proxy: urlopen would route even loopback requests through a proxy
+# from the environment (HTTP_PROXY) or the Windows system proxy, which cannot reach this machine.
+_LOCAL = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
 
 class ServerHandle:
     """A uvicorn server for `app` on 127.0.0.1:port, run in a daemon thread."""
@@ -41,7 +45,7 @@ class ServerHandle:
                 return False                      # the server died (e.g. the port is taken)
             if self.thread.is_alive():
                 try:
-                    with urllib.request.urlopen(url, timeout=1) as r:
+                    with _LOCAL.open(url, timeout=1) as r:
                         if r.status == 200:
                             return True
                 except OSError:

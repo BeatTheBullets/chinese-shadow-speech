@@ -110,9 +110,15 @@ def _flags() -> int:
 
 # ---------------------------------------------------------------- ports
 
+# For our own 127.0.0.1 server only: no proxy. urlopen would send even loopback requests through a proxy from the
+# environment (HTTP_PROXY, e.g. set to reach YouTube) or the Windows system proxy, which cannot reach this machine; the
+# check would then never succeed and a running app would be taken for a failed start. Downloads keep the proxy.
+_LOCAL = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
 def _health_ok(port: int) -> bool:
     try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=1.5) as r:
+        with _LOCAL.open(f"http://127.0.0.1:{port}/health", timeout=1.5) as r:
             return r.status == 200
     except Exception:  # noqa: BLE001
         return False
