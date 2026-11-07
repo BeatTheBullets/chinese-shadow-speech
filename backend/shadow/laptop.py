@@ -2,9 +2,12 @@
 which loads every model once so the app never downloads or quantises during a take or a lesson build."""
 from __future__ import annotations
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Callable
+
+MANIFEST = "prepared.json"      # keep in sync with the Windows bootstrap, which reads it
 
 
 def laptop_config_text(home: Path) -> str:
@@ -56,7 +59,66 @@ def _release(load) -> None:
     trim_heap()
 
 
-def run_prepare(deps) -> int:
+def manifest_path() -> Path:
+    """<home>/models/prepared.json on the laptop, where SHADOW_MODELS_DIR is <home>/models/shadow (model_env).
+    Without SHADOW_MODELS_DIR: inside the default models directory."""
+    from shadow.ingest.punct import models_cache_dir
+    root = models_cache_dir()
+    return (root.parent if os.environ.get("SHADOW_MODELS_DIR") else root) / MANIFEST
+
+
+def _hf_snapshot(name: str, revision: str) -> Path | None:
+    """The cached Hugging Face snapshot directory of a model, or None (not cached, or no huggingface_hub)."""
+    try:
+        from huggingface_hub import snapshot_download
+        return Path(snapshot_download(name, revision=revision, local_files_only=True))
+    except Exception:  # noqa: BLE001 - only the manifest's checks of this model are lost
+        return None
+
+
+def prepared_files(deps) -> list[Path]:
+    """The files the app needs at run time, as the loaders resolved them: the stored int8 copies, the punctuation
+    model, the recogniser and VAD snapshots, and the config and weights of the Hugging Face models. Only files that
+    exist: a listed file that prepare cannot bring back would rerun setup on every start."""
+    from shadow.quant import stored_int8_paths
+    files = list(stored_int8_paths())
+    punct = getattr(getattr(deps.asr, "punctuator", None), "model_file", None)
+    if punct is not None:
+        files.append(Path(punct))
+    model_id = getattr(deps.asr, "model_id", None)
+    if isinstance(model_id, str):
+        from shadow.ingest import asr
+        for name in (model_id, "fsmn-vad"):
+            snap = Path(asr._local_snapshot(name))
+            if snap.is_dir():
+                files += [snap / f for f in asr._MS_FILES]
+    for owner in (deps.embedder, getattr(deps.sounds, "chars", None)):
+        name, revision = getattr(owner, "name", None), getattr(owner, "revision", None)
+        snap = _hf_snapshot(name, revision) if isinstance(name, str) else None
+        if snap is not None and snap.is_dir():
+            files += [snap / "config.json", *(f for f in snap.iterdir() if f.suffix in (".safetensors", ".bin"))]
+    return [f for f in files if f.is_file()]
+
+
+def write_manifest(path: Path, files: list[Path]) -> None:
+    """The manifest the Windows bootstrap checks before each start: the quantisation format and the paths of the
+    prepared files, relative to the manifest's folder and with /. Files outside that folder are left out. Atomic."""
+    from shadow.quant import QUANT_FORMAT
+    root = Path(os.path.abspath(path.parent))
+    rel = set()
+    for f in files:
+        try:
+            rel.add(Path(os.path.abspath(f)).relative_to(root).as_posix())
+        except ValueError:
+            continue
+    root.mkdir(parents=True, exist_ok=True)
+    tmp = root / f"{path.name}.{os.getpid()}.tmp"
+    tmp.write_text(json.dumps({"quant_format": QUANT_FORMAT, "files": sorted(rel)}, indent=1), encoding="utf-8")
+    os.replace(tmp, root / path.name)
+
+
+def run_prepare(deps, manifest: Path | None = None) -> int:
+    """Load each model once, one at a time; after the last, write the manifest when given its path."""
     steps = prepare_steps(deps)
     total = len(steps)
     for i, (name, load) in enumerate(steps, 1):
@@ -67,6 +129,12 @@ def run_prepare(deps) -> int:
             return 1
         _release(load)
         print(json.dumps({"step": name, "done": i, "total": total}), flush=True)
+    if manifest is not None:
+        try:
+            write_manifest(manifest, prepared_files(deps))
+        except Exception as e:  # noqa: BLE001
+            print(json.dumps({"error": f"manifest: {str(e) or type(e).__name__}"}), flush=True)
+            return 1
     return 0
 
 
@@ -82,7 +150,7 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as e:  # noqa: BLE001
         print(json.dumps({"error": str(e) or type(e).__name__}), flush=True)
         return 1
-    return run_prepare(deps)
+    return run_prepare(deps, manifest_path())
 
 
 if __name__ == "__main__":
