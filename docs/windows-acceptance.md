@@ -47,8 +47,14 @@ Windows 11, AMD Ryzen 5 3600 (6 cores), 16 GB RAM, so the recogniser stayed fp32
 - [x] Echo takes scored: first take 6.7 s (models load), then 3.5–4.8 s each. Server memory 3.9 GB with all five
   models loaded (fp32 recogniser).
 - [x] A newer build installed over the running app: the app was stopped (other programs' Python processes untouched),
-  the lesson was kept, and the app was ready 13 s after starting it from the shortcut. Measured before 37c3c49, which
-  reruns setup (an "Updating" progress page) on every new version: re-check after 37c3c49.
+  the lesson was kept, and the app was ready 13 s after starting it from the shortcut (measured before setup reran on
+  every new version).
+- [x] Re-checked 2026-11-07 with the final build installed over the previous one: the progress page showed "Updating
+  the app", then "Checking speech models" (no download), and the app was ready 77 s after the shortcut. The int8
+  copies were in the new format; the lesson was kept; the same take scored 0.977 (0.975 before).
+- [x] Start without internet (all traffic sent to a dead proxy, models already downloaded): ready in 8 s, takes scored
+  (first take 14 s while the models load, then about 5 s). Before the offline fix, three of the five models failed to
+  load without internet.
 
 ## 3. On the first user's laptop
 
