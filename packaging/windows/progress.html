@@ -10,7 +10,7 @@ h1{font-size:1.3rem;margin:0 0 6px}p{margin:6px 0;line-height:1.45}.muted{color:
 .err{color:#8c1d1d;font-weight:600}button{font:inherit;padding:8px 18px;margin-top:12px;cursor:pointer}
 </style></head><body><main>
 <h1 id="title">Setting up Chinese Shadow Speech</h1>
-<p class="muted" id="intro">This only happens the first time. Keep this window open; it can take a while.</p>
+<p class="muted" id="intro">This happens the first time, and again only if the speech models are missing. Keep this window open; it can take a while.</p>
 <p id="stage">Starting</p><p id="detail" class="muted"></p>
 <div class="bar"><div class="fill" id="fill"></div></div>
 <p id="size" class="muted"></p>
@@ -29,7 +29,7 @@ async function tick(){
       const t=s.update?'Updating Chinese Shadow Speech':'Setting up Chinese Shadow Speech';
       $('title').textContent=t;document.title=t;
       $('intro').textContent=s.update?'The app is updating itself after a new version; this takes a minute or two.'
-        :'This only happens the first time. Keep this window open; it can take a while.';
+        :'This happens the first time, and again only if the speech models are missing. Keep this window open; it can take a while.';
     }
     if(s.error){$('msg').textContent=s.error}
     else{

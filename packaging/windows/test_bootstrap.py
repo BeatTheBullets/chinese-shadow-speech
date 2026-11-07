@@ -21,6 +21,17 @@ def plenty_of_disk(monkeypatch):
     monkeypatch.setattr(bs, "LAUNCH_WAIT", 1)
 
 
+INT8 = "shadow/int8/mms_fa-q2.pt"
+
+
+def write_prepared(models: Path, quant_format: int = 2) -> None:
+    """What a successful `shadow.laptop prepare` leaves: one stored int8 copy and the manifest listing it."""
+    (models / INT8).parent.mkdir(parents=True, exist_ok=True)
+    (models / INT8).write_bytes(b"int8")
+    (models / "prepared.json").write_text(json.dumps({"quant_format": quant_format, "files": [INT8]}),
+                                          encoding="utf-8")
+
+
 def fake_runner(calls, sync_ok=True, prepare_lines=None):
     def run(cmd, env, on_line=None, cwd=None, timeout=None):
         calls.append(cmd)
@@ -29,6 +40,8 @@ def fake_runner(calls, sync_ok=True, prepare_lines=None):
         if "prepare" in cmd:
             for line in prepare_lines or ['{"step": "recogniser", "done": 1, "total": 1}']:
                 on_line(line)
+            if not any('"error"' in line for line in prepare_lines or []):
+                write_prepared(Path(env["SHADOW_MODELS_DIR"]).parent)
             return 0
         return 0
     return run
@@ -36,9 +49,11 @@ def fake_runner(calls, sync_ok=True, prepare_lines=None):
 
 def app_dir(tmp_path):
     a = tmp_path / "app"
-    (a / "backend").mkdir(parents=True, exist_ok=True)
+    (a / "backend" / "shadow").mkdir(parents=True, exist_ok=True)
     (a / "backend" / "uv.lock").write_text("lock")
     (a / "backend" / "pyproject.toml").write_text('[project]\nname = "shadow"\nversion = "0.2.0"\n', encoding="utf-8")
+    (a / "backend" / "shadow" / "quant.py").write_text('import os\n\n\nQUANT_FORMAT = 2          # bump on any change\n',
+                                                       encoding="utf-8")
     return a
 
 
@@ -57,12 +72,13 @@ def serve_health():
 
 
 def test_paths_with_space_and_umlaut(tmp_path):
-    home = tmp_path / "Jöhn Doe" / "chinese-shadow-speech"
-    assert bs.setup_needed(home, "abc")
-    m = bs.ready_marker(home, "abc")
+    home, app = tmp_path / "Jöhn Doe" / "chinese-shadow-speech", app_dir(tmp_path)
+    assert bs.setup_needed(home, app)
+    m = bs.ready_marker(home, bs.lock_hash(app))
     m.parent.mkdir(parents=True)
     m.write_text("ok")
-    assert not bs.setup_needed(home, "abc")
+    write_prepared(home / "models")
+    assert not bs.setup_needed(home, app)
     lock = bs.SetupLock(home)
     assert lock.acquire()
     assert bs.setup_running(home)
@@ -121,12 +137,12 @@ def test_failed_setup_is_not_marked_ready(tmp_path, monkeypatch):
     monkeypatch.setattr(bs, "_run", fake_runner(calls, sync_ok=False))
     assert bs.run_setup(home, app, reports.append) is False
     assert "error" in reports[-1]
-    assert bs.setup_needed(home, bs.lock_hash(app))
+    assert bs.setup_needed(home, app)
     monkeypatch.setattr(bs, "_run", fake_runner(calls))
     assert bs.run_setup(home, app, reports.append) is True
-    assert not bs.setup_needed(home, bs.lock_hash(app))
+    assert not bs.setup_needed(home, app)
     stages = [r.get("stage") for r in reports]
-    assert "Setting up Python" in stages and "Downloading speech models (about 4 GB)" in stages
+    assert "Setting up Python" in stages and "Downloading speech models (about 5 GB)" in stages
     assert "Preparing models" in stages
     sync = next(c for c in calls if "sync" in c)
     assert "--extra" in sync and "desktop" in sync
@@ -138,7 +154,7 @@ def test_prepare_error_line_fails_setup(tmp_path, monkeypatch):
     monkeypatch.setattr(bs, "_run", fake_runner([], prepare_lines=['{"error": "recogniser: boom"}']))
     assert bs.run_setup(home, app, reports.append) is False
     assert reports[-1] == {"error": "recogniser: boom"}
-    assert bs.setup_needed(home, bs.lock_hash(app))
+    assert bs.setup_needed(home, app)
 
 
 def test_disk_check_reports_shortfall(tmp_path, monkeypatch):
@@ -314,33 +330,151 @@ def test_a_new_app_version_reruns_setup_with_the_same_lock(tmp_path, monkeypatch
     home, app = tmp_path / "home", app_dir(tmp_path)
     monkeypatch.setattr(bs, "_run", fake_runner([]))
     assert bs.run_setup(home, app, lambda r: None) is True
-    assert not bs.setup_needed(home, bs.lock_hash(app))
+    assert not bs.setup_needed(home, app)
+    bump_version(app)
+    assert bs.setup_needed(home, app)
+
+
+def bump_version(app):
     pyproject = app / "backend" / "pyproject.toml"
     pyproject.write_text(pyproject.read_text(encoding="utf-8").replace('version = "0.2.0"', 'version = "0.2.1"'),
                          encoding="utf-8")
-    assert bs.setup_needed(home, bs.lock_hash(app))
 
 
-def test_first_setup_means_no_ready_marker_and_no_models(tmp_path):
-    home = tmp_path / "home"
-    assert bs.first_setup(home)
+def test_models_ready_needs_the_manifest_its_files_and_the_apps_quant_format(tmp_path):
+    home, app = tmp_path / "home", app_dir(tmp_path)
+    models = home / "models"
+    assert not bs.models_ready(home, app)                       # never prepared
+    write_prepared(models)
+    assert bs.models_ready(home, app)
+    write_prepared(models, quant_format=1)
+    assert not bs.models_ready(home, app)                       # stored by an older recipe
+    write_prepared(models)
+    (models / INT8).unlink()
+    assert not bs.models_ready(home, app)                       # quarantined or deleted
+
+
+@pytest.mark.parametrize("text", ["", "{not json", "[]", '{"files": []}', '{"quant_format": 2}',
+                                  '{"quant_format": "2", "files": []}', '{"quant_format": 2, "files": "a"}',
+                                  '{"quant_format": 2, "files": [1]}', "\udcff"])
+def test_a_corrupt_manifest_is_not_ready(tmp_path, text):
+    home, app = tmp_path / "home", app_dir(tmp_path)
+    (home / "models").mkdir(parents=True)
+    (home / "models" / "prepared.json").write_text(text, encoding="utf-8", errors="surrogateescape")
+    assert not bs.models_ready(home, app)
+
+
+def test_models_ready_fails_closed_without_the_apps_quant_format(tmp_path):
+    home, app = tmp_path / "home", app_dir(tmp_path)
+    write_prepared(home / "models")
+    (app / "backend" / "shadow" / "quant.py").write_text("QUANT_FORMAT: int = 2\n", encoding="utf-8")
+    assert not bs.models_ready(home, app)
+    (app / "backend" / "shadow" / "quant.py").unlink()
+    assert not bs.models_ready(home, app)
+
+
+def test_the_quant_format_is_read_from_the_real_quant_module():
+    from shadow.quant import QUANT_FORMAT
+    assert bs.app_quant_format(Path(__file__).resolve().parents[2]) == QUANT_FORMAT
+
+
+def test_manifest_path_matches_shadow_laptop(tmp_path, monkeypatch):
+    from shadow import laptop
+    home = tmp_path / "Jöhn Doe" / "h"
+    for k, v in bs.model_env(home).items():
+        monkeypatch.setenv(k, v)
+    assert bs.manifest_path(home) == laptop.manifest_path()
+
+
+def test_setup_is_needed_when_the_prepared_models_are_not_ready(tmp_path, monkeypatch):
+    home, app = tmp_path / "home", app_dir(tmp_path)
+    monkeypatch.setattr(bs, "_run", fake_runner([]))
+    assert bs.run_setup(home, app, lambda r: None) is True
+    assert not bs.setup_needed(home, app)
+    (home / "models" / INT8).unlink()                            # e.g. antivirus quarantined it
+    assert bs.setup_needed(home, app)
+    assert bs.run_setup(home, app, lambda r: None) is True
+    assert not bs.setup_needed(home, app)
+
+
+def test_a_prepare_that_leaves_the_models_not_ready_still_starts_the_app(tmp_path, monkeypatch):
+    # a bug, not the user's problem: the app starts (and loads what it lacks), setup runs again next time, and the log
+    # says why
+    home, app = tmp_path / "home", app_dir(tmp_path)
+
+    def run(cmd, env, on_line=None, cwd=None, timeout=None):
+        if "prepare" in cmd:
+            on_line('{"step": "recogniser", "done": 1, "total": 1}')
+        return 0
+    monkeypatch.setattr(bs, "_run", run)
+    assert bs.run_setup(home, app, lambda r: None) is True
+    assert bs.ready_marker(home, bs.lock_hash(app)).exists() and bs.setup_needed(home, app)
+    assert "not ready after prepare" in (home / "logs" / "bootstrap.log").read_text(encoding="utf-8")
+
+
+def test_deleted_models_rerun_the_full_first_setup(tmp_path, monkeypatch):
+    # the user deleted the models folder to free space: the next start downloads them again, and says so
+    import shutil
+    home, app = tmp_path / "home", app_dir(tmp_path)
+    monkeypatch.setattr(bs, "_run", fake_runner([]))
+    assert bs.run_setup(home, app, lambda r: None) is True
+    shutil.rmtree(home / "models")
+    assert bs.setup_needed(home, app) and bs.first_setup(home, app)
+    reports = []
+    assert bs.run_setup(home, app, reports.append) is True
+    assert "Downloading speech models (about 5 GB)" in [r["stage"] for r in reports]
+    assert all(r["update"] is False for r in reports)
+
+
+def test_an_interrupted_first_download_is_still_a_first_setup(tmp_path, monkeypatch):
+    # the network failed half-way through the first download: Retry must not say "Updating the app"
+    home, app = tmp_path / "home", app_dir(tmp_path)
     (home / "models" / "hf").mkdir(parents=True)
-    assert bs.first_setup(home)                     # an empty models tree holds nothing to keep
-    (home / "models" / "hf" / "weights.bin").write_bytes(b"x")
-    assert not bs.first_setup(home)
-    other = tmp_path / "other"
-    bs.ready_marker(other, "oldlock").parent.mkdir(parents=True)
-    bs.ready_marker(other, "oldlock").write_text("ok")
-    assert not bs.first_setup(other)                # set up before, by an older version
+    (home / "models" / "hf" / "weights.bin").write_bytes(b"x" * 1000)
+    assert bs.first_setup(home, app)
+    monkeypatch.setattr(bs, "free_gb", lambda p: 3.0)
+    reports = []
+    assert bs.run_setup(home, app, reports.append) is False
+    assert reports[-1] == {"error": "Not enough disk space: 3 GB free, about 8 GB needed"}
+
+
+def test_a_new_quant_format_reruns_setup_as_an_update(tmp_path, monkeypatch):
+    # the models are all there; only the int8 copies are rebuilt
+    home, app = tmp_path / "home", app_dir(tmp_path)
+    monkeypatch.setattr(bs, "_run", fake_runner([]))
+    assert bs.run_setup(home, app, lambda r: None) is True
+    (app / "backend" / "shadow" / "quant.py").write_text("QUANT_FORMAT = 3\n", encoding="utf-8")
+    assert bs.setup_needed(home, app)
+    assert not bs.first_setup(home, app)
+
+
+def test_an_install_from_before_the_manifest_with_its_models_is_an_update(tmp_path, monkeypatch):
+    # every install before the manifest existed: setup reruns once (to write it) but must neither announce a 5 GB
+    # download nor ask for 8 GB of free space when the models are already there
+    home, app = tmp_path / "home", app_dir(tmp_path)
+    bs.ready_marker(home, "oldlock").parent.mkdir(parents=True)
+    bs.ready_marker(home, "oldlock").write_text("ok")
+    (home / "models" / "hf").mkdir(parents=True)
+    (home / "models" / "hf" / "weights.bin").write_bytes(b"x" * 1000)
+    monkeypatch.setattr(bs, "OLD_INSTALL_GB", 500 / 1e9)
+    assert bs.setup_needed(home, app)
+    assert not bs.first_setup(home, app)
+    monkeypatch.setattr(bs, "OLD_INSTALL_GB", 5000 / 1e9)        # too little on disk: the models were deleted
+    assert bs.first_setup(home, app)
+    other = tmp_path / "other"                                   # as much on disk, but never set up: interrupted
+    (other / "models" / "hf").mkdir(parents=True)
+    (other / "models" / "hf" / "weights.bin").write_bytes(b"x" * 1000)
+    monkeypatch.setattr(bs, "OLD_INSTALL_GB", 500 / 1e9)
+    assert bs.first_setup(other, app)
 
 
 def test_disk_check_on_a_re_setup_needs_only_a_little_space(tmp_path, monkeypatch):
     # every new app version reruns setup; the models are already there, so asking for 8 GB would block the upgrade
     home, app = tmp_path / "home", app_dir(tmp_path)
-    bs.ready_marker(home, "oldlock").parent.mkdir(parents=True)
-    bs.ready_marker(home, "oldlock").write_text("ok")
-    monkeypatch.setattr(bs, "free_gb", lambda p: 3.0)
     monkeypatch.setattr(bs, "_run", fake_runner([]))
+    assert bs.run_setup(home, app, lambda r: None) is True
+    bump_version(app)
+    monkeypatch.setattr(bs, "free_gb", lambda p: 3.0)
     assert bs.run_setup(home, app, lambda r: None) is True
     monkeypatch.setattr(bs, "free_gb", lambda p: 1.0)
     reports = []
@@ -400,18 +534,19 @@ def test_first_setup_stages_announce_the_download(tmp_path, monkeypatch):
     reports = []
     monkeypatch.setattr(bs, "_run", fake_runner([]))
     assert bs.run_setup(tmp_path / "home", app_dir(tmp_path), reports.append) is True
-    assert [r["stage"] for r in reports] == ["Setting up Python", "Downloading speech models (about 4 GB)",
+    assert [r["stage"] for r in reports] == ["Setting up Python", "Downloading speech models (about 5 GB)",
                                              "Preparing models"]
     assert all(r["update"] is False for r in reports)
 
 
 def test_re_setup_after_an_update_does_not_claim_a_download(tmp_path, monkeypatch):
-    # setup reruns on every new app version: the models are already there, so no "4 GB" and no "first time"
+    # setup reruns on every new app version: the models are already there, so no "5 GB" and no "first time"
     home, app = tmp_path / "home", app_dir(tmp_path)
-    bs.ready_marker(home, "oldlock").parent.mkdir(parents=True)
-    bs.ready_marker(home, "oldlock").write_text("ok")
     reports = []
     monkeypatch.setattr(bs, "_run", fake_runner([]))
+    assert bs.run_setup(home, app, lambda r: None) is True
+    bump_version(app)
+    assert bs.setup_needed(home, app)
     assert bs.run_setup(home, app, reports.append) is True
     assert [r["stage"] for r in reports] == ["Updating the app", "Checking speech models", "Checking speech models"]
     assert all(r["update"] is True and "size" not in r for r in reports)

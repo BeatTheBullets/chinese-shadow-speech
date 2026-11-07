@@ -23,9 +23,12 @@ from pathlib import Path
 from typing import Callable
 
 PREFERRED_PORT = 47231
-MODELS_GB = 4                 # shown to the user
+MODELS_GB = 5                 # shown to the user: a 4.7 GB download plus about 0.6 GB of stored int8 copies
 NEEDED_GB = 8                 # free space required before the first setup (models, venv, uv cache)
 UPDATE_NEEDED_GB = 2          # free space required when an update reruns setup (the models are already there)
+OLD_INSTALL_GB = 3            # an install from before the manifest with this much in models/ still has its models
+MANIFEST = "prepared.json"    # keep in sync with shadow.laptop.MANIFEST (a test compares the paths)
+_QUANT_FORMAT = re.compile(r"^QUANT_FORMAT\s*=\s*(\d+)\b", re.M)
 LAUNCH_WAIT = 180             # seconds to wait for the launcher's /health
 YTDLP_TIMEOUT = 60            # seconds before the daily yt-dlp update is killed
 PAGE_GONE_AFTER = 75          # seconds without a /status poll before the progress tab counts as closed (a hidden
@@ -151,17 +154,78 @@ def ready_marker(home: Path, lock: str) -> Path:
     return Path(home) / "venv" / f".ready-{lock}"
 
 
-def setup_needed(home: Path, lock: str) -> bool:
-    return not ready_marker(home, lock).exists()
+def manifest_path(home: Path) -> Path:
+    return Path(home) / "models" / MANIFEST
 
 
-def first_setup(home: Path) -> bool:
-    """True before this home was ever set up: no ready marker of any version and no stored models. Every new app
-    version reruns setup, which then only updates the venv and checks the models."""
-    venv, models = Path(home) / "venv", Path(home) / "models"
+def app_quant_format(app_dir: Path) -> int | None:
+    """QUANT_FORMAT of the installed app, read from backend/shadow/quant.py (this script cannot import shadow)."""
+    try:
+        m = _QUANT_FORMAT.search((Path(app_dir) / "backend" / "shadow" / "quant.py").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return int(m.group(1)) if m else None
+
+
+def _manifest(home: Path) -> dict | None:
+    """The manifest `shadow.laptop prepare` writes last, or None when it is missing or malformed."""
+    try:
+        m = json.loads(manifest_path(home).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not (isinstance(m, dict) and type(m.get("quant_format")) is int and isinstance(m.get("files"), list)
+            and all(isinstance(f, str) for f in m["files"])):
+        return None
+    return m
+
+
+def _files_present(home: Path, manifest: dict) -> bool:
+    models = Path(home) / "models"
+    return all((models / f).is_file() for f in manifest["files"])
+
+
+def models_ready(home: Path, app_dir: Path) -> bool:
+    """Whether the prepared models are all there for this app: the manifest parses, every file it lists exists (the
+    user may have deleted the models folder, antivirus may have quarantined a file) and it was written for this app's
+    QUANT_FORMAT. Otherwise the app would rebuild the int8 copies during a take, with the other models loaded."""
+    m, want = _manifest(home), app_quant_format(app_dir)
+    return m is not None and want is not None and m["quant_format"] == want and _files_present(home, m)
+
+
+def setup_needed(home: Path, app_dir: Path) -> bool:
+    """Setup runs for a new app version (uv.lock or pyproject.toml changed) and whenever the models are not ready."""
+    return not ready_marker(home, lock_hash(app_dir)).exists() or not models_ready(home, app_dir)
+
+
+def _models_on_disk_gb(models: Path, limit: float) -> float:
+    """The size of the files under models/, counted until it passes `limit` (symlinks to HF blobs not counted twice)."""
+    total = 0
+    try:
+        for p in models.rglob("*"):
+            if p.is_file() and not p.is_symlink():
+                total += p.stat().st_size
+                if total / 1e9 > limit:
+                    break
+    except OSError:
+        pass
+    return total / 1e9
+
+
+def first_setup(home: Path, app_dir: Path) -> bool:
+    """True when setup must download the models: the full wording and disk check. With a valid manifest that is when
+    one of its files is missing (deleted models, a quarantined file); a new QUANT_FORMAT alone only rebuilds the int8
+    copies, an update. Without one (never set up, an interrupted first download, a deleted models folder) it is True,
+    except for an install from before the manifest existed: a ready marker of some version and more than
+    OLD_INSTALL_GB in models/ mean its models are there, so it gets the update wording and check (prepare still runs
+    and downloads anything missing)."""
+    home = Path(home)
+    m = _manifest(home)
+    if m is not None:
+        return not _files_present(home, m)
+    venv = home / "venv"
     if venv.is_dir() and any(venv.glob(".ready-*")):
-        return False
-    return not (models.is_dir() and any(p.is_file() for p in models.rglob("*")))
+        return _models_on_disk_gb(home / "models", OLD_INSTALL_GB) <= OLD_INSTALL_GB
+    return True
 
 
 class SetupLock:
@@ -279,12 +343,12 @@ def run_setup(home: Path, app_dir: Path, report: Callable[[dict], None], lock: S
 
 def _setup(home: Path, app_dir: Path, report: Callable[[dict], None]) -> bool:
     home.mkdir(parents=True, exist_ok=True)
-    first = first_setup(home)
+    first = first_setup(home, app_dir)
     free, needed = free_gb(home), (NEEDED_GB if first else UPDATE_NEEDED_GB)
     if free < needed:
         report({"error": f"Not enough disk space: {free:.0f} GB free, about {needed} GB needed"})
         return False
-    # a re-setup (every new app version) finds the models already there: it must not announce a 4 GB download
+    # a re-setup with the models already there (a new app version) must not announce a download
     size = {"size": f"about {MODELS_GB} GB"} if first else {}
     python_stage = "Setting up Python" if first else "Updating the app"
     models_stage = f"Downloading speech models ({size['size']})" if first else "Checking speech models"
@@ -332,6 +396,8 @@ def _setup(home: Path, app_dir: Path, report: Callable[[dict], None]) -> bool:
         report({"error": _failure_text(failure[-1] if failure else f"Preparing models failed (exit {code})",
                                        tail + failure)})
         return False
+    if not models_ready(home, app_dir):       # a bug, not the user's problem: start anyway; setup runs again next time
+        log(home, f"models not ready after prepare: check {manifest_path(home)} against the app's QUANT_FORMAT")
 
     marker = ready_marker(home, lock_hash(app_dir))
     marker.parent.mkdir(parents=True, exist_ok=True)
@@ -532,7 +598,7 @@ def _first_instance(home: Path, app_dir: Path, lock: SetupLock) -> int:
         progress.retry.clear()
         progress.retry.wait()                      # the Retry button; the page shows the error meanwhile
 
-    shown = setup_needed(home, lock_hash(app_dir))
+    shown = setup_needed(home, app_dir)
     if shown:
         serve()
         open_browser(f"http://127.0.0.1:{port}/")

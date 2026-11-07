@@ -238,7 +238,7 @@ when you leave via ⌂ Library, and on the Flow summary's Done.
 2. Run it. The installer is not code-signed yet, so Windows SmartScreen may say "Windows protected your PC": click
    **More info**, then **Run anyway**. It installs for your user only and does not ask for administrator rights.
 3. The app opens a page in your browser that shows its first-run progress. The first start sets up Python and
-   downloads the speech models, about 4 GB, so it takes 10 to 20 minutes depending on your connection. Later starts
+   downloads the speech models, about 5 GB, so it takes 10 to 20 minutes depending on your connection. Later starts
    take a few seconds. The first start after installing a newer version takes a minute or two while the app updates
    itself (the models are kept, not downloaded again).
 4. When it is ready, the Library opens. Paste a YouTube link to make your first lesson.
@@ -252,7 +252,9 @@ does not stop it.
 
 **Your data** lives in `%LOCALAPPDATA%\chinese-shadow-speech`: lessons and recordings in `data`, speech models in
 `models`, logs in `logs`. Installing a newer version keeps all of it. The app shows a notice in the Library when a
-newer version is released.
+newer version is released. Deleting the `models` folder to free space is safe: the next start downloads the models
+again (about 5 GB), as on the first start. Before each start the app checks that its prepared models are all there and
+sets them up again if one is missing.
 
 **Uninstall** from Windows Settings → Apps → Installed apps → **Chinese Shadow Speech**. It asks whether to delete your
 lessons, recordings and models too. The default is to keep them.
