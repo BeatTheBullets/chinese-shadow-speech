@@ -141,10 +141,13 @@ Takes the recording itself rejects (too quiet or short, no voice, clipped, could
 show their warning but are **not stored**. `backend/scripts/drop_failed_takes.py` (`--dry-run`, `--data-dir`) removes
 older ones. Your take's playback skips the silence before and after your voice.
 
-The backend trims its heap after model loads, jobs and scoring (`shadow/memory.py`). With all models loaded, the sound
-model included, its RSS measured about 1.8 GB while scoring takes, instead of about 5.7 GB untrimmed; the startup peak
-and the steady state are re-checked at acceptance (`docs/phase3a-acceptance.md`). `/health` lists `sounds` once its
-warm-up has finished (about a minute after start); `sounds_error` says why sound checking is off.
+The backend trims its heap after model loads, jobs and scoring (`shadow/memory.py`). On the GPU (Phase 3a, fp32
+models), with all models loaded, the sound model included, its RSS measured about 1.8 GB while scoring takes, instead
+of about 5.7 GB untrimmed (`docs/phase3a-acceptance.md`); there most of the weights sit in GPU memory. On a CPU-only
+laptop with the 8-bit models the backend peaks at about 2.7 GB while practising and 2.9 GB while building a lesson
+during practice (measured on Windows, `docs/windows-acceptance.md`). `/health` lists `sounds` in `models_loaded` once
+the sound model has loaded: on the GPU it warms up in the background after start (about a minute), on the CPU it loads
+during the first scored take. `sounds_error` says why sound checking is off.
 
 ### Stats
 

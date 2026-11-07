@@ -58,9 +58,12 @@ Updating yt-dlp: YouTube changes often. When a lesson fails with "extraction fai
 
 ## Tone scoring
 The tone model ships in `backend/shadow/scoring/models/` (`tone_v1.joblib` and `tone_v1.json`). It scores on the speech
-model chinese-wav2vec2 (~380 MB from Hugging Face, MIT), which the backend loads in the background at start-up and
-downloads the first time (needs the models extra); a take scored before that finishes waits for it.
-Paraformer (the ingest recogniser, which also checks each take's words) loads in the background at start-up the same way.
+model chinese-wav2vec2 (~380 MB from Hugging Face, MIT), downloaded the first time (needs the models extra).
+Paraformer (the ingest recogniser, which also checks each take's words) loads in the background at start-up on every
+device. On the GPU the tone embedder and the sounds model warm up after it, also in the background; a take scored before
+they finish waits for them. On the CPU (`device = "cpu"`, the Windows app) only the recogniser warms at start-up: the
+tone embedder and the sounds model load during the first scored take, which is slower (on the Windows app about 7 s
+instead of 3.5-5 s), so a laptop's start-up memory stays low.
 If the download fails it is logged and the first scored take tries again. A missing or unreadable tone model file
 is logged too and takes are then saved unscored ("Tone model missing").
 `/health` reports `tone_model.loaded` and its version.
