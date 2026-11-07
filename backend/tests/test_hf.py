@@ -97,3 +97,17 @@ def test_local_first_does_not_swallow_other_errors():
     with pytest.raises(RuntimeError, match="broken weights"):
         hf.local_first(load, "n")
     assert len(calls) == 1
+
+
+def test_local_first_downloads_a_tokenizer_whose_vocab_is_not_cached():
+    """A fresh install: the model download cached config.json but not vocab.json. Offline, transformers then builds
+    the tokenizer with vocab_file=None, and its open(None) raises a TypeError, not an OSError."""
+    calls = []
+
+    def load(name, **kw):
+        calls.append(kw)
+        if kw.get("local_files_only"):
+            open(None)    # what Wav2Vec2CTCTokenizer.__init__ does with the missing vocab file
+        return "downloaded"
+    assert hf.local_first(load, "n", revision="r") == "downloaded"
+    assert calls == [{"revision": "r", "local_files_only": True}, {"revision": "r"}]

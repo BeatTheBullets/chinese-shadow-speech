@@ -40,8 +40,11 @@ def local_first(fn, *args, **kwargs):
     """`fn(*args, **kwargs)` (a `from_pretrained`) from the local cache only; the network only when the files are not
     there (first run, prepare). Without this every load asks the Hub for the files first, which fails offline even
     with every file on disk, and slows each launch. "Not cached" is an OSError (huggingface_hub's
-    LocalEntryNotFoundError subclasses it; transformers raises OSError); any other error propagates."""
+    LocalEntryNotFoundError subclasses it; transformers raises OSError), or a TypeError: a tokenizer whose vocab file
+    is not cached is built offline with vocab_file=None, and its open(None) raises one (a fresh install: the model
+    download cached config.json but not vocab.json). The download retry re-raises a genuine TypeError; any other
+    error propagates."""
     try:
         return fn(*args, **kwargs, local_files_only=True)
-    except OSError:
+    except (OSError, TypeError):
         return fn(*args, **kwargs)
