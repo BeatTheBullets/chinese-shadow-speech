@@ -81,7 +81,7 @@ neighbouring sentence that shares most of its words with the one shown can still
 - **Flow extras:** the Flow screen shows as soon as you choose Flow: a compact stage with a few lines before and after
   it, centred, moving on with the run; a preview of the next line and a bar that shrinks over your speaking window.
 
-![Echo, your turn: amber pacing wipe](docs/screenshots/echo-record.png)
+![Echo, your turn: a red frame and a live waveform of your voice](docs/screenshots/echo-record.png)
 
 ![Flow, your turn: the turn bar shrinks while you speak](docs/screenshots/flow-turn.png)
 
