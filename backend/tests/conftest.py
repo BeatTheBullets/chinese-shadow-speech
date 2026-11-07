@@ -55,3 +55,12 @@ def wait_job(client, job_id, timeout=10.0):
             return j
         time.sleep(0.05)
     raise AssertionError("job did not finish")
+
+
+@pytest.fixture(autouse=True)
+def _fresh_int8_records(monkeypatch):
+    """shadow.quant keeps per-process records of the int8 copies it stored or failed to store (prepare reads them);
+    each test starts with empty ones so a failure provoked in one test cannot fail another's prepare."""
+    import shadow.quant as quant
+    monkeypatch.setattr(quant, "_stored", set())
+    monkeypatch.setattr(quant, "_unsaved", set())

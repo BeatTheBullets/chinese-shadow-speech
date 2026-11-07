@@ -129,6 +129,11 @@ def run_prepare(deps, manifest: Path | None = None) -> int:
             return 1
         _release(load)
         print(json.dumps({"step": name, "done": i, "total": total}), flush=True)
+    from shadow.quant import unsaved_int8
+    if unsaved_int8():      # no manifest: the next start runs setup again instead of building the copy during a take
+        print(json.dumps({"error": "Could not store the prepared speech models; check free disk space and press Retry"}),
+              flush=True)
+        return 1
     if manifest is not None:
         try:
             write_manifest(manifest, prepared_files(deps))

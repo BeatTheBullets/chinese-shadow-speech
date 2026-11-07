@@ -21,8 +21,15 @@ QUANT_FORMAT = 2          # bump on any change to the quantisation recipe or to 
 _stored: set[Path] = set()  # the stored int8 copies this process read or wrote; prepare lists them in its manifest
 
 
+_unsaved: set[str] = set()  # keys whose int8 copy could not be stored (e.g. a full disk); prepare then fails
+
+
 def stored_int8_paths() -> list[Path]:
     return sorted(_stored)
+
+
+def unsaved_int8() -> list[str]:
+    return sorted(_unsaved)
 
 
 def int8_cache_path(key: str) -> Path:
@@ -75,9 +82,11 @@ def cached_int8(key: str, build):
         torch.save(model, tmp)
         os.replace(tmp, path)
         _stored.add(path)
+        _unsaved.discard(key)
         remove_stale_int8(key, path)
     except Exception:
         log.exception("could not store the int8 model %s", path.name)
+        _unsaved.add(key)
         tmp.unlink(missing_ok=True)
     return model
 

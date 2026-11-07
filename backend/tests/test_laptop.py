@@ -176,3 +176,24 @@ def test_manifest_lists_only_files_that_exist(tmp_path, monkeypatch, capsys):
     files = json.loads((models / "prepared.json").read_text(encoding="utf-8"))["files"]
     assert "shadow/int8/mms_fa-q2.pt" in files
     assert not any(f.startswith("hf/") or f == "gone.onnx" for f in files)
+
+
+def test_run_prepare_fails_when_an_int8_copy_could_not_be_stored(tmp_path, monkeypatch, capsys):
+    # a copy that failed to save (e.g. a full disk) would otherwise be built during a take, with every model loaded
+    import shadow.quant as quant
+    monkeypatch.setattr(quant, "_unsaved", {"some-model-key"})
+    manifest = tmp_path / "prepared.json"
+    assert run_prepare(fake_deps([]), manifest) != 0
+    last = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert "error" in last and "disk" in last["error"]
+    assert not manifest.exists()
+
+
+def test_cached_int8_records_a_copy_it_could_not_store(tmp_path, monkeypatch):
+    import torch
+    import shadow.quant as quant
+    monkeypatch.setattr(quant, "_unsaved", set())
+    monkeypatch.setattr(quant, "int8_cache_path", lambda key: tmp_path / "int8" / f"{key}.pt")
+    monkeypatch.setattr(torch, "save", lambda *a, **k: (_ for _ in ()).throw(OSError("No space left on device")))
+    m = quant.cached_int8("k", lambda: torch.nn.Linear(2, 2))
+    assert isinstance(m, torch.nn.Linear) and quant.unsaved_int8() == ["k"]
