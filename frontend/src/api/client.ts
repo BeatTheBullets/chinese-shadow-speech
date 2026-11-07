@@ -3,8 +3,9 @@ import type {
   Segment, SentenceStats, SoundStats, StatsOverview, Take, ToneStats, UnexportedItem, VoiceProfile,
 } from './types'
 
-// Same-origin in production (the backend serves the built SPA); the dev server talks to the backend directly.
-const base: string = import.meta.env.VITE_API ?? (import.meta.env.DEV ? 'http://127.0.0.1:8000' : '')
+// Same origin everywhere: in production the backend serves the built SPA, and in dev Vite proxies the backend's
+// routes (vite.config.ts). Set VITE_API to call a backend somewhere else.
+const base: string = import.meta.env.VITE_API ?? ''
 
 const modeQuery = (mode?: 'flow') => (mode ? `?mode=${mode}` : '')
 
