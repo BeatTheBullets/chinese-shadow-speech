@@ -55,6 +55,11 @@ Windows 11, AMD Ryzen 5 3600 (6 cores), 16 GB RAM, so the recogniser stayed fp32
 - [x] Start without internet (all traffic sent to a dead proxy, models already downloaded): ready in 8 s, takes scored
   (first take 14 s while the models load, then about 5 s). Before the offline fix, three of the five models failed to
   load without internet.
+- [x] Re-checked 2026-11-07 with the release candidate (prepared-models manifest, faster scoring, stored int8
+  recogniser), installed over the previous build: setup reran once ("Updating the app") because the older install had
+  no manifest, wrote it (13 files, int8 format 2) and was ready in 81 s. Deleting the sounds model's int8 copy and
+  restarting: setup rebuilt it before the app started, ready in 38 s. Warm takes 1.8–2.2 s (3.5–5 s before), server
+  memory 3.15 GB with all five models loaded (fp32 recogniser on this 16 GB PC; 3.9 GB before).
 
 ## 3. On the first user's laptop
 
