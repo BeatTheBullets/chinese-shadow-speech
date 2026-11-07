@@ -217,3 +217,11 @@ def test_a_rejected_chunk_is_split_at_pauses_not_left_as_one_sentence():
     assert _speech(out) == text
     assert out.count("。") == 2 and out.endswith("。")
     assert out.index("。") == 8
+
+
+def test_punctuator_threads_come_from_settings_and_default_to_one(tmp_path, monkeypatch):
+    from shadow.config import ModelsCfg
+    from shadow.ingest.punct import make_punctuator
+    monkeypatch.setenv("SHADOW_MODELS_DIR", str(tmp_path))
+    assert make_punctuator(ModelsCfg()).threads == 1
+    assert make_punctuator(ModelsCfg(punctuation_threads=3)).threads == 3

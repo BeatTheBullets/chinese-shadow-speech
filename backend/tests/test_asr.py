@@ -450,3 +450,24 @@ def test_warm_also_warms_the_punctuator():
     asr.warm()
     assert seen == ["p"]
 
+
+
+@pytest.mark.parametrize("device", ["cpu", "cuda"])
+def test_paraformer_load_keeps_torchs_thread_count_on_the_cpu(monkeypatch, device):
+    """FunASR's AutoModel sets torch's threads to its `ncpu` (default 4) while it builds, overriding the count
+    build_deps set (cores - 1): on the CPU the recogniser passes the current count, so it stays. The GPU path is as before."""
+    import sys
+    import types
+    import torch
+    from shadow.ingest.asr import ParaformerASR
+    seen = {}
+
+    class FakeAutoModel:
+        def __init__(self, **kw):
+            seen.update(kw)
+
+    monkeypatch.setitem(sys.modules, "funasr", types.SimpleNamespace(AutoModel=FakeAutoModel))
+    monkeypatch.setattr("shadow.ingest.asr._local_snapshot", lambda name: name)
+    monkeypatch.setattr(torch, "get_num_threads", lambda: 3)
+    ParaformerASR("m", device)._load()
+    assert seen.get("ncpu") == (3 if device == "cpu" else None)

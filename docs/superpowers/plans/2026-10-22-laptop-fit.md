@@ -13,6 +13,11 @@ device is the CPU. Two go/no-go measurements (the splitting gate and the int8 va
 **Tech Stack:** Python 3.12, PyTorch 2.11 dynamic quantisation, FunASR Paraformer, torchaudio MMS_FA, transformers
 wav2vec2, jieba, pytest.
 
+> **Later change:** the int8 layers no longer use PyTorch's dynamic quantisation (`quantize_dynamic`, qint8). The app
+> has its own weight-only `Int8Linear` (`backend/shadow/quant.py`, `QUANT_FORMAT = 2`): the Windows torch wheel has only
+> the oneDNN quantised engine, which keeps every int8 weight twice. `quantize_linear` keeps its name and now swaps in
+> `Int8Linear`; the Task text below (e.g. `torch.ao.nn.quantized.dynamic.Linear`) is the plan as first written.
+
 **Spec:** `docs/superpowers/specs/2026-10-22-windows-laptop-design.md` (§3, §4, §5.1–5.3, §6 items 1–3, §7 steps 1–2).
 The Windows packaging (§5.4–5.7) is the separate plan `2026-10-22-windows-package.md`.
 

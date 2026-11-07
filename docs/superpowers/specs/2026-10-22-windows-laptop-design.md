@@ -156,6 +156,11 @@ already exists.
 ### 5.3 Memory: 8-bit models on the CPU
 
 > **Outcome (user decision 2026-10-23):** the recogniser runs int8 only when the machine has less than 12 GB RAM (`asr_int8_below_ram_gb`), fp32 above, because int8 missed the words check (93.9 %) and CER (3.35 %) marks. The sounds model stays int8 on the CPU everywhere: accepted at 5.3 % false alarms with 86 % of slips caught.
+>
+> **Later (2026-11):** the method moved from PyTorch dynamic quantisation to the app's own weight-only `Int8Linear`
+> (`backend/shadow/quant.py`), because the Windows torch wheel's oneDNN engine keeps every int8 weight twice. Those
+> numbers were measured with the old method; with `Int8Linear` the int8 recogniser agrees with fp32 on 98.4 % of
+> words checks at 0.95 % CER (`docs/windows-acceptance.md`). The 12 GB rule was kept.
 
 - Quantise to int8 **on the CPU path only**: the recogniser (Paraformer), the MMS aligner and the char-CTC sounds
   model. The tone embedder (wav2vec2-base, 0.35 GB) stays fp32 (my call: it is small, and the tone classifier was

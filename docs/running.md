@@ -13,17 +13,26 @@ Verify the GPU is seen: `curl -s localhost:8000/health` -> `"device": "cuda"`.
 ## CPU only
 Set `[models] device = "cpu"` in config.toml; the aligner is MMS_FA on every device (`aligner = "qwen3_fa"` selects Qwen3 explicitly).
 On a laptop with 8 GB of RAM also set these in `[models]`:
-- `int8 = true`: the recogniser, aligner and sounds model run as 8-bit models (about half the RAM, slower per take). The
-  aligner and the sounds model are quantised once and stored in `int8/` under the app's models folder (`SHADOW_MODELS_DIR`),
-  so later loads read int8 weights only; the recogniser is quantised at each load.
+- `int8 = true`: the recogniser, aligner and sounds model run as 8-bit models (about half the RAM, slower per take). Each
+  is quantised once and stored in `int8/` under the app's models folder (`SHADOW_MODELS_DIR`), so later loads read
+  int8 weights only. For the recogniser FunASR still builds its (freshly initialised) fp32 module, without reading the
+  0.9 GB checkpoint, and the stored int8 module replaces it.
 - `asr_int8_below_ram_gb = 12`: with `int8 = true` the recogniser is 8-bit only on a machine with less RAM than this
   (8-bit costs a little accuracy: words-check agreement with fp32 98.4 %, CER 0.95 %); on 12 GB or more it stays fp32. The aligner
   and the sounds model are 8-bit on the CPU everywhere.
 - `int8_skip = []`: models kept fp32 even with `int8 = true`, from `"asr"`, `"aligner"`, `"sounds"` (more RAM, closest to the GPU results); `"asr"` here forces an fp32 recogniser whatever the RAM.
-- `threads = 0`: CPU threads for the models; 0 is the physical cores minus one. The laptop-fit memory
+- `threads = 0`: CPU threads for the torch models (recogniser, aligner, tone embedder, sounds model); 0 is the physical
+  cores minus one, or half the logical cores minus one when the physical count is unknown (loading the recogniser
+  no longer resets it to FunASR's default of 4). The laptop-fit memory
   measurements ran with 5 (`--threads 4` was overridden by a bug, since fixed); the Windows measurements used 4.
+- `punctuation_threads = 1`: threads of the sherpa punctuation model, which is tiny; it runs during a lesson build.
 - `punctuation = "sherpa"`: sentence ends come from the small sherpa-onnx model (a 72 MB download from github.com on first use, about 0.18 GB of RAM);
   `"pauses"` cuts sentences at pauses instead.
+
+The thread counts are per caller, not a total for the app. torch's count applies to each thread that calls a model,
+so a lesson build and a take scored at the same moment each use up to `threads` threads, and the punctuator's thread
+comes on top. On a 4-core laptop (3 torch threads) that oversubscribes the cores while the take is scored: both finish,
+just slower. Nothing schedules them; set `threads` lower if practising while a lesson builds feels sluggish.
 
 ## Docker
     cd frontend && npm run build        # produces frontend/dist, which the image copies
@@ -58,9 +67,12 @@ Updating yt-dlp: YouTube changes often. When a lesson fails with "extraction fai
 
 ## Tone scoring
 The tone model ships in `backend/shadow/scoring/models/` (`tone_v1.joblib` and `tone_v1.json`). It scores on the speech
-model chinese-wav2vec2 (~380 MB from Hugging Face, MIT), which the backend loads in the background at start-up and
-downloads the first time (needs the models extra); a take scored before that finishes waits for it.
-Paraformer (the ingest recogniser, which also checks each take's words) loads in the background at start-up the same way.
+model chinese-wav2vec2 (~380 MB from Hugging Face, MIT), downloaded the first time (needs the models extra).
+Paraformer (the ingest recogniser, which also checks each take's words) loads in the background at start-up on every
+device. On the GPU the tone embedder and the sounds model warm up after it, also in the background; a take scored before
+they finish waits for them. On the CPU (`device = "cpu"`, the Windows app) only the recogniser warms at start-up: the
+tone embedder and the sounds model load during the first scored take, which is slower (on the Windows app about 7 s
+instead of 3.5-5 s), so a laptop's start-up memory stays low.
 If the download fails it is logged and the first scored take tries again. A missing or unreadable tone model file
 is logged too and takes are then saved unscored ("Tone model missing").
 `/health` reports `tone_model.loaded` and its version.
