@@ -41,8 +41,6 @@ jobs:
     timeout-minutes: 40
     env:
       PYTHONUTF8: "1"
-      # a directory with a space and a non-ASCII letter, so test data dirs exercise such paths
-      SHADOW_TEST_TMP: ${{ runner.temp }}\Jöhn Doe
     defaults:
       run:
         shell: pwsh
@@ -63,7 +61,12 @@ jobs:
       - name: Install ffmpeg
         run: choco install ffmpeg --no-progress -y
       - name: Create test temp dir
-        run: New-Item -ItemType Directory -Force -Path "$env:SHADOW_TEST_TMP" | Out-Null
+        # a directory with a space and a non-ASCII letter, so test data dirs exercise such paths. Set here, not in the
+        # job's env: the runner context is not available there (GitHub rejects the whole workflow file).
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP "J$([char]0xF6)hn Doe"
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          "SHADOW_TEST_TMP=$dir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - name: Install backend
         working-directory: backend
         run: uv sync --extra dev --extra models --extra desktop
