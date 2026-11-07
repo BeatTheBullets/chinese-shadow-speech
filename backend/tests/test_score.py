@@ -241,6 +241,26 @@ def test_sounds_get_the_trimmed_take_and_its_windows():
     assert spy.kw["statuses"] == ["ok"] * 4
 
 
+def test_sounds_reuse_the_letter_emissions_of_the_alignment():
+    from shadow.ingest.align import LetterEmissions
+
+    class EmittingAligner(FakeAligner):
+        def align_emissions(self, wav, sr, text):
+            self.em = LetterEmissions(f"emissions of {len(wav)} samples", 0.02, self)
+            return self.align(wav, sr, text), self.em
+
+    class Spy:
+        def check(self, **kw):
+            self.kw = kw
+            return [None] * len(kw["syllables"])
+    aligner, spy = EmittingAligner(), Spy()
+    run(voice(REF_CONTOURS, lead_s=0.4), aligner=aligner, sounds=spy, ref_key="k")
+    assert spy.kw["letter_emissions"] is aligner.em
+    assert aligner.em.logp == f"emissions of {len(spy.kw['take'])} samples"      # of the take the check is given
+    run(voice(REF_CONTOURS), sounds=spy, ref_key="k")                             # an aligner without emissions
+    assert spy.kw["letter_emissions"] is None
+
+
 def test_a_malformed_sound_result_keeps_tone_score():
     from shadow.scoring.sounds.detector import FakeSounds
     take = voice(REF_CONTOURS)

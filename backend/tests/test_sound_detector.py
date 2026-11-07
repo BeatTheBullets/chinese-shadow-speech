@@ -122,6 +122,32 @@ def test_check_skips_unjudgeable_syllables():
     assert letters.calls == 0 and chars.calls == []      # nothing checkable: no model runs
 
 
+def test_letter_emissions_of_the_take_from_its_own_model_are_reused():
+    from shadow.ingest.align import LetterEmissions
+    det, letters, _, wins = _detector(["ta", "ci"], ["ta", "chi"])
+    syls = [_syl("ta", 1), _syl("chi", 1)]
+    computed = _check(det, wins, syls)
+    assert letters.calls == 1
+    em = LetterEmissions(*letters.emissions(np.full(1600, TAKE, np.float32), 16000), letters)
+    letters.calls = 0
+    reused = det.check(take=np.full(1600, TAKE, np.float32), sr=16000, usr_win=wins,
+                       ref_wav=np.full(1600, REF, np.float32), ref_sr=16000, ref_key="clip|text",
+                       syllables=syls, statuses=["good", "good"], letter_emissions=em)
+    assert reused == computed and letters.calls == 0
+
+
+def test_letter_emissions_from_another_model_are_not_trusted():
+    from shadow.ingest.align import LetterEmissions
+    det, letters, _, wins = _detector(["ta", "ci"], ["ta", "chi"])
+    syls = [_syl("ta", 1), _syl("chi", 1)]
+    other = LetterEmissions(*letters.emissions(np.full(1600, REF, np.float32), 16000), object())   # wrong take, too
+    letters.calls = 0
+    out = det.check(take=np.full(1600, TAKE, np.float32), sr=16000, usr_win=wins,
+                    ref_wav=np.full(1600, REF, np.float32), ref_sr=16000, ref_key="clip|text",
+                    syllables=syls, statuses=["good", "good"], letter_emissions=other)
+    assert letters.calls == 1 and out == _check(det, wins, syls)
+
+
 def test_reference_gops_are_cached():
     det, _, chars, wins = _detector(["ta", "ci"], ["ta", "chi"])
     syls = [_syl("ta", 1), _syl("chi", 1)]
