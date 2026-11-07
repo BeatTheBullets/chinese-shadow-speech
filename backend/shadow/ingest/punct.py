@@ -33,7 +33,7 @@ def models_cache_dir() -> Path:
 
 
 class SherpaPunctuator:
-    def __init__(self, model: str, url: str, sha256: str, cache_dir: Path, threads: int = 2):
+    def __init__(self, model: str, url: str, sha256: str, cache_dir: Path, threads: int = 1):
         self.model, self.url, self.sha256, self.cache_dir, self.threads = model, url, sha256, Path(cache_dir), threads
         self._punct = None
         self._lock = threading.Lock()
@@ -105,7 +105,7 @@ def make_punctuator(models) -> SherpaPunctuator | None:
     cut at pauses)."""
     if models.punctuation == "sherpa":
         return SherpaPunctuator(models.punctuation_model, models.punctuation_url, models.punctuation_sha256,
-                                models_cache_dir())
+                                models_cache_dir(), threads=models.punctuation_threads)
     if models.punctuation == "pauses":
         return None
     raise ValueError(f'models.punctuation must be "sherpa" or "pauses", not {models.punctuation!r}')

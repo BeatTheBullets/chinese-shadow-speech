@@ -20,10 +20,18 @@ On a laptop with 8 GB of RAM also set these in `[models]`:
   (8-bit costs a little accuracy: words-check agreement with fp32 98.4 %, CER 0.95 %); on 12 GB or more it stays fp32. The aligner
   and the sounds model are 8-bit on the CPU everywhere.
 - `int8_skip = []`: models kept fp32 even with `int8 = true`, from `"asr"`, `"aligner"`, `"sounds"` (more RAM, closest to the GPU results); `"asr"` here forces an fp32 recogniser whatever the RAM.
-- `threads = 0`: CPU threads for the models; 0 is the physical cores minus one. The laptop-fit memory
+- `threads = 0`: CPU threads for the torch models (recogniser, aligner, tone embedder, sounds model); 0 is the physical
+  cores minus one, or half the logical cores minus one when the physical count is unknown (loading the recogniser
+  no longer resets it to FunASR's default of 4). The laptop-fit memory
   measurements ran with 5 (`--threads 4` was overridden by a bug, since fixed); the Windows measurements used 4.
+- `punctuation_threads = 1`: threads of the sherpa punctuation model, which is tiny; it runs during a lesson build.
 - `punctuation = "sherpa"`: sentence ends come from the small sherpa-onnx model (a 72 MB download from github.com on first use, about 0.18 GB of RAM);
   `"pauses"` cuts sentences at pauses instead.
+
+The thread counts are per caller, not a total for the app. torch's count applies to each thread that calls a model,
+so a lesson build and a take scored at the same moment each use up to `threads` threads, and the punctuator's thread
+comes on top. On a 4-core laptop (3 torch threads) that oversubscribes the cores while the take is scored: both finish,
+just slower. Nothing schedules them; set `threads` lower if practising while a lesson builds feels sluggish.
 
 ## Docker
     cd frontend && npm run build        # produces frontend/dist, which the image copies

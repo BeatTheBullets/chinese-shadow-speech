@@ -30,7 +30,8 @@ class ModelsCfg(BaseModel):
     int8: bool = False                # CPU only: 8-bit recogniser, aligner and sounds model (about half the RAM)
     asr_int8_below_ram_gb: float = 12.0   # with int8 on, the recogniser is 8-bit only on a machine with less RAM than this
     int8_skip: list[str] = []         # models kept fp32 even with int8 on: "asr", "aligner", "sounds"
-    threads: int = 0                  # CPU threads for the models; 0 = physical cores minus one
+    threads: int = 0                  # CPU threads for the torch models; 0 = physical cores minus one
+    punctuation_threads: int = 1      # threads of the sherpa punctuation model (tiny; it runs while torch may be busy)
 
 
 class SegmentationCfg(BaseModel):

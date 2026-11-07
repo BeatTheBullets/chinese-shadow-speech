@@ -103,3 +103,18 @@ def test_quantize_linear_keeps_a_weight_tied_to_an_embedding():
         assert torch.equal(model[0](ids), want_emb)
         assert isinstance(model[1], Int8Linear)
         assert torch.allclose(model(ids), want, atol=0.05)
+
+
+def test_cpu_threads_is_physical_cores_minus_one(monkeypatch):
+    import psutil
+    monkeypatch.setattr(psutil, "cpu_count", lambda logical=True: 4 if not logical else 8)
+    assert cpu_threads(Settings(models=ModelsCfg(threads=0))) == 3
+
+
+def test_cpu_threads_without_a_physical_count_halves_the_logical_cores(monkeypatch):
+    """psutil may not know the physical cores: 8 logical are then taken as 4 physical (SMT), so 3 threads, not 7."""
+    import os
+    import psutil
+    monkeypatch.setattr(psutil, "cpu_count", lambda logical=True: 8 if logical else None)
+    monkeypatch.setattr(os, "cpu_count", lambda: 8)
+    assert cpu_threads(Settings(models=ModelsCfg(threads=0))) == 3

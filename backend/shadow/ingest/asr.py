@@ -250,6 +250,9 @@ class ParaformerASR:
                 kwargs: dict[str, Any] = {"model": _local_snapshot(self.model_id),
                                           "vad_model": _local_snapshot("fsmn-vad"), "device": self.device,
                                           "disable_update": True}
+                if self.device == "cpu":            # FunASR sets torch's threads to ncpu (default 4): keep ours
+                    import torch
+                    kwargs["ncpu"] = torch.get_num_threads()
                 with _no_checkpoint_copy():
                     model = AutoModel(**kwargs)
                 if self.int8:

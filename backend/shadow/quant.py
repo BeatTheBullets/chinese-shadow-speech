@@ -170,6 +170,8 @@ def asr_int8(settings: Settings) -> bool:
 
 
 def cpu_threads(settings: Settings) -> int:
+    """torch's thread count: `[models] threads`, or else the physical cores minus one. When the physical count is
+    unknown, half the logical cores stand in for it (two hardware threads per core), not all of them."""
     if settings.models.threads > 0:
         return settings.models.threads
     cores = None
@@ -178,5 +180,7 @@ def cpu_threads(settings: Settings) -> int:
         cores = psutil.cpu_count(logical=False)
     except Exception:
         pass
-    return max(1, (cores or os.cpu_count() or 2) - 1)
+    if not cores:
+        cores = (os.cpu_count() or 2) // 2
+    return max(1, cores - 1)
 
