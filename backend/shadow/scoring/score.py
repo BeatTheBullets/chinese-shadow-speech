@@ -25,6 +25,8 @@ class RefData:
     baseline: Baseline                    # the speaker over the whole lesson (spec §2)
     wav: np.ndarray                       # the reference clip's samples, for its embeddings
     sr: int
+    # its embeddings pooled over given windows, as computed from `wav` (a cache); None: the embedder runs on `wav`
+    pooled: Callable[[list[tuple[float, float]]], np.ndarray] | None = None
 
 
 @dataclass
@@ -120,7 +122,7 @@ def score_take(*, ref: RefData, syllables: list[dict], text: str, wav: np.ndarra
     norm_u = normalise(pitch.f0, base, cfg.normalise_span)
     syl_r = [syllable_pitch(norm_r, ref.pitch.t0, a, b, cfg.min_voiced_frames) for a, b in ref_win]
     syl_u = [syllable_pitch(norm_u, pitch.t0, a, b, cfg.min_voiced_frames) for a, b in usr_win]
-    emb_r = pool(embedder.frames(ref.wav, ref.sr), ref_win)
+    emb_r = ref.pooled(ref_win) if ref.pooled is not None else pool(embedder.frames(ref.wav, ref.sr), ref_win)
     emb_u = pool(embedder.frames(trimmed, sr), usr_win)
     P_r, P_u = model.proba(feature_matrix(syl_r, emb_r)), model.proba(feature_matrix(syl_u, emb_u))
 

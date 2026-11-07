@@ -1,13 +1,14 @@
 """Tone scoring of an attempt (Phase 2 spec §1): the database side around the pure `score_take`."""
 from __future__ import annotations
 import logging
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING
 from sqlmodel import Session
 from shadow.ingest import audio
 from shadow.scoring.profile import add_frames, get_profile, profile_baseline
-from shadow.scoring.reference import (lesson_baseline, reference_audio, reference_pitch, reference_spans,
-                                     segment_syllables, sound_ref_key)
+from shadow.scoring.reference import (lesson_baseline, reference_audio, reference_embeddings, reference_pitch,
+                                     reference_spans, segment_syllables, sound_ref_key)
 from shadow.scoring.score import RefData, failed_result, score_take
 from shadow.store.models import Attempt, Lesson, Segment, SyllableScore
 
@@ -57,7 +58,9 @@ def score_attempt(deps: Deps, db: Session, segment: Segment, attempt: Attempt) -
             else:
                 wav, sr = audio.read_wav(Path(attempt.audio_path))
                 ref_key = sound_ref_key(segment, syllables)
-                ref = RefData(ref_pitch, reference_spans(segment), ref_base, *reference_audio(segment))
+                ref_wav, ref_sr = reference_audio(segment)
+                ref = RefData(ref_pitch, reference_spans(segment), ref_base, ref_wav, ref_sr,
+                              pooled=partial(reference_embeddings, deps.files, deps.embedder, segment, ref_wav, ref_sr))
                 result = score_take(ref=ref, syllables=syllables, text=segment.text, wav=wav, sr=sr,
                                     aligner=deps.aligner, embedder=deps.embedder, model=deps.tone_model,
                                     profile=profile_baseline(prof), profile_voiced_s=prof.voiced_s or 0.0, cfg=cfg,
