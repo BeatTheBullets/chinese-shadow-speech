@@ -1,13 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Passage, Segment } from '../api/types'
 import { groupByPassage, passageDone } from '../lib/passages'
+import { dotClass } from '../lib/score'
 import Button from '../ui/Button'
 
-export function dotClass(seg: Segment, pending: boolean): string {
-  if (pending) return 'border border-dashed border-fgdim'
-  if (seg.last_score == null) return 'bg-line'
-  return seg.last_score >= 0.8 ? 'bg-ok' : seg.last_score >= 0.6 ? 'bg-warn' : 'bg-bad'
-}
 interface Props {
   segments: Segment[]; idx: number; open: boolean; pendingIds: Set<number>; onJump: (i: number) => void; onClose: () => void
   onEdit: (i: number) => void; onSplit: (i: number) => void; onMerge: (i: number) => void

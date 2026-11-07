@@ -57,3 +57,10 @@ export function applyAttempt(seg: Segment, overall: number | null | undefined): 
   if (overall == null) return { ...seg, attempts: seg.attempts + 1 }
   return { ...seg, attempts: seg.attempts + 1, last_score: overall, best_score: Math.max(seg.best_score ?? overall, overall) }
 }
+
+// The sentence's dot in the navigator and the drawer: dashed while its take is pending, grey until it has a score.
+export function dotClass(seg: Segment, pending: boolean): string {
+  if (pending) return 'border border-dashed border-fgdim'
+  if (seg.last_score == null) return 'bg-line'
+  return seg.last_score >= 0.8 ? 'bg-ok' : seg.last_score >= 0.6 ? 'bg-warn' : 'bg-bad'
+}
